@@ -1,4 +1,4 @@
-// Copyright (C) 2015-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2015-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <Carbon/Carbon.h>
 #include <Utility/SheetWithHotkeys.h>
 #include "BatchRenamingDialog.h"
@@ -8,13 +8,15 @@
 #include <Utility/ObjCpp.h>
 #include <Utility/StringExtras.h>
 #include "../Internal.h"
-#include <Base/RobinHoodUtil.h>
+#include <Base/UnorderedUtil.h>
+
+#include <algorithm>
 
 using namespace nc::ops;
 
 static auto g_MyPrivateTableViewDataType = @"com.magnumbytes.nc.ops.BatchRenameSheetControllerPrivateTableViewDataType";
 
-[[clang::no_destroy]] static const robin_hood::unordered_map<long, NSString *> g_InsertSnippets = {
+[[clang::no_destroy]] static const ankerl::unordered_dense::map<long, NSString *> g_InsertSnippets = {
     {101, @"[N]"},        //
     {102, @"[N1]"},       //
     {103, @"[N2-5]"},     //
@@ -151,8 +153,8 @@ static auto g_MyPrivateTableViewDataType = @"com.magnumbytes.nc.ops.BatchRenameS
 
 @end
 
-using SourceReverseMappingStorage = robin_hood::
-    unordered_flat_map<std::string, size_t, nc::RHTransparentStringHashEqual, nc::RHTransparentStringHashEqual>;
+using SourceReverseMappingStorage =
+    ankerl::unordered_dense::map<std::string, size_t, nc::UnorderedStringHashEqual, nc::UnorderedStringHashEqual>;
 
 @implementation NCOpsBatchRenamingDialog {
     std::vector<BatchRenamingScheme::FileInfo> m_FileInfos;
@@ -180,6 +182,22 @@ using SourceReverseMappingStorage = robin_hood::
 @synthesize renamePatternDataSource = m_RenamePatternDataSource;
 @synthesize searchForDataSource = m_SearchForDataSource;
 @synthesize replaceWithDataSource = m_ReplaceWithDataSource;
+@synthesize isValidRenaming;
+@synthesize FilenamesTable;
+@synthesize FilenameMask;
+@synthesize SearchForComboBox;
+@synthesize ReplaceWithComboBox;
+@synthesize SearchCaseSensitive;
+@synthesize SearchOnlyOnce;
+@synthesize SearchInExtension;
+@synthesize SearchWithRegExp;
+@synthesize CaseProcessing;
+@synthesize CaseProcessingWithExtension;
+@synthesize CounterDigits;
+@synthesize InsertNameRangePlaceholderButton;
+@synthesize InsertPlaceholderMenuButton;
+@synthesize InsertPlaceholderMenu;
+@synthesize OkButton;
 
 - (instancetype)initWithItems:(std::vector<VFSListingItem>)_items
 {
@@ -190,7 +208,7 @@ using SourceReverseMappingStorage = robin_hood::
             throw std::logic_error("empty files list");
 
         for( auto &entry : _items ) {
-            m_FileInfos.emplace_back(BatchRenamingScheme::FileInfo(entry));
+            m_FileInfos.emplace_back(entry);
             m_ResultSource.emplace_back(entry.Directory() + entry.Filename());
         }
 
@@ -407,12 +425,10 @@ using SourceReverseMappingStorage = robin_hood::
     }
     else {
         // pick the longest filename
-        const auto longest_it =
-            std::max_element(m_FileInfos.begin(),
-                             m_FileInfos.end(),
-                             [](const BatchRenamingScheme::FileInfo &lhs, const BatchRenamingScheme::FileInfo &rhs) {
-                                 return lhs.name.length < rhs.name.length;
-                             });
+        const auto longest_it = std::ranges::max_element(
+            m_FileInfos, [](const BatchRenamingScheme::FileInfo &lhs, const BatchRenamingScheme::FileInfo &rhs) {
+                return lhs.name.length < rhs.name.length;
+            });
         pc.string = longest_it->name;
     }
 
@@ -618,17 +634,15 @@ using SourceReverseMappingStorage = robin_hood::
         return;
     }
 
-    return [super keyDown:event];
+    [super keyDown:event];
+    return;
 }
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
     if( item.menu == self.FilenamesTable.menu ) {
         auto clicked_row = self.FilenamesTable.clickedRow;
-        if( clicked_row >= 0 && clicked_row < self.FilenamesTable.numberOfRows )
-            return true;
-        else
-            return false;
+        return clicked_row >= 0 && clicked_row < self.FilenamesTable.numberOfRows;
     }
 
     return true;

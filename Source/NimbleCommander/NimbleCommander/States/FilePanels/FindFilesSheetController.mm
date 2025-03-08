@@ -1,22 +1,23 @@
-// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "FindFilesSheetController.h"
-#include <Base/dispatch_cpp.h>
 #include <Base/DispatchGroup.h>
-#include <Utility/NSTimer+Tolerance.h>
-#include <Utility/SheetWithHotkeys.h>
-#include <Utility/Encodings.h>
-#include <Utility/StringExtras.h>
-#include <Utility/PathManip.h>
-#include <VFS/SearchForFiles.h>
-#include <Utility/ByteCountFormatter.h>
-#include <NimbleCommander/States/FilePanels/PanelAux.h>
-#include <NimbleCommander/Bootstrap/Config.h>
+#include <Base/dispatch_cpp.h>
 #include <Config/RapidJSON.h>
+#include <NimbleCommander/Bootstrap/Config.h>
 #include <NimbleCommander/Core/VFSInstanceManager.h>
 #include <NimbleCommander/Core/VFSInstancePromise.h>
-#include <Utility/StringExtras.h>
-#include <Utility/ObjCpp.h>
+#include <NimbleCommander/States/FilePanels/PanelAux.h>
 #include <Panel/FindFilesData.h>
+#include <Utility/ByteCountFormatter.h>
+#include <Utility/Encodings.h>
+#include <Utility/NSTimer+Tolerance.h>
+#include <Utility/ObjCpp.h>
+#include <Utility/PathManip.h>
+#include <Utility/SheetWithHotkeys.h>
+#include <Utility/StringExtras.h>
+#include <VFS/SearchForFiles.h>
+#include <algorithm>
+#include <fmt/format.h>
 #include <iostream>
 
 static const auto g_StateMaskHistory = "filePanel.findFilesSheet.maskHistory";
@@ -54,7 +55,7 @@ static std::string to_relative_path(const VFSHostPtr &_in_host, std::string _pat
         a = a->Parent();
     }
 
-    if( _base_path.length() > 1 && _path.find(_base_path) == 0 )
+    if( _base_path.length() > 1 && _path.starts_with(_base_path) )
         _path.replace(0, _base_path.length(), "./");
     return _path;
 }
@@ -81,7 +82,7 @@ public:
 
     void insert_unique(const std::string &_value)
     {
-        erase(std::remove_if(begin(), end(), [&](auto &_s) { return _s == _value; }), end());
+        std::erase_if(*this, [&](auto &_s) { return _s == _value; });
         insert(begin(), _value);
         while( size() > static_cast<size_t>(m_Max) )
             pop_back();
@@ -122,7 +123,7 @@ private:
 
 - (uint64_t)size
 {
-    return m_Data.st.size;
+    return m_Data.st.mode_bits.dir ? std::numeric_limits<uint64_t>::max() : m_Data.st.size;
 }
 
 - (uint64_t)mdate
@@ -144,12 +145,20 @@ private:
 {
     return NSString.class;
 }
-- (id)transformedValue:(id)value
+- (id)transformedValue:(id)_value
 {
-    if( value == nil )
+    if( _value == nil )
         return nil;
-    const auto &bf = ByteCountFormatter::Instance();
-    return bf.ToNSString([value unsignedLongLongValue], ByteCountFormatter::Fixed6);
+
+    const uint64_t val = [_value unsignedLongLongValue];
+    if( val == std::numeric_limits<uint64_t>::max() ) {
+        return NSLocalizedString(@"__MODERNPRESENTATION_FOLDER_WORD",
+                                 "Folders dummy string when size is not available, for English is 'Folder'");
+    }
+    else {
+        const auto &bf = ByteCountFormatter::Instance();
+        return bf.ToNSString(val, ByteCountFormatter::Fixed6);
+    }
 }
 @end
 
@@ -172,7 +181,7 @@ private:
 
     if( value == nil )
         return nil;
-    NSDate *date = [NSDate dateWithTimeIntervalSince1970:[value unsignedLongLongValue]];
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:static_cast<double>([value unsignedLongLongValue])];
     return [formatter stringFromDate:date];
 }
 @end
@@ -219,7 +228,7 @@ private:
     bool m_CaseSensitiveTextSearch;
     bool m_WholePhraseTextSearch;
     bool m_NotContainingTextSearch;
-    int m_TextSearchEncoding;
+    nc::utility::Encoding m_TextSearchEncoding;
 
     std::vector<nc::panel::FindFilesMask> m_MaskHistory;
     std::unique_ptr<FindFilesSheetComboHistory> m_TextHistory;
@@ -244,6 +253,29 @@ private:
 @synthesize path = m_Path;
 @synthesize onPanelize = m_OnPanelize;
 @synthesize onView = m_OnView;
+@synthesize vfsInstanceManager;
+@synthesize didAnySearchStarted;
+@synthesize searchingNow;
+@synthesize CloseButton;
+@synthesize SearchButton;
+@synthesize GoToButton;
+@synthesize ViewButton;
+@synthesize PanelButton;
+@synthesize maskSearchField;
+@synthesize textSearchField;
+@synthesize LookingIn;
+@synthesize TableView;
+@synthesize ArrayController;
+@synthesize SizeRelationPopUp;
+@synthesize SizeTextField;
+@synthesize SizeTextFieldValue;
+@synthesize SizeMetricPopUp;
+@synthesize SearchInSubDirsButton;
+@synthesize SearchInArchivesButton;
+@synthesize searchForPopup;
+@synthesize focusedItem;
+@synthesize focusedItemIsReg;
+@synthesize filenameMaskIsOk;
 
 - (instancetype)init
 {
@@ -256,7 +288,7 @@ private:
         m_CaseSensitiveTextSearch = false;
         m_WholePhraseTextSearch = false;
         m_NotContainingTextSearch = false;
-        m_TextSearchEncoding = encodings::ENCODING_UTF8;
+        m_TextSearchEncoding = nc::utility::Encoding::ENCODING_UTF8;
         m_MaskHistory = nc::panel::LoadFindFilesMasks(StateConfig(), g_StateMaskHistory);
         m_TextHistory = std::make_unique<FindFilesSheetComboHistory>(16, g_StateTextHistory);
         m_UIChanged = true;
@@ -314,9 +346,9 @@ private:
         if( item.action == @selector(OnFileInternalBigViewCommand:) )
             return [self Predicate_OnFileInternalBigViewCommand];
     } catch( const std::exception &e ) {
-        std::cout << "Exception caught: " << e.what() << std::endl;
+        std::cout << "Exception caught: " << e.what() << '\n';
     } catch( ... ) {
-        std::cout << "Caught an unhandled exception!" << std::endl;
+        std::cout << "Caught an unhandled exception!" << '\n';
     }
     return true;
 }
@@ -390,13 +422,13 @@ private:
     uint64_t value = self.SizeTextFieldValue.integerValue;
     switch( self.SizeMetricPopUp.selectedTag ) {
         case 1:
-            value *= 1024;
+            value *= 1024ULL;
             break;
         case 2:
-            value *= 1024 * 1024;
+            value *= 1024ULL * 1024ULL;
             break;
         case 3:
-            value *= 1024 * 1024 * 1024;
+            value *= 1024ULL * 1024ULL * 1024ULL;
             break;
         default:
             break;
@@ -462,14 +494,14 @@ private:
         it.full_filename = ensure_tr_slash(_in_path) + it.filename;
         it.content_pos = _cont_pos;
         it.rel_path =
-            to_relative_path(it.host, ensure_tr_slash(_in_path), std::string(m_Host->JunctionPath()) + m_Path);
+            to_relative_path(it.host, ensure_tr_slash(_in_path), fmt::format("{}{}", m_Host->JunctionPath(), m_Path));
 
         // TODO: need some decent cancelling mechanics here
-        auto stat_block = [=, it = std::move(it)]() mutable {
+        auto stat_block = [self, it = std::move(it)]() mutable {
             // doing stat()'ing item in async background thread
-            it.host->Stat(it.full_filename.c_str(), it.st, 0, 0);
+            it.st = it.host->Stat(it.full_filename, 0).value_or(VFSStat{}); // TODO: why is the status ignored?
 
-            FindFilesSheetFoundItem *item = [[FindFilesSheetFoundItem alloc] initWithFoundItem:std::move(it)];
+            FindFilesSheetFoundItem *const item = [[FindFilesSheetFoundItem alloc] initWithFoundItem:std::move(it)];
             m_BatchQueue.Run([self, item] {
                 // dumping result entry into batch array in BatchQueue
                 [m_FoundItemsBatch addObject:item];
@@ -522,8 +554,8 @@ private:
 
 - (VFSHostPtr)spawnArchiveFromPath:(const char *)_path inVFS:(const VFSHostPtr &)_host
 {
-    char extension[MAXPATHLEN];
-    if( !GetExtensionFromPath(_path, extension) )
+    const std::string_view extension = nc::utility::PathManip::Extension(_path);
+    if( extension.empty() )
         return nullptr;
 
     if( !nc::panel::IsExtensionInArchivesWhitelist(extension) )
@@ -553,11 +585,11 @@ private:
         if( m_FoundItemsBatch.count == 0 )
             return; // nothing to add
 
-        NSArray *temp = m_FoundItemsBatch;
+        NSArray *const temp = m_FoundItemsBatch;
         m_FoundItemsBatch = [[NSMutableArray alloc] initWithCapacity:4096];
 
         dispatch_to_main_queue([=] {
-            NSMutableArray *new_objects = [m_FoundItems mutableCopy];
+            NSMutableArray *const new_objects = [m_FoundItems mutableCopy];
             [new_objects addObjectsFromArray:temp];
             self.FoundItems = new_objects;
         });
@@ -658,9 +690,21 @@ private:
     dispatch_to_main_queue_after(10ms, [=] { [self setupReturnKey]; });
 }
 
-- (void)controlTextDidChange:(NSNotification *)obj
+- (void)controlTextDidChange:(NSNotification *)_notification
 {
-    [self onSearchSettingsUIChanged:obj.object];
+    if( nc::objc_cast<NSTextField>(_notification.object) == self.textSearchField ) {
+        // For some reason when:
+        // 1) the Enabled property of this text field is bound; AND
+        // 2) the listener of this notification does not query the string value. THEN
+        // => the value of `self.textSearchField.stringValue` is not updated upon a mouse click on the Search button
+        // and later, once the text field is disabled, the field editor discards the input completely.
+        // To work around this bug, let's query the value just for the sake of it.
+        // This situation doesn't make much sense and a proper fix with a better understanding is required.
+        // See the GitHub issue #482 for details.
+        (void)self.textSearchField.stringValue;
+    }
+
+    [self onSearchSettingsUIChanged:_notification.object];
 }
 
 - (IBAction)onSearchSettingsUIChanged:(id) [[maybe_unused]] sender
@@ -686,7 +730,7 @@ private:
 
     const auto search_fied_value = self.maskSearchField.stringValue;
 
-    const auto query = search_fied_value != nil ? std::string(search_fied_value.UTF8String) : std::string{};
+    auto query = search_fied_value != nil ? std::string(search_fied_value.UTF8String) : std::string{};
     if( query.empty() )
         return {};
     if( m_RegexSearch ) {
@@ -828,11 +872,11 @@ private:
     not_containing.indentationLevel = 1;
 
     const auto encoding_menu = [[NSMenu alloc] initWithTitle:@""];
-    for( const auto &i : encodings::LiteralEncodingsList() ) {
+    for( const auto &i : nc::utility::LiteralEncodingsList() ) {
         auto item = [encoding_menu addItemWithTitle:(__bridge NSString *)i.second
                                              action:@selector(onTextMenuEncodingClicked:)
                                       keyEquivalent:@""];
-        item.tag = i.first;
+        item.tag = std::to_underlying(i.first);
         if( i.first == m_TextSearchEncoding )
             item.state = NSControlStateValueOn;
     }
@@ -866,7 +910,7 @@ private:
 - (void)onTextMenuEncodingClicked:(id)_sender
 {
     if( auto item = nc::objc_cast<NSMenuItem>(_sender) ) {
-        m_TextSearchEncoding = static_cast<int>(item.tag);
+        m_TextSearchEncoding = static_cast<nc::utility::Encoding>(item.tag);
         [self updateTextMenu];
         [self onSearchSettingsUIChanged:_sender];
     }
@@ -964,7 +1008,7 @@ private:
 - (void)insertFindFilesMaskIntoHistory:(const FindFilesMask &)_mask
 {
     // update the search history - remove the entry if it was already there
-    if( auto it = std::find(m_MaskHistory.begin(), m_MaskHistory.end(), _mask); it != m_MaskHistory.end() )
+    if( auto it = std::ranges::find(m_MaskHistory, _mask); it != m_MaskHistory.end() )
         m_MaskHistory.erase(it);
 
     // ... and place it to the front

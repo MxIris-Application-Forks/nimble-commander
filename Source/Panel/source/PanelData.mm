@@ -1,13 +1,14 @@
-// Copyright (C) 2013-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PanelData.h"
-#include "PanelDataItemVolatileData.h"
+#include "Log.h"
 #include "PanelDataEntriesComparator.h"
+#include "PanelDataExternalEntryKey.h"
+#include "PanelDataItemVolatileData.h"
 #include <Base/DispatchGroup.h>
 #include <VFS/VFS.h>
-#include "PanelDataExternalEntryKey.h"
-#include "Log.h"
-#include <numeric>
+#include <algorithm>
 #include <magic_enum.hpp>
+#include <numeric>
 #include <pstld/pstld.h>
 
 namespace nc::panel::data {
@@ -56,14 +57,11 @@ static std::vector<std::string> ProduceLongKeysForListing(const VFSListing &_l)
     return keys;
 }
 
-static std::vector<unsigned>
-ProduceSortedIndirectIndecesForLongKeys(const std::vector<std::string> &_keys)
+static std::vector<unsigned> ProduceSortedIndirectIndecesForLongKeys(const std::vector<std::string> &_keys)
 {
     std::vector<unsigned> src_keys_ind(_keys.size());
-    std::iota(begin(src_keys_ind), end(src_keys_ind), 0);
-    std::sort(begin(src_keys_ind), end(src_keys_ind), [&_keys](auto _1, auto _2) {
-        return _keys[_1] < _keys[_2];
-    });
+    std::iota(src_keys_ind.begin(), src_keys_ind.end(), 0); // NOLINT - Xcode16 doesn't have std::ranges::iota
+    std::ranges::sort(src_keys_ind, [&_keys](auto _1, auto _2) { return _keys[_1] < _keys[_2]; });
     return src_keys_ind;
 }
 
@@ -86,8 +84,7 @@ bool Model::IsLoaded() const noexcept
     return m_Listing != VFSListing::EmptyListing();
 }
 
-static void InitVolatileDataWithListing(std::vector<ItemVolatileData> &_vd,
-                                        const VFSListing &_listing)
+static void InitVolatileDataWithListing(std::vector<ItemVolatileData> &_vd, const VFSListing &_listing)
 {
     _vd.clear();
     _vd.resize(_listing.Count());
@@ -112,8 +109,7 @@ void Model::Load(const VFSListingPtr &_listing, PanelType _type)
     if( !_listing )
         throw std::logic_error("PanelData::Load: listing can't be nullptr");
 
-    Log::Info(SPDLOC,
-              "Loading {} listing, {} entries, {}",
+    Log::Info("Loading {} listing, {} entries, {}",
               magic_enum::enum_name(_type),
               _listing->Count(),
               _listing->IsUniform() ? _listing->Directory().c_str() : "N/A");
@@ -126,9 +122,9 @@ void Model::Load(const VFSListingPtr &_listing, PanelType _type)
     m_SoftFiltering.OnPanelDataLoad();
 
     // now sort our new data
-    base::DispatchGroup exec_group{base::DispatchGroup::High};
-    exec_group.Run([=] { DoRawSort(*m_Listing, m_EntriesByRawName); });
-    exec_group.Run([=] { DoSortWithHardFiltering(); });
+    const base::DispatchGroup exec_group{base::DispatchGroup::High};
+    exec_group.Run([this] { DoRawSort(*m_Listing, m_EntriesByRawName); });
+    exec_group.Run([this] { DoSortWithHardFiltering(); });
     exec_group.Wait();
     BuildSoftFilteringIndeces();
     // update stats
@@ -150,9 +146,8 @@ static void UpdateWithExisingVD(ItemVolatileData &_new_vd, const ItemVolatileDat
 void Model::ReLoad(const VFSListingPtr &_listing)
 {
     assert(dispatch_is_main_queue()); // STA api design
-    
-    Log::Info(SPDLOC,
-              "ReLoading listing, {} entries, {}",
+
+    Log::Info("ReLoading listing, {} entries, {}",
               _listing->Count(),
               _listing->IsUniform() ? _listing->Directory().c_str() : "N/A");
 
@@ -166,19 +161,22 @@ void Model::ReLoad(const VFSListingPtr &_listing)
     if( _listing->IsUniform() && m_Listing->IsUniform() ) {
         // transfer custom data to new array using sorted indeces arrays based in raw C filename.
         // assumes that there can't be more than one file with same filenamr
-        unsigned dst_i = 0, dst_e = _listing->Count(), src_i = 0, src_e = m_Listing->Count();
+        unsigned dst_i = 0;
+        const unsigned dst_e = _listing->Count();
+        unsigned src_i = 0;
+        const unsigned src_e = m_Listing->Count();
         for( ; src_i != src_e && dst_i != dst_e; ++src_i ) {
-            int src = m_EntriesByRawName[src_i];
+            const int src = m_EntriesByRawName[src_i];
         check:
-            int dst = dirbyrawcname[dst_i];
-            int cmp = m_Listing->Filename(src).compare(_listing->Filename(dst));
+            const int dst = dirbyrawcname[dst_i];
+            const int cmp = m_Listing->Filename(src).compare(_listing->Filename(dst));
             if( cmp == 0 ) {
 
                 //                new_vd[ dst ] = m_VolatileData[ src ];
                 UpdateWithExisingVD(new_vd[dst], m_VolatileData[src]);
 
-                ++dst_i; // check this! we assume that normal directory can't hold two files with a
-                         // same name
+                ++dst_i; // check this! we assume that normal directory can't hold
+                         // two files with a same name
             }
             else if( cmp > 0 ) {
                 dst_i++;
@@ -195,13 +193,15 @@ void Model::ReLoad(const VFSListingPtr &_listing)
         auto dst_keys_ind = ProduceSortedIndirectIndecesForLongKeys(dst_keys);
 
         // TODO: consider moving into separate algorithm
-        unsigned dst_i = 0, dst_e = static_cast<unsigned>(dst_keys.size()), src_i = 0,
-                 src_e = static_cast<unsigned>(src_keys.size());
+        unsigned dst_i = 0;
+        const unsigned dst_e = static_cast<unsigned>(dst_keys.size());
+        unsigned src_i = 0;
+        const unsigned src_e = static_cast<unsigned>(src_keys.size());
         for( ; src_i != src_e && dst_i != dst_e; ++src_i ) {
-            int src = src_keys_ind[src_i];
+            const int src = src_keys_ind[src_i];
         check2:
-            int dst = dst_keys_ind[dst_i];
-            int cmp = src_keys[src].compare(dst_keys[dst]);
+            const int dst = dst_keys_ind[dst_i];
+            const int cmp = src_keys[src].compare(dst_keys[dst]);
             if( cmp == 0 ) {
                 //                new_vd[ dst ] = m_VolatileData[ src ];
                 UpdateWithExisingVD(new_vd[dst], m_VolatileData[src]);
@@ -219,7 +219,7 @@ void Model::ReLoad(const VFSListingPtr &_listing)
         throw std::invalid_argument("PanelData::ReLoad: incompatible listing type!");
 
     // put a new data in a place
-    m_Listing = std::move(_listing);
+    m_Listing = _listing;
     m_VolatileData = std::move(new_vd);
     m_EntriesByRawName = std::move(dirbyrawcname);
 
@@ -260,8 +260,7 @@ ItemVolatileData &Model::VolatileDataAtRawPosition(int _pos)
 {
     const size_t pos = _pos;
     if( pos >= m_VolatileData.size() ) // assuming we won't have more than 2^31 elements
-        throw std::out_of_range(
-            "PanelData::VolatileDataAtRawPosition: index can't be out of range");
+        throw std::out_of_range("PanelData::VolatileDataAtRawPosition: index can't be out of range");
 
     return m_VolatileData[pos];
 }
@@ -270,8 +269,7 @@ const ItemVolatileData &Model::VolatileDataAtRawPosition(int _pos) const
 {
     const size_t pos = _pos;
     if( pos >= m_VolatileData.size() ) // assuming we won't have more than 2^31 elements
-        throw std::out_of_range(
-            "PanelData::VolatileDataAtRawPosition: index can't be out of range");
+        throw std::out_of_range("PanelData::VolatileDataAtRawPosition: index can't be out of range");
 
     return m_VolatileData[pos];
 }
@@ -316,11 +314,10 @@ int Model::RawIndexForName(std::string_view _filename) const noexcept
     assert(listing != nullptr);
 
     // performing binary search on m_EntriesByRawName
-    const auto begin = m_EntriesByRawName.begin(), end = m_EntriesByRawName.end();
-    const auto i =
-        std::lower_bound(begin, end, _filename, [listing](unsigned _i, std::string_view _s) {
-            return listing->Filename(_i) < _s;
-        });
+    const auto begin = m_EntriesByRawName.begin();
+    const auto end = m_EntriesByRawName.end();
+    const auto i = std::lower_bound(
+        begin, end, _filename, [listing](unsigned _i, std::string_view _s) { return listing->Filename(_i) < _s; });
     if( i < end && listing->Filename(*i) == _filename )
         return *i;
 
@@ -340,13 +337,14 @@ std::span<const unsigned> Model::RawIndicesForName(std::string_view _filename) c
         bool operator()(std::string_view _s, unsigned _i) const noexcept { return _s < listing->Filename(_i); }
     };
 
-    const auto begin = m_EntriesByRawName.begin(), end = m_EntriesByRawName.end();
+    const auto begin = m_EntriesByRawName.begin();
+    const auto end = m_EntriesByRawName.end();
 
     // O( 2 * logN )
     const auto [first, last] = std::equal_range(begin, end, _filename, Cmp{m_Listing.get()});
 
-    return std::span<const unsigned>(m_EntriesByRawName.data() + std::distance(begin, first),
-                                     m_EntriesByRawName.data() + std::distance(begin, last));
+    return {m_EntriesByRawName.data() + std::distance(begin, first),
+            m_EntriesByRawName.data() + std::distance(begin, last)};
 }
 
 std::string Model::DirectoryPathWithoutTrailingSlash() const
@@ -370,7 +368,7 @@ std::string Model::DirectoryPathWithTrailingSlash() const
 
 std::string Model::DirectoryPathShort() const
 {
-    std::string tmp = DirectoryPathWithoutTrailingSlash();
+    const std::string tmp = DirectoryPathWithoutTrailingSlash();
     auto i = tmp.rfind('/');
     if( i != std::string::npos )
         return tmp.c_str() + i + 1;
@@ -402,10 +400,8 @@ std::string Model::VerboseDirectoryFullPath() const
 static void DoRawSort(const VFSListing &_from, std::vector<unsigned> &_to)
 {
     _to.resize(_from.Count());
-    iota(begin(_to), end(_to), 0);
-    sort(begin(_to), end(_to), [&_from](unsigned _1, unsigned _2) {
-        return _from.Filename(_1) < _from.Filename(_2);
-    });
+    std::iota(_to.begin(), _to.end(), 0); // NOLINT - Xcode16 doesn't have std::ranges::iota
+    std::ranges::sort(_to, [&_from](unsigned _1, unsigned _2) { return _from.Filename(_1) < _from.Filename(_2); });
 }
 
 void Model::SetSortMode(struct SortMode _mode)
@@ -501,6 +497,15 @@ VFSListingItem Model::EntryAtSortPosition(int _pos) const noexcept
     return EntryAtRawPosition(RawIndexForSortIndex(_pos));
 }
 
+int Model::SortPositionOfEntry(const VFSListingItem &_item) const noexcept
+{
+    if( _item.Listing() != m_Listing ) {
+        Log::Warn("Model::SortPositionOfEntry has been provided with an unrelated vfs item");
+        return -1;
+    }
+    return SortedIndexForRawIndex(_item.Index());
+}
+
 void Model::CustomFlagsSelectRaw(int _at_raw_pos, bool _is_selected)
 {
     if( _at_raw_pos < 0 || _at_raw_pos >= static_cast<int>(m_Listing->Count()) )
@@ -525,9 +530,7 @@ void Model::CustomFlagsSelectRaw(int _at_raw_pos, bool _is_selected)
     }
     else {
         m_Stats.bytes_in_selected_entries =
-            m_Stats.bytes_in_selected_entries >= static_cast<int64_t>(sz)
-                ? m_Stats.bytes_in_selected_entries - sz
-                : 0;
+            m_Stats.bytes_in_selected_entries >= static_cast<int64_t>(sz) ? m_Stats.bytes_in_selected_entries - sz : 0;
 
         assert(m_Stats.selected_entries_amount > 0); // sanity check
         m_Stats.selected_entries_amount--;
@@ -543,21 +546,18 @@ void Model::CustomFlagsSelectRaw(int _at_raw_pos, bool _is_selected)
     vd.toggle_selected(_is_selected);
 }
 
-void Model::CustomFlagsSelectSorted(int _at_pos, bool _is_selected)
+void Model::CustomFlagsSelectSorted(int _at_sorted_pos, bool _is_selected)
 {
-    if( _at_pos < 0 || _at_pos >= static_cast<int>(m_EntriesByCustomSort.size()) )
+    if( _at_sorted_pos < 0 || _at_sorted_pos >= static_cast<int>(m_EntriesByCustomSort.size()) )
         return;
 
-    CustomFlagsSelectRaw(m_EntriesByCustomSort[_at_pos], _is_selected);
+    CustomFlagsSelectRaw(m_EntriesByCustomSort[_at_sorted_pos], _is_selected);
 }
 
 bool Model::CustomFlagsSelectSorted(const std::vector<bool> &_is_selected)
 {
     bool changed = false;
-    for( int i = 0,
-             e = static_cast<int>(std::min(_is_selected.size(), m_EntriesByCustomSort.size()));
-         i != e;
-         ++i ) {
+    for( int i = 0, e = static_cast<int>(std::min(_is_selected.size(), m_EntriesByCustomSort.size())); i != e; ++i ) {
         const auto raw_pos = m_EntriesByCustomSort[i];
         if( !m_Listing->IsDotDot(raw_pos) ) {
             if( !changed ) {
@@ -608,31 +608,29 @@ std::vector<VFSListingItem> Model::SelectedEntriesSorted() const
     return list;
 }
 
-bool Model::SetCalculatedSizeForDirectory(std::string_view _filename,
-                                          std::string_view _directory,
-                                          uint64_t _size)
+bool Model::SetCalculatedSizeForDirectory(std::string_view _filename, std::string_view _directory, uint64_t _size)
 {
     if( _filename.empty() || _directory.empty() || _size == ItemVolatileData::invalid_size )
         return false;
-    
+
     // O(logN) - binary search over all elements
     const auto raw_indices = RawIndicesForName(_filename);
-    
+
     // O(N) over the items with the same filename, usually N=1
-    for( const auto raw_index: raw_indices ) {
-        assert( m_Listing->Filename(raw_index) == _filename );
+    for( const auto raw_index : raw_indices ) {
+        assert(m_Listing->Filename(raw_index) == _filename);
         if( m_Listing->IsDir(raw_index) && m_Listing->Directory(raw_index) == _directory ) {
             auto &vd = m_VolatileData[raw_index];
             if( vd.size == _size )
                 return true;
-            
+
             vd.size = _size;
-            
+
             FinalizeSettingCalculatedSizes();
             return true;
         }
     }
-    
+
     return false;
 }
 
@@ -642,23 +640,23 @@ size_t Model::SetCalculatedSizesForDirectories(std::span<const std::string_view>
 {
     if( _filenames.size() != _directories.size() || _filenames.size() != _sizes.size() )
         return 0;
-    
+
     size_t num_set = 0;
     size_t num_changed = 0;
     const auto listing = m_Listing.get();
-        
+
     // O(N) iterate over the entire input set
-    for(size_t ind = 0; ind != _filenames.size(); ++ind) {
+    for( size_t ind = 0; ind != _filenames.size(); ++ind ) {
         const auto filename = _filenames[ind];
         const auto directory = _directories[ind];
         const auto size = _sizes[ind];
-        
+
         // O(logN) - binary search over all elements in the listing
         const auto raw_indices = RawIndicesForName(filename);
 
         // O(N) over the items with the same filename, usually N=1
-        for( const auto raw_index: raw_indices ) {
-            assert( listing->Filename(raw_index) == filename );
+        for( const auto raw_index : raw_indices ) {
+            assert(listing->Filename(raw_index) == filename);
             if( listing->IsDir(raw_index) && listing->Directory(raw_index) == directory ) {
                 ++num_set;
                 auto &vd = m_VolatileData[raw_index];
@@ -670,10 +668,10 @@ size_t Model::SetCalculatedSizesForDirectories(std::span<const std::string_view>
             }
         }
     }
-    
+
     if( num_changed != 0 )
         FinalizeSettingCalculatedSizes();
-    
+
     return num_set;
 }
 
@@ -682,19 +680,19 @@ size_t Model::SetCalculatedSizesForDirectories(std::span<const unsigned> _raw_it
 {
     if( _raw_items_indices.size() != _sizes.size() )
         return 0;
-    
+
     size_t num_set = 0;
     size_t num_changed = 0;
     const auto listing = m_Listing.get();
     const auto items_count = listing->Count();
-        
+
     // O(N) iterate over the entire input set
-    for(size_t ind = 0; ind != _raw_items_indices.size(); ++ind) {
+    for( size_t ind = 0; ind != _raw_items_indices.size(); ++ind ) {
         const unsigned raw_index = _raw_items_indices[ind];
         const uint64_t size = _sizes[ind];
         if( raw_index >= items_count )
             throw std::out_of_range("SetCalculatedSizesForDirectories: invalid index");
-        
+
         if( listing->IsDir(raw_index) ) {
             ++num_set;
             auto &vd = m_VolatileData[raw_index];
@@ -704,10 +702,10 @@ size_t Model::SetCalculatedSizesForDirectories(std::span<const unsigned> _raw_it
             }
         }
     }
-        
+
     if( num_changed != 0 )
         FinalizeSettingCalculatedSizes();
-    
+
     return num_set;
 }
 
@@ -816,7 +814,8 @@ void Model::DoSortWithHardFiltering()
     }
     else {
         m_EntriesByCustomSort.resize(m_Listing->Count());
-        std::iota(std::begin(m_EntriesByCustomSort), std::end(m_EntriesByCustomSort), 0);
+        // NOLINTNEXTLINE - Xcode16 doesn't have std::ranges::iota
+        std::iota(m_EntriesByCustomSort.begin(), m_EntriesByCustomSort.end(), 0);
     }
 
     if( m_EntriesByCustomSort.empty() || m_CustomSortMode.sort == SortMode::SortNoSort )
@@ -826,16 +825,14 @@ void Model::DoSortWithHardFiltering()
     // no dotdot dir. also assumes that no filtering will exclude dotdot dir
     const auto first = std::next(m_EntriesByCustomSort.begin(), m_Listing->IsDotDot(0) ? 1 : 0);
     const auto last = std::end(m_EntriesByCustomSort);
-    
+
     if( m_EntriesByCustomSort.size() < g_ParallelSortThresh )
         std::sort(first, last, IndirectListingComparator{*m_Listing, m_VolatileData, m_CustomSortMode});
     else
         pstld::sort(first, last, IndirectListingComparator{*m_Listing, m_VolatileData, m_CustomSortMode});
 
     m_ReverseToCustomSort.resize(size);
-    std::fill(m_ReverseToCustomSort.begin(),
-              m_ReverseToCustomSort.end(),
-              std::numeric_limits<unsigned>::max());
+    std::ranges::fill(m_ReverseToCustomSort, std::numeric_limits<unsigned>::max());
     for( unsigned i = 0, e = static_cast<unsigned>(m_EntriesByCustomSort.size()); i != e; ++i ) {
         const unsigned forward_index = m_EntriesByCustomSort[i];
         assert(forward_index < size);
@@ -865,7 +862,8 @@ void Model::BuildSoftFilteringIndeces()
         m_EntriesBySoftFiltering.clear();
         m_EntriesBySoftFiltering.reserve(m_EntriesByCustomSort.size());
 
-        int i = 0, e = static_cast<int>(m_EntriesByCustomSort.size());
+        int i = 0;
+        const int e = static_cast<int>(m_EntriesByCustomSort.size());
         for( ; i != e; ++i ) {
             QuickSearchHiglight found_range;
             const int raw_index = m_EntriesByCustomSort[i];
@@ -879,7 +877,8 @@ void Model::BuildSoftFilteringIndeces()
     }
     else {
         m_EntriesBySoftFiltering.resize(m_EntriesByCustomSort.size());
-        iota(begin(m_EntriesBySoftFiltering), end(m_EntriesBySoftFiltering), 0);
+        // NOLINTNEXTLINE - Xcode16 doesn't have std::ranges::iota
+        std::iota(m_EntriesBySoftFiltering.begin(), m_EntriesBySoftFiltering.end(), 0);
     }
 }
 
@@ -887,8 +886,7 @@ ExternalEntryKey Model::EntrySortKeysAtSortPosition(int _pos) const
 {
     auto item = EntryAtSortPosition(_pos);
     if( !item )
-        throw std::invalid_argument(
-            "PanelData::EntrySortKeysAtSortPosition: invalid item position");
+        throw std::invalid_argument("PanelData::EntrySortKeysAtSortPosition: invalid item position");
     return ExternalEntryKey{item, VolatileDataAtSortPosition(_pos)};
 }
 
@@ -897,11 +895,11 @@ int Model::SortLowerBoundForEntrySortKeys(const ExternalEntryKey &_keys) const
     if( !_keys.is_valid() )
         return -1;
 
-    auto it =
-        std::lower_bound(std::begin(m_EntriesByCustomSort),
-                         std::end(m_EntriesByCustomSort),
-                         _keys,
-                         ExternalListingComparator(*m_Listing, m_VolatileData, m_CustomSortMode));
+    // NOLINTNEXTLINE
+    auto it = std::lower_bound(std::begin(m_EntriesByCustomSort),
+                               std::end(m_EntriesByCustomSort),
+                               _keys,
+                               ExternalListingComparator(*m_Listing, m_VolatileData, m_CustomSortMode));
     if( it != std::end(m_EntriesByCustomSort) )
         return static_cast<int>(std::distance(std::begin(m_EntriesByCustomSort), it));
     return -1;

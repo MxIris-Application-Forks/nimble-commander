@@ -1,16 +1,22 @@
-// Copyright (C) 2017-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "CopyingTitleBuilder.h"
 #include <Utility/PathManip.h>
+#include <Utility/StringExtras.h>
 #include "../Internal.h"
 
 namespace nc::ops {
 
-static NSString *ExtractCopyToName(const std::string &_s)
+static NSString *ExtractCopyToName(std::string_view _s)
 {
-    char buff[MAXPATHLEN] = {0};
-    bool use_buff = GetDirectoryNameFromPath(_s.c_str(), buff, MAXPATHLEN);
-    NSString *to = [NSString stringWithUTF8String:(use_buff ? buff : _s.c_str())];
-    return to;
+    using PM = utility::PathManip;
+    if( PM::HasTrailingSlash(_s) ) {
+        // "/hiss/meow/" -> "meow"
+        return [NSString stringWithUTF8StdStringView:PM::Filename(_s)];
+    }
+    else {
+        // "/hiss/meow.txt" -> "hiss"
+        return [NSString stringWithUTF8StdStringView:PM::Filename(PM::Parent(_s))];
+    }
 }
 
 static NSString *OpTitlePreffix(bool _copying)
@@ -28,8 +34,7 @@ static NSString *OpTitleForSingleItem(bool _copying, NSString *_item, NSString *
 static NSString *OpTitleForMultipleItems(bool _copying, int _items, NSString *_to)
 {
     auto fmt = NSLocalizedString(@"%@ %@ items to \u201c%@\u201d", "");
-    return [NSString
-        stringWithFormat:fmt, OpTitlePreffix(_copying), [NSNumber numberWithInt:_items], _to];
+    return [NSString stringWithFormat:fmt, OpTitlePreffix(_copying), [NSNumber numberWithInt:_items], _to];
 }
 
 CopyingTitleBuilder::CopyingTitleBuilder(const std::vector<VFSListingItem> &_source_files,
@@ -58,25 +63,23 @@ std::string CopyingTitleBuilder::TitleForPreparing() const
 std::string CopyingTitleBuilder::TitleForProcessing() const
 {
     if( m_SourceFiles.size() == 1 )
-        return OpTitleForSingleItem(m_Options.docopy,
-                                    m_SourceFiles.front().FilenameNS(),
-                                    ExtractCopyToName(m_DestinationPath))
+        return OpTitleForSingleItem(
+                   m_Options.docopy, m_SourceFiles.front().FilenameNS(), ExtractCopyToName(m_DestinationPath))
             .UTF8String;
     else
-        return OpTitleForMultipleItems(m_Options.docopy,
-                                       static_cast<int>(m_SourceFiles.size()),
-                                       ExtractCopyToName(m_DestinationPath))
+        return OpTitleForMultipleItems(
+                   m_Options.docopy, static_cast<int>(m_SourceFiles.size()), ExtractCopyToName(m_DestinationPath))
             .UTF8String;
 }
 
-std::string CopyingTitleBuilder::TitleForVerifying() const
+std::string CopyingTitleBuilder::TitleForVerifying()
 {
     return NSLocalizedString(@"Verifying operation result..", "").UTF8String;
 }
 
-std::string CopyingTitleBuilder::TitleForCleanup() const
+std::string CopyingTitleBuilder::TitleForCleanup()
 {
     return NSLocalizedString(@"Cleaning up..", "").UTF8String;
 }
 
-}
+} // namespace nc::ops

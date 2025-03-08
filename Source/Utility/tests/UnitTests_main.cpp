@@ -1,6 +1,5 @@
-#define CATCH_CONFIG_RUNNER
 #define CATCH_CONFIG_ENABLE_BENCHMARKING
-#include <catch2/catch.hpp>
+#include <catch2/catch_all.hpp>
 
 #define GTEST_DONT_DEFINE_FAIL 1
 #define GTEST_DONT_DEFINE_SUCCEED 1
@@ -14,10 +13,11 @@
 
 static auto g_TestDirPrefix = "_nc__utility__test_";
 
-int main( int argc, char* argv[] ) {
+int main(int argc, char *argv[])
+{
     ::testing::GTEST_FLAG(throw_on_failure) = true;
     ::testing::InitGoogleMock(&argc, argv);
-    int result = Catch::Session().run( argc, argv );    
+    const int result = Catch::Session().run(argc, argv);
     return result;
 }
 

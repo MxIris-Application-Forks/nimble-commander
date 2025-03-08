@@ -1,10 +1,10 @@
-// Copyright (C) 2013-2021 Michael Kazakov. Subject to GNU General Public License version 3.
-#include <assert.h>
-#include <stdlib.h>
+// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+#include <cassert>
+#include <cstdlib>
 
 #include <Utility/Encodings.h>
 
-using namespace encodings;
+namespace nc::utility {
 
 // clang-format off
 static const unsigned short g_CP_OEM437_To_Unicode[256] = {
@@ -877,7 +877,7 @@ static const unsigned short g_NonPrintedSymbsVisualization[32] = {
 };
 
 static const unsigned short* g_SingleBytesTable[] = {
-    0,
+    nullptr,
     g_CP_ISO_8859_1_To_UniChar,
     g_CP_ISO_8859_2_To_UniChar,
     g_CP_ISO_8859_3_To_UniChar,
@@ -923,12 +923,10 @@ static const unsigned short* g_SingleBytesTable[] = {
 // clang-format on
 
 static_assert(sizeof(g_SingleBytesTable) / sizeof(unsigned short *) ==
-                  ENCODING_SINGLE_BYTES_LAST__ + 1,
-              "");
+              std::to_underlying(Encoding::ENCODING_SINGLE_BYTES_LAST__) + 1);
 
-#define Endian16_Swap(value)                                                                       \
-    (((static_cast<uint16_t>((value)&0x00FF)) << 8) |                                              \
-     ((static_cast<uint16_t>((value)&0xFF00)) >> 8))
+#define Endian16_Swap(value)                                                                                           \
+    (((static_cast<uint16_t>((value) & 0x00FF)) << 8) | ((static_cast<uint16_t>((value) & 0xFF00)) >> 8))
 
 static const uint16_t g_ReplacementCharacter = 0xFFFD; //  � character
 
@@ -936,14 +934,14 @@ void InterpretSingleByteBufferAsUniCharPreservingBufferSize(
     const unsigned char *_input,
     size_t _input_size,
     unsigned short *_output, // should be at least _input_size 16b words long
-    int _codepage)
+    Encoding _codepage)
 {
-    if( _codepage < ENCODING_SINGLE_BYTES_FIRST__ || _codepage > ENCODING_SINGLE_BYTES_LAST__ ) {
+    if( _codepage < Encoding::ENCODING_SINGLE_BYTES_FIRST__ || _codepage > Encoding::ENCODING_SINGLE_BYTES_LAST__ ) {
         memset(_output, 0, sizeof(unsigned short) * _input_size);
         return;
     }
 
-    auto *t = g_SingleBytesTable[_codepage];
+    auto *t = g_SingleBytesTable[std::to_underlying(_codepage)];
     const unsigned char *end = _input + _input_size;
     while( _input < end )
         *(_output++) = t[*(_input++)];
@@ -1023,10 +1021,10 @@ void InterpretUTF8BufferAsUniCharPreservingBufferSize(
 
         // seems that sequence is ok
         if( sz == 2 ) {
-            unsigned char high = *_input;
-            unsigned char low = *(_input + 1);
-            unsigned short out = static_cast<unsigned short>(
-                ((static_cast<unsigned short>(high & 0x1F)) << 6) | (low & 0x3F));
+            const unsigned char high = *_input;
+            const unsigned char low = *(_input + 1);
+            const unsigned short out =
+                static_cast<unsigned short>(((static_cast<unsigned short>(high & 0x1F)) << 6) | (low & 0x3F));
 
             *_output = out;
             ++_output;
@@ -1036,13 +1034,12 @@ void InterpretUTF8BufferAsUniCharPreservingBufferSize(
             continue;
         }
         else if( sz == 3 ) {
-            unsigned char _1 = *_input;
-            unsigned char _2 = *(_input + 1);
-            unsigned char _3 = *(_input + 2);
-            unsigned short out =
-                static_cast<unsigned short>((static_cast<unsigned short>(_1 & 0xF) << 12) |
-                                            (static_cast<unsigned short>(_2 & 0x3F) << 6) |
-                                            (static_cast<unsigned short>(_3 & 0x3F)));
+            const unsigned char _1 = *_input;
+            const unsigned char _2 = *(_input + 1);
+            const unsigned char _3 = *(_input + 2);
+            const unsigned short out = static_cast<unsigned short>((static_cast<unsigned short>(_1 & 0xF) << 12) |
+                                                                   (static_cast<unsigned short>(_2 & 0x3F) << 6) |
+                                                                   (static_cast<unsigned short>(_3 & 0x3F)));
             *_output = out;
             ++_output;
             *_output = _stuffing_symb;
@@ -1069,12 +1066,11 @@ void InterpretUTF8BufferAsUniCharPreservingBufferSize(
     }
 }
 
-void InterpretUTF8BufferAsUTF16(
-    const uint8_t *_input,
-    size_t _input_size,
-    uint16_t *_output_buf, // should be at least _input_size 16b words long
-    size_t *_output_sz,    // size of an output
-    uint16_t _bad_symb     // something like '?' or U+FFFD
+void InterpretUTF8BufferAsUTF16(const uint8_t *_input,
+                                size_t _input_size,
+                                uint16_t *_output_buf, // should be at least _input_size 16b words long
+                                size_t *_output_sz,    // size of an output
+                                uint16_t _bad_symb     // something like '?' or U+FFFD
 )
 {
     const unsigned char *end = _input + _input_size;
@@ -1082,7 +1078,7 @@ void InterpretUTF8BufferAsUTF16(
     size_t total = 0;
 
     while( _input < end ) {
-        unsigned char current = *_input;
+        const unsigned char current = *_input;
 
         int sz = 0;
 
@@ -1141,19 +1137,19 @@ void InterpretUTF8BufferAsUTF16(
 
         // seems that sequence is ok
         if( sz == 2 ) {
-            unsigned short _1 = _input[0] & 0x1F;
-            unsigned short _2 = _input[1] & 0x3F;
-            unsigned short out = static_cast<unsigned short>((_1 << 6) | _2);
+            const unsigned short _1 = _input[0] & 0x1F;
+            const unsigned short _2 = _input[1] & 0x3F;
+            const unsigned short out = static_cast<unsigned short>((_1 << 6) | _2);
             *(_output_buf++) = out;
             ++total;
             _input += 2;
             continue;
         }
         else if( sz == 3 ) {
-            uint16_t _1 = _input[0] & 0x0F;
-            uint16_t _2 = _input[1] & 0x3F;
-            uint16_t _3 = _input[2] & 0x3F;
-            unsigned short out = static_cast<unsigned short>((_1 << 12) | (_2 << 6) | _3);
+            const uint16_t _1 = _input[0] & 0x0F;
+            const uint16_t _2 = _input[1] & 0x3F;
+            const uint16_t _3 = _input[2] & 0x3F;
+            const unsigned short out = static_cast<unsigned short>((_1 << 12) | (_2 << 6) | _3);
             *(_output_buf++) = out;
             ++total;
             _input += 3;
@@ -1161,18 +1157,18 @@ void InterpretUTF8BufferAsUTF16(
         }
         else if( sz == 4 ) {
             uint32_t out;
-            uint32_t _1 = _input[0] & 0x07;
-            uint32_t _2 = _input[1] & 0x3F;
-            uint32_t _3 = _input[2] & 0x3F;
-            uint32_t _4 = _input[3] & 0x3F;
+            const uint32_t _1 = _input[0] & 0x07;
+            const uint32_t _2 = _input[1] & 0x3F;
+            const uint32_t _3 = _input[2] & 0x3F;
+            const uint32_t _4 = _input[3] & 0x3F;
             out = (_1 << 18) | (_2 << 12) | (_3 << 6) | _4;
             if( out < 0x10000 ) { // possibly malformed UTF8 (?)
                 *(_output_buf++) = uint16_t(out);
                 total += 1;
             }
             else {
-                uint16_t ls = static_cast<unsigned short>(0xD800 + ((out - 0x010000) >> 10));
-                uint16_t ts = static_cast<unsigned short>(0xDC00 + ((out - 0x010000) & 0x3FF));
+                const uint16_t ls = static_cast<unsigned short>(0xD800 + ((out - 0x010000) >> 10));
+                const uint16_t ts = static_cast<unsigned short>(0xDC00 + ((out - 0x010000) & 0x3FF));
                 *(_output_buf++) = ls;
                 *(_output_buf++) = ts;
                 total += 2;
@@ -1188,16 +1184,16 @@ void InterpretUTF8BufferAsUTF16(
     *_output_sz = total;
 }
 
-void InterpretUTF8BufferAsIndexedUTF16(
-    const unsigned char *_input,
-    size_t _input_size,
-    unsigned short *_output_buf, // should be at least _input_size 16b words long
-    uint32_t *_indexes_buf,      // should be at least _input_size 32b words long
-    size_t *_output_sz,          // size of an output
-    unsigned short _bad_symb     // something like '?' or U+FFFD
+void InterpretUTF8BufferAsIndexedUTF16(const unsigned char *_input,
+                                       size_t _input_size,
+                                       unsigned short *_output_buf, // should be at least _input_size 16b words long
+                                       uint32_t *_indexes_buf,      // should be at least _input_size 32b words long
+                                       size_t *_output_sz,          // size of an output
+                                       unsigned short _bad_symb     // something like '?' or U+FFFD
 )
 {
-    const unsigned char *end = _input + _input_size, *start = _input;
+    const unsigned char *end = _input + _input_size;
+    const unsigned char *start = _input;
 
     size_t total = 0;
 
@@ -1276,9 +1272,9 @@ void InterpretUTF8BufferAsIndexedUTF16(
 
         // seems that sequence is ok
         if( sz == 2 ) {
-            unsigned short high = *_input;
-            unsigned short low = *(_input + 1);
-            unsigned short out = static_cast<unsigned short>((((high & 0x1F)) << 6) | (low & 0x3F));
+            const unsigned short high = *_input;
+            const unsigned short low = *(_input + 1);
+            const unsigned short out = static_cast<unsigned short>((((high & 0x1F)) << 6) | (low & 0x3F));
 
             *_output_buf = out;
             *_indexes_buf = static_cast<uint32_t>(_input - start);
@@ -1289,11 +1285,11 @@ void InterpretUTF8BufferAsIndexedUTF16(
             continue;
         }
         else if( sz == 3 ) {
-            unsigned short _1 = *_input;
-            unsigned short _2 = *(_input + 1);
-            unsigned short _3 = *(_input + 2);
-            unsigned short out = static_cast<unsigned short>((((_1 & 0xF)) << 12) |
-                                                             (((_2 & 0x3F)) << 6) | (_3 & 0x3F));
+            const unsigned short _1 = *_input;
+            const unsigned short _2 = *(_input + 1);
+            const unsigned short _3 = *(_input + 2);
+            const unsigned short out =
+                static_cast<unsigned short>((((_1 & 0xF)) << 12) | (((_2 & 0x3F)) << 6) | (_3 & 0x3F));
             *_output_buf = out;
             *_indexes_buf = static_cast<uint32_t>(_input - start);
             ++_indexes_buf;
@@ -1315,13 +1311,12 @@ void InterpretUTF8BufferAsIndexedUTF16(
                 total += 1;
             }
             else {
-                uint16_t ls = static_cast<unsigned short>(0xD800 + ((out - 0x010000) >> 10));
-                uint16_t ts = static_cast<unsigned short>(0xDC00 + ((out - 0x010000) & 0x3FF));
+                const uint16_t ls = static_cast<unsigned short>(0xD800 + ((out - 0x010000) >> 10));
+                const uint16_t ts = static_cast<unsigned short>(0xDC00 + ((out - 0x010000) & 0x3FF));
                 *(_output_buf++) = ls;
                 *(_output_buf++) = ts;
-                *(_indexes_buf++) = static_cast<uint32_t>(
-                    _input -
-                    start); // lead and trailing surrpairs chars will point at same byte position
+                *(_indexes_buf++) = static_cast<uint32_t>(_input - start); // lead and trailing surrpairs chars will
+                                                                           // point at same byte position
                 *(_indexes_buf++) = static_cast<uint32_t>(_input - start);
                 total += 2;
             }
@@ -1338,21 +1333,20 @@ void InterpretUTF8BufferAsIndexedUTF16(
     //    *_output_buf = 0;
 }
 
-void InterpretUTF16LEBufferAsUniChar(
-    const unsigned char *_input,
-    size_t _input_size,
-    unsigned short *_output_buf, // should be at least _input_size/2 16b words long
-    size_t *_output_sz,          // size of an output
-    unsigned short _bad_symb     // something like '?' or U+FFFD
+void InterpretUTF16LEBufferAsUniChar(const unsigned char *_input,
+                                     size_t _input_size,
+                                     unsigned short *_output_buf, // should be at least _input_size/2 16b words long
+                                     size_t *_output_sz,          // size of an output
+                                     unsigned short _bad_symb     // something like '?' or U+FFFD
 )
 {
     const uint16_t *cur = reinterpret_cast<const uint16_t *>(_input);
-    const uint16_t *end = cur + _input_size / sizeof(uint16_t);
+    const uint16_t *end = cur + (_input_size / sizeof(uint16_t));
 
     unsigned total = 0;
 
     while( cur < end ) {
-        uint16_t val = *cur;
+        const uint16_t val = *cur;
 
         if( val <= 0xD7FF || val >= 0xE000 ) { // BMP - just use it
             *_output_buf++ = *cur++;
@@ -1361,8 +1355,8 @@ void InterpretUTF16LEBufferAsUniChar(
         else {                                     // need to check suggorate pair
             if( val >= 0xD800 && val <= 0xDBFF ) { // leading surrogate
                 if( cur + 1 < end && *(cur + 1) >= 0xDC00 && *(cur + 1) <= 0xDFFF ) {
-                    const uint32_t code_point = ((uint32_t(val) - 0xD800U) << 10) +
-                                                uint32_t(*(cur + 1)) - 0xDC00U + 0x0010000U;
+                    const uint32_t code_point =
+                        ((uint32_t(val) - 0xD800U) << 10) + uint32_t(*(cur + 1)) - 0xDC00U + 0x0010000U;
                     if( code_point >= 0x30000U && code_point < 0xE0000U ) {
                         // unassigned code point - treat as corrupted
                         *_output_buf++ = _bad_symb;
@@ -1394,21 +1388,20 @@ void InterpretUTF16LEBufferAsUniChar(
     *_output_sz = total;
 }
 
-void InterpretUTF16BEBufferAsUniChar(
-    const unsigned char *_input,
-    size_t _input_size,
-    unsigned short *_output_buf, // should be at least _input_size/2 16b words long
-    size_t *_output_sz,          // size of an output
-    unsigned short _bad_symb     // something like '?' or U+FFFD
+void InterpretUTF16BEBufferAsUniChar(const unsigned char *_input,
+                                     size_t _input_size,
+                                     unsigned short *_output_buf, // should be at least _input_size/2 16b words long
+                                     size_t *_output_sz,          // size of an output
+                                     unsigned short _bad_symb     // something like '?' or U+FFFD
 )
 {
     const uint16_t *cur = reinterpret_cast<const uint16_t *>(_input);
-    const uint16_t *end = cur + _input_size / sizeof(uint16_t);
+    const uint16_t *end = cur + (_input_size / sizeof(uint16_t));
 
     unsigned total = 0;
 
     while( cur < end ) {
-        uint16_t val = static_cast<unsigned short>(Endian16_Swap(*cur));
+        const uint16_t val = static_cast<unsigned short>(Endian16_Swap(*cur));
 
         if( val <= 0xD7FF || val >= 0xE000 ) { // BMP - just use it
             *_output_buf++ = val;
@@ -1418,10 +1411,10 @@ void InterpretUTF16BEBufferAsUniChar(
         else {                                     // need to check suggorate pair
             if( val >= 0xD800 && val <= 0xDBFF ) { // leading surrogate
                 if( cur + 1 < end ) {
-                    uint16_t next = static_cast<unsigned short>(Endian16_Swap(*(cur + 1)));
+                    const uint16_t next = static_cast<unsigned short>(Endian16_Swap(*(cur + 1)));
                     if( next >= 0xDC00 && next <= 0xDFFF ) {
-                        const uint32_t code_point = ((uint32_t(val) - 0xD800U) << 10) +
-                                                    uint32_t(next) - 0xDC00U + 0x0010000U;
+                        const uint32_t code_point =
+                            ((uint32_t(val) - 0xD800U) << 10) + uint32_t(next) - 0xDC00U + 0x0010000U;
                         if( code_point >= 0x30000U && code_point < 0xE0000U ) {
                             // unassigned code point - treat as corrupted
                             *_output_buf++ = _bad_symb;
@@ -1490,10 +1483,11 @@ void InterpretUnicharsAsUTF8(const uint16_t *_input,
     size_t output_sz_left = _output_size;
 
     while( cur < end ) {
-        uint16_t val = *cur;
+        const uint16_t val = *cur;
         uint32_t codepoint;
         unsigned char utf8[4];
-        unsigned utf8_sz, input_delta = 1;
+        unsigned utf8_sz;
+        unsigned input_delta = 1;
 
         // decode UTF16 aka Unichars
         if( val <= 0xD7FF || (val >= 0xE000 && val <= 0xFFFF) ) // BMP - just use it
@@ -1501,7 +1495,7 @@ void InterpretUnicharsAsUTF8(const uint16_t *_input,
         else {                                     // process surrogates
             if( val >= 0xD800 && val <= 0xDBFF ) { // leading surrogate
                 if( cur + 1 < end ) {
-                    uint16_t next = *(cur + 1);
+                    const uint16_t next = *(cur + 1);
                     if( next >= 0xDC00 && next <= 0xDFFF ) { // ok, normal surrogates
                         codepoint = (((val - 0xD800) << 10) + (next - 0xDC00) + 0x0010000);
                         input_delta = 2;
@@ -1592,7 +1586,7 @@ void InterpretUnicodeAsUTF8(const uint32_t *_input,
     size_t output_sz_left = _output_size;
 
     while( cur < end ) {
-        uint32_t codepoint = *cur; // we have codepoint from start
+        const uint32_t codepoint = *cur; // we have codepoint from start
         unsigned char utf8[4];
         unsigned utf8_sz;
 
@@ -1642,8 +1636,6 @@ void InterpretUnicodeAsUTF8(const uint32_t *_input,
         *_input_chars_eaten = cur - _input;
 }
 
-namespace encodings {
-
 size_t ScanUTF8ForValidSequenceLength(const unsigned char *_input, size_t _input_size) noexcept
 {
     if( _input == nullptr || _input_size == 0 )
@@ -1692,4 +1684,4 @@ size_t ScanUTF8ForValidSequenceLength(const unsigned char *_input, size_t _input
     return static_cast<size_t>(length);
 }
 
-} // namespace encodings
+} // namespace nc::utility

@@ -20,19 +20,19 @@ static NSParagraphStyle *ParagraphStyle(PanelViewFilenameTrimming _mode)
     static NSParagraphStyle *styles[3];
     static std::once_flag once;
     std::call_once(once, [] {
-        NSMutableParagraphStyle *p0 = [NSMutableParagraphStyle new];
+        NSMutableParagraphStyle *const p0 = [NSMutableParagraphStyle new];
         p0.alignment = NSTextAlignmentLeft;
         p0.lineBreakMode = NSLineBreakByTruncatingHead;
         p0.allowsDefaultTighteningForTruncation = false;
         styles[0] = p0;
 
-        NSMutableParagraphStyle *p1 = [NSMutableParagraphStyle new];
+        NSMutableParagraphStyle *const p1 = [NSMutableParagraphStyle new];
         p1.alignment = NSTextAlignmentLeft;
         p1.lineBreakMode = NSLineBreakByTruncatingTail;
         p1.allowsDefaultTighteningForTruncation = false;
         styles[1] = p1;
 
-        NSMutableParagraphStyle *p2 = [NSMutableParagraphStyle new];
+        NSMutableParagraphStyle *const p2 = [NSMutableParagraphStyle new];
         p2.alignment = NSTextAlignmentLeft;
         p2.lineBreakMode = NSLineBreakByTruncatingMiddle;
         p2.allowsDefaultTighteningForTruncation = false;
@@ -133,7 +133,7 @@ static NSParagraphStyle *ParagraphStyle(PanelViewFilenameTrimming _mode)
 
 - (NSRect)calculateTextSegmentFromBounds:(NSRect)bounds
 {
-    const int origin = m_LayoutConstants.icon_size ? 2 * m_LayoutConstants.inset_left + m_LayoutConstants.icon_size
+    const int origin = m_LayoutConstants.icon_size ? (2 * m_LayoutConstants.inset_left) + m_LayoutConstants.icon_size
                                                    : m_LayoutConstants.inset_left;
     const auto tags = m_Controller.item.Tags();
     const auto tags_geom = TrailingTagsInplaceDisplay::Place(tags);
@@ -152,9 +152,9 @@ static NSColor *Blend(NSColor *_front, NSColor *_back)
     const auto cs = NSColorSpace.genericRGBColorSpace;
     _front = [_front colorUsingColorSpace:cs];
     _back = [_back colorUsingColorSpace:cs];
-    const auto r = _front.redComponent * alpha + _back.redComponent * (1. - alpha);
-    const auto g = _front.greenComponent * alpha + _back.greenComponent * (1. - alpha);
-    const auto b = _front.blueComponent * alpha + _back.blueComponent * (1. - alpha);
+    const auto r = (_front.redComponent * alpha) + (_back.redComponent * (1. - alpha));
+    const auto g = (_front.greenComponent * alpha) + (_back.greenComponent * (1. - alpha));
+    const auto b = (_front.blueComponent * alpha) + (_back.blueComponent * (1. - alpha));
     return [NSColor colorWithCalibratedRed:r green:g blue:b alpha:1.];
 }
 
@@ -196,7 +196,7 @@ static NSColor *Blend(NSColor *_front, NSColor *_back)
     [m_AttrString drawWithRect:text_rect options:0];
 
     const auto icon_rect = NSMakeRect(m_LayoutConstants.inset_left,
-                                      (bounds.size.height - m_LayoutConstants.icon_size) / 2. + 0.5,
+                                      ((bounds.size.height - m_LayoutConstants.icon_size) / 2.) + 0.5,
                                       m_LayoutConstants.icon_size,
                                       m_LayoutConstants.icon_size);
     [m_Icon drawInRect:icon_rect
@@ -249,18 +249,28 @@ static bool HasNoModifiers(NSEvent *_event)
     return (m & mask) == 0;
 }
 
-- (void)mouseDown:(NSEvent *)event
+- (void)mouseDown:(NSEvent *)_event
 {
+    const NSPoint local_point = [self convertPoint:_event.locationInWindow fromView:nil];
+    if( !NSPointInRect(local_point, self.bounds) ) {
+        // In case of rapid mouse clicks and reloading items of NSCollectionView at the same time it's possible to end
+        // up with a situation when mouse events are incoming to the view which is no longer relevant. Sometimes it's
+        // possible to partially salvage this situation by manually re-routing the event to the correct view.
+        NSView *ht_view = [self.window.contentView hitTest:_event.locationInWindow];
+        if( ht_view != nil && ht_view != self )
+            [ht_view mouseDown:_event];
+        return;
+    }
+
     const auto my_index = m_Controller.itemIndex;
     if( my_index < 0 )
         return;
 
-    m_PermitFieldRenaming = m_Controller.selected && m_Controller.panelActive && HasNoModifiers(event);
+    m_PermitFieldRenaming = m_Controller.selected && m_Controller.panelActive && HasNoModifiers(_event);
 
-    [m_Controller.briefView.panelView panelItem:my_index mouseDown:event];
+    [m_Controller.briefView.panelView panelItem:my_index mouseDown:_event];
 
-    const auto lb_pressed = (NSEvent.pressedMouseButtons & 1) == 1;
-    const auto local_point = [self convertPoint:event.locationInWindow fromView:nil];
+    const bool lb_pressed = NSEvent.pressedMouseButtons == 1;
 
     if( lb_pressed ) {
         g_RowReadyToDrag = true;
@@ -269,28 +279,39 @@ static bool HasNoModifiers(NSEvent *_event)
     }
 }
 
-- (void)mouseUp:(NSEvent *)event
+- (void)mouseUp:(NSEvent *)_event
 {
     // used for delayed action to ensure that click was single, not double or more
     static std::atomic_ullong current_ticket = {0};
     static const std::chrono::nanoseconds delay = std::chrono::milliseconds(int(NSEvent.doubleClickInterval * 1000));
 
+    const NSPoint local_point = [self convertPoint:_event.locationInWindow fromView:nil];
+    if( !NSPointInRect(local_point, self.bounds) ) {
+        // In case of rapid mouse clicks and reloading items of NSCollectionView at the same time it's possible to end
+        // up with a situation when mouse events are incoming to the view which is no longer relevant. Sometimes it's
+        // possible to partially salvage this situation by manually re-routing the event to the correct view.
+        NSView *ht_view = [self.window.contentView hitTest:_event.locationInWindow];
+        if( ht_view != nil && ht_view != self )
+            [ht_view mouseUp:_event];
+        return;
+    }
+
     const auto my_index = m_Controller.itemIndex;
     if( my_index < 0 )
         return;
 
-    int click_count = static_cast<int>(event.clickCount);
+    int click_count = static_cast<int>(_event.clickCount);
     if( click_count <= 1 && m_PermitFieldRenaming ) {
         uint64_t renaming_ticket = ++current_ticket;
         dispatch_to_main_queue_after(delay, [=] {
             if( renaming_ticket == current_ticket )
-                [m_Controller.briefView.panelView panelItem:my_index fieldEditor:event];
+                [m_Controller.briefView.panelView panelItem:my_index fieldEditor:_event];
         });
     }
     else if( click_count == 2 || click_count == 4 || click_count == 6 || click_count == 8 ) {
         // Handle double-or-four-etc clicks as double-click
         ++current_ticket; // to abort field editing
-        [m_Controller.briefView.panelView panelItem:my_index dblClick:event];
+        [m_Controller.briefView.panelView panelItem:my_index dblClick:_event];
     }
 
     m_PermitFieldRenaming = false;

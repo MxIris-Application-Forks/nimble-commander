@@ -1,27 +1,22 @@
-// Copyright (C) 2016-2023 Michael Kazakov. Subject to GNU General Public License version 3.
-#pragma clang diagnostic push
-#include <boost/container/static_vector.hpp>
-#include <VFS/Native.h>
+// Copyright (C) 2016-2025 Michael Kazakov. Subject to GNU General Public License version 3.
+#include "PanelDataPersistency.h"
+#include <Config/RapidJSON.h>
+#include <Panel/NetworkConnectionsManager.h>
+#include <NimbleCommander/Core/VFSInstanceManager.h>
 #include <VFS/ArcLA.h>
 #include <VFS/ArcLARaw.h>
-#include <VFS/PS.h>
-#include <VFS/XAttr.h>
+#include <VFS/Native.h>
+#include <VFS/NetDropbox.h>
 #include <VFS/NetFTP.h>
 #include <VFS/NetSFTP.h>
-#include <VFS/NetDropbox.h>
 #include <VFS/NetWebDAV.h>
-#include <NimbleCommander/Core/NetworkConnectionsManager.h>
-#include <NimbleCommander/Core/VFSInstanceManager.h>
-#include <Config/RapidJSON.h>
-#include "PanelDataPersistency.h"
+#include <VFS/PS.h>
+#include <VFS/XAttr.h>
+#include <algorithm>
+#include <boost/container/static_vector.hpp>
 
 // THIS IS TEMPORARY!!!
-#include <NimbleCommander/Bootstrap/AppDelegateCPP.h>
 #include <NimbleCommander/Bootstrap/NativeVFSHostInstance.h>
-static NetworkConnectionsManager &ConnectionsManager()
-{
-    return *nc::AppDelegate::NetworkConnectionsManager();
-}
 
 namespace nc::panel {
 
@@ -77,7 +72,7 @@ struct ArcUnRAR {
 
 }; // namespace
 
-PanelDataPersisency::PanelDataPersisency(const NetworkConnectionsManager &_conn_manager)
+PanelDataPersistency::PanelDataPersistency(NetworkConnectionsManager &_conn_manager)
     : m_ConnectionsManager(_conn_manager)
 {
 }
@@ -103,11 +98,11 @@ static nc::config::Value EncodeAny(const std::any &_host);
 static bool IsNetworkVFS(const VFSHost &_host)
 {
     const auto tag = _host.Tag();
-    return tag == vfs::FTPHost::UniqueTag || tag == vfs::SFTPHost::UniqueTag ||
-           tag == vfs::DropboxHost::UniqueTag || tag == vfs::WebDAVHost::UniqueTag;
+    return tag == vfs::FTPHost::UniqueTag || tag == vfs::SFTPHost::UniqueTag || tag == vfs::DropboxHost::UniqueTag ||
+           tag == vfs::WebDAVHost::UniqueTag;
 }
 
-static std::any EncodeState(const VFSHost &_host)
+std::any PanelDataPersistency::EncodeState(const VFSHost &_host)
 {
     auto tag = _host.Tag();
     if( tag == VFSNativeHost::UniqueTag ) {
@@ -117,23 +112,22 @@ static std::any EncodeState(const VFSHost &_host)
         return PSFS{};
     }
     else if( tag == vfs::XAttrHost::UniqueTag ) {
-        return XAttr{_host.JunctionPath()};
+        return XAttr{std::string(_host.JunctionPath())};
     }
     else if( IsNetworkVFS(_host) ) {
-        if( auto conn = ConnectionsManager().ConnectionForVFS(_host) )
+        if( auto conn = m_ConnectionsManager.ConnectionForVFS(_host) )
             return Network{conn->Uuid()};
     }
     else if( tag == vfs::ArchiveHost::UniqueTag ) {
-        return ArcLA{_host.JunctionPath()};
+        return ArcLA{std::string(_host.JunctionPath())};
     }
     else if( tag == vfs::ArchiveRawHost::UniqueTag ) {
-        return ArcLARaw{_host.JunctionPath()};
+        return ArcLARaw{std::string(_host.JunctionPath())};
     }
     return {};
 }
 
-std::optional<PersistentLocation> PanelDataPersisency::EncodeLocation(const VFSHost &_vfs,
-                                                                      const std::string &_path)
+std::optional<PersistentLocation> PanelDataPersistency::EncodeLocation(const VFSHost &_vfs, const std::string &_path)
 {
     PersistentLocation location;
 
@@ -146,7 +140,7 @@ std::optional<PersistentLocation> PanelDataPersisency::EncodeLocation(const VFSH
             host_rec = host_rec->Parent().get();
         }
 
-        reverse(begin(hosts), end(hosts));
+        std::ranges::reverse(hosts);
 
         for( auto h : hosts ) {
             auto encoded = EncodeState(*h);
@@ -163,7 +157,7 @@ std::optional<PersistentLocation> PanelDataPersisency::EncodeLocation(const VFSH
     return location;
 }
 
-Value PanelDataPersisency::EncodeVFSPath(const VFSListing &_listing)
+Value PanelDataPersistency::EncodeVFSPath(const VFSListing &_listing)
 {
     if( !_listing.IsUniform() )
         return nc::config::Value{rapidjson::kNullType};
@@ -171,7 +165,7 @@ Value PanelDataPersisency::EncodeVFSPath(const VFSListing &_listing)
     return EncodeVFSPath(*_listing.Host(), _listing.Directory());
 }
 
-Value PanelDataPersisency::EncodeVFSPath(const VFSHost &_vfs, const std::string &_path)
+Value PanelDataPersistency::EncodeVFSPath(const VFSHost &_vfs, const std::string &_path)
 {
     std::vector<const VFSHost *> hosts;
     auto host_rec = &_vfs;
@@ -180,7 +174,7 @@ Value PanelDataPersisency::EncodeVFSPath(const VFSHost &_vfs, const std::string 
         host_rec = host_rec->Parent().get();
     }
 
-    reverse(begin(hosts), end(hosts));
+    std::ranges::reverse(hosts);
 
     Value json(rapidjson::kObjectType);
     Value json_hosts(rapidjson::kArrayType);
@@ -190,9 +184,8 @@ Value PanelDataPersisency::EncodeVFSPath(const VFSHost &_vfs, const std::string 
         else
             return Value{rapidjson::kNullType};
     if( !json_hosts.Empty() )
-        json.AddMember(Value(g_StackHostsKey, nc::config::g_CrtAllocator),
-                       std::move(json_hosts),
-                       nc::config::g_CrtAllocator);
+        json.AddMember(
+            Value(g_StackHostsKey, nc::config::g_CrtAllocator), std::move(json_hosts), nc::config::g_CrtAllocator);
 
     json.AddMember(Value(g_StackPathKey, nc::config::g_CrtAllocator),
                    Value(_path.c_str(), nc::config::g_CrtAllocator),
@@ -201,7 +194,8 @@ Value PanelDataPersisency::EncodeVFSPath(const VFSHost &_vfs, const std::string 
     return json;
 }
 
-Value PanelDataPersisency::LocationToJSON(const PersistentLocation &_location)
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+Value PanelDataPersistency::LocationToJSON(const PersistentLocation &_location)
 {
     Value json(rapidjson::kObjectType);
     Value json_hosts(rapidjson::kArrayType);
@@ -211,9 +205,8 @@ Value PanelDataPersisency::LocationToJSON(const PersistentLocation &_location)
         else
             return Value{rapidjson::kNullType};
     if( !json_hosts.Empty() )
-        json.AddMember(Value(g_StackHostsKey, nc::config::g_CrtAllocator),
-                       std::move(json_hosts),
-                       nc::config::g_CrtAllocator);
+        json.AddMember(
+            Value(g_StackHostsKey, nc::config::g_CrtAllocator), std::move(json_hosts), nc::config::g_CrtAllocator);
 
     json.AddMember(Value(g_StackPathKey, nc::config::g_CrtAllocator),
                    Value(_location.path.c_str(), nc::config::g_CrtAllocator),
@@ -222,7 +215,8 @@ Value PanelDataPersisency::LocationToJSON(const PersistentLocation &_location)
     return json;
 }
 
-std::optional<PersistentLocation> PanelDataPersisency::JSONToLocation(const json &_json)
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+std::optional<PersistentLocation> PanelDataPersistency::JSONToLocation(const json &_json)
 {
     if( !_json.IsObject() || !_json.HasMember(g_StackPathKey) || !_json[g_StackPathKey].IsString() )
         return std::nullopt;
@@ -237,9 +231,7 @@ std::optional<PersistentLocation> PanelDataPersisency::JSONToLocation(const json
         auto &hosts = _json[g_StackHostsKey];
         for( auto i = hosts.Begin(), e = hosts.End(); i != e; ++i ) {
             auto &h = *i;
-            const auto has_string = [&h](const char *_key) {
-                return h.HasMember(_key) && h[_key].IsString();
-            };
+            const auto has_string = [&h](const char *_key) { return h.HasMember(_key) && h[_key].IsString(); };
 
             if( !has_string(g_HostInfoTypeKey) )
                 return std::nullopt; // invalid data
@@ -254,7 +246,7 @@ std::optional<PersistentLocation> PanelDataPersisency::JSONToLocation(const json
             else if( tag == vfs::XAttrHost::UniqueTag ) {
                 if( !has_string(g_HostInfoJunctionKey) )
                     return std::nullopt; // invalid data
-                if( result.hosts.size() < 1 )
+                if( result.hosts.empty() )
                     return std::nullopt; // invalid data
 
                 result.hosts.emplace_back(XAttr{h[g_HostInfoJunctionKey].GetString()});
@@ -271,7 +263,7 @@ std::optional<PersistentLocation> PanelDataPersisency::JSONToLocation(const json
             else if( tag == vfs::ArchiveHost::UniqueTag ) {
                 if( !has_string(g_HostInfoJunctionKey) )
                     return std::nullopt; // invalid data
-                if( result.hosts.size() < 1 )
+                if( result.hosts.empty() )
                     return std::nullopt; // invalid data
 
                 result.hosts.emplace_back(ArcLA{h[g_HostInfoJunctionKey].GetString()});
@@ -279,7 +271,7 @@ std::optional<PersistentLocation> PanelDataPersisency::JSONToLocation(const json
             else if( tag == vfs::ArchiveRawHost::UniqueTag ) {
                 if( !has_string(g_HostInfoJunctionKey) )
                     return std::nullopt; // invalid data
-                if( result.hosts.size() < 1 )
+                if( result.hosts.empty() )
                     return std::nullopt; // invalid data
 
                 result.hosts.emplace_back(ArcLARaw{h[g_HostInfoJunctionKey].GetString()});
@@ -292,19 +284,19 @@ std::optional<PersistentLocation> PanelDataPersisency::JSONToLocation(const json
 
 static const char *VFSTagForNetworkConnection(const NetworkConnectionsManager::Connection &_conn)
 {
-    if( auto ftp = _conn.Cast<NetworkConnectionsManager::FTP>() )
+    if( _conn.Cast<NetworkConnectionsManager::FTP>() )
         return vfs::FTPHost::UniqueTag;
-    else if( auto sftp = _conn.Cast<NetworkConnectionsManager::SFTP>() )
+    else if( _conn.Cast<NetworkConnectionsManager::SFTP>() )
         return vfs::SFTPHost::UniqueTag;
-    else if( auto dropbox = _conn.Cast<NetworkConnectionsManager::Dropbox>() )
+    else if( _conn.Cast<NetworkConnectionsManager::Dropbox>() )
         return vfs::DropboxHost::UniqueTag;
-    else if( auto webdav = _conn.Cast<NetworkConnectionsManager::WebDAV>() )
+    else if( _conn.Cast<NetworkConnectionsManager::WebDAV>() )
         return vfs::WebDAVHost::UniqueTag;
     else
         return "<unknown_vfs>";
 }
 
-std::string PanelDataPersisency::MakeFootprintString(const PersistentLocation &_loc)
+std::string PanelDataPersistency::MakeFootprintString(const PersistentLocation &_loc)
 {
     std::string footprint;
     if( _loc.hosts.empty() ) {
@@ -312,11 +304,11 @@ std::string PanelDataPersisency::MakeFootprintString(const PersistentLocation &_
         footprint += "||";
     }
     for( auto &h : _loc.hosts ) {
-        if( auto native = std::any_cast<Native>(&h) ) {
+        if( std::any_cast<Native>(&h) ) {
             footprint += VFSNativeHost::UniqueTag;
             footprint += "|";
         }
-        else if( auto psfs = std::any_cast<PSFS>(&h) ) {
+        else if( std::any_cast<PSFS>(&h) ) {
             footprint += vfs::PSHost::UniqueTag;
             footprint += "|[psfs]:";
         }
@@ -326,8 +318,7 @@ std::string PanelDataPersisency::MakeFootprintString(const PersistentLocation &_
             footprint += xattr->junction;
         }
         else if( auto network = std::any_cast<Network>(&h) ) {
-            const auto &mgr = ConnectionsManager();
-            if( auto conn = mgr.ConnectionByUUID(network->connection) ) {
+            if( auto conn = m_ConnectionsManager.ConnectionByUUID(network->connection) ) {
                 footprint += VFSTagForNetworkConnection(*conn);
                 footprint += "|";
                 footprint += NetworkConnectionsManager::MakeConnectionPath(*conn);
@@ -350,22 +341,21 @@ std::string PanelDataPersisency::MakeFootprintString(const PersistentLocation &_
     return footprint;
 }
 
-size_t PanelDataPersisency::MakeFootprintStringHash(const PersistentLocation &_loc)
+size_t PanelDataPersistency::MakeFootprintStringHash(const PersistentLocation &_loc)
 {
     return std::hash<std::string>()(MakeFootprintString(_loc));
 }
 
-std::string PanelDataPersisency::MakeVerbosePathString(const PersistentLocation &_loc)
+std::string PanelDataPersistency::MakeVerbosePathString(const PersistentLocation &_loc)
 {
     std::string verbose;
     for( auto &h : _loc.hosts ) {
-        if( auto psfs = std::any_cast<PSFS>(&h) )
+        if( std::any_cast<PSFS>(&h) )
             verbose += "[psfs]:";
         else if( auto xattr = std::any_cast<XAttr>(&h) )
             verbose += xattr->junction;
         else if( auto network = std::any_cast<Network>(&h) ) {
-            const auto &mgr = ConnectionsManager();
-            if( auto conn = mgr.ConnectionByUUID(network->connection) )
+            if( auto conn = m_ConnectionsManager.ConnectionByUUID(network->connection) )
                 verbose += NetworkConnectionsManager::MakeConnectionPath(*conn);
         }
         else if( auto la = std::any_cast<ArcLA>(&h) )
@@ -380,8 +370,8 @@ std::string PanelDataPersisency::MakeVerbosePathString(const PersistentLocation 
     return verbose;
 }
 
-std::string PanelDataPersisency::MakeVerbosePathString(const VFSHost &_host,
-                                                       const std::string &_directory)
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+std::string PanelDataPersistency::MakeVerbosePathString(const VFSHost &_host, const std::string &_directory)
 {
     std::array<const VFSHost *, 32> hosts;
     int hosts_n = 0;
@@ -401,47 +391,33 @@ std::string PanelDataPersisency::MakeVerbosePathString(const VFSHost &_host,
     return s;
 }
 
-Value PanelDataPersisency::EncodeVFSHostInfo(const VFSHost &_host)
+Value PanelDataPersistency::EncodeVFSHostInfo(const VFSHost &_host)
 {
     using namespace rapidjson;
     using namespace nc::config;
     auto tag = _host.Tag();
     Value json(rapidjson::kObjectType);
-    if( tag == VFSNativeHost::UniqueTag ) {
-        json.AddMember(
-            MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(tag), g_CrtAllocator);
-        return json;
-    }
-    else if( tag == vfs::PSHost::UniqueTag ) {
-        json.AddMember(
-            MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(tag), g_CrtAllocator);
-        return json;
-    }
-    else if( tag == vfs::XAttrHost::UniqueTag ) {
-        json.AddMember(
-            MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(tag), g_CrtAllocator);
-        json.AddMember(MakeStandaloneString(g_HostInfoJunctionKey),
-                       MakeStandaloneString(_host.JunctionPath()),
-                       g_CrtAllocator);
+    if( tag == VFSNativeHost::UniqueTag || //
+        tag == vfs::PSHost::UniqueTag ) {
+        json.AddMember(MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(tag), g_CrtAllocator);
         return json;
     }
     else if( IsNetworkVFS(_host) ) {
-        if( auto conn = ConnectionsManager().ConnectionForVFS(_host) ) {
+        if( auto conn = m_ConnectionsManager.ConnectionForVFS(_host) ) {
             json.AddMember(MakeStandaloneString(g_HostInfoTypeKey),
                            MakeStandaloneString(g_HostInfoTypeNetworkValue),
                            g_CrtAllocator);
-            json.AddMember(MakeStandaloneString(g_HostInfoUuidKey),
-                           MakeStandaloneString(conn->Uuid().ToString()),
-                           g_CrtAllocator);
+            json.AddMember(
+                MakeStandaloneString(g_HostInfoUuidKey), MakeStandaloneString(conn->Uuid().ToString()), g_CrtAllocator);
             return json;
         }
     }
-    else if( tag == vfs::ArchiveHost::UniqueTag || tag == vfs::ArchiveRawHost::UniqueTag ) {
+    else if( tag == vfs::ArchiveHost::UniqueTag ||    //
+             tag == vfs::ArchiveRawHost::UniqueTag || //
+             tag == vfs::XAttrHost::UniqueTag ) {
+        json.AddMember(MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(tag), g_CrtAllocator);
         json.AddMember(
-            MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(tag), g_CrtAllocator);
-        json.AddMember(MakeStandaloneString(g_HostInfoJunctionKey),
-                       MakeStandaloneString(_host.JunctionPath()),
-                       g_CrtAllocator);
+            MakeStandaloneString(g_HostInfoJunctionKey), MakeStandaloneString(_host.JunctionPath()), g_CrtAllocator);
         return json;
     }
     return Value{kNullType};
@@ -452,59 +428,50 @@ static Value EncodeAny(const std::any &_host)
     using namespace rapidjson;
     using namespace nc::config;
     Value json(rapidjson::kObjectType);
-    if( auto native = std::any_cast<Native>(&_host) ) {
-        json.AddMember(MakeStandaloneString(g_HostInfoTypeKey),
-                       MakeStandaloneString(VFSNativeHost::UniqueTag),
-                       g_CrtAllocator);
+    if( std::any_cast<Native>(&_host) ) {
+        json.AddMember(
+            MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(VFSNativeHost::UniqueTag), g_CrtAllocator);
         return json;
     }
-    else if( auto psfs = std::any_cast<PSFS>(&_host) ) {
-        json.AddMember(MakeStandaloneString(g_HostInfoTypeKey),
-                       MakeStandaloneString(vfs::PSHost::UniqueTag),
-                       g_CrtAllocator);
+    else if( std::any_cast<PSFS>(&_host) ) {
+        json.AddMember(
+            MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(vfs::PSHost::UniqueTag), g_CrtAllocator);
         return json;
     }
     else if( auto xattr = std::any_cast<XAttr>(&_host) ) {
-        json.AddMember(MakeStandaloneString(g_HostInfoTypeKey),
-                       MakeStandaloneString(vfs::XAttrHost::UniqueTag),
-                       g_CrtAllocator);
-        json.AddMember(MakeStandaloneString(g_HostInfoJunctionKey),
-                       MakeStandaloneString(xattr->junction),
-                       g_CrtAllocator);
+        json.AddMember(
+            MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(vfs::XAttrHost::UniqueTag), g_CrtAllocator);
+        json.AddMember(
+            MakeStandaloneString(g_HostInfoJunctionKey), MakeStandaloneString(xattr->junction), g_CrtAllocator);
         return json;
     }
     else if( auto network = std::any_cast<Network>(&_host) ) {
-        json.AddMember(MakeStandaloneString(g_HostInfoTypeKey),
-                       MakeStandaloneString(g_HostInfoTypeNetworkValue),
-                       g_CrtAllocator);
+        json.AddMember(
+            MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(g_HostInfoTypeNetworkValue), g_CrtAllocator);
         json.AddMember(MakeStandaloneString(g_HostInfoUuidKey),
                        MakeStandaloneString(network->connection.ToString()),
                        g_CrtAllocator);
         return json;
     }
     else if( auto la = std::any_cast<ArcLA>(&_host) ) {
-        json.AddMember(MakeStandaloneString(g_HostInfoTypeKey),
-                       MakeStandaloneString(vfs::ArchiveHost::UniqueTag),
-                       g_CrtAllocator);
-        json.AddMember(MakeStandaloneString(g_HostInfoJunctionKey),
-                       MakeStandaloneString(la->junction),
-                       g_CrtAllocator);
+        json.AddMember(
+            MakeStandaloneString(g_HostInfoTypeKey), MakeStandaloneString(vfs::ArchiveHost::UniqueTag), g_CrtAllocator);
+        json.AddMember(MakeStandaloneString(g_HostInfoJunctionKey), MakeStandaloneString(la->junction), g_CrtAllocator);
         return json;
     }
     else if( auto la_raw = std::any_cast<ArcLARaw>(&_host) ) {
         json.AddMember(MakeStandaloneString(g_HostInfoTypeKey),
                        MakeStandaloneString(vfs::ArchiveRawHost::UniqueTag),
                        g_CrtAllocator);
-        json.AddMember(MakeStandaloneString(g_HostInfoJunctionKey),
-                       MakeStandaloneString(la_raw->junction),
-                       g_CrtAllocator);
+        json.AddMember(
+            MakeStandaloneString(g_HostInfoJunctionKey), MakeStandaloneString(la_raw->junction), g_CrtAllocator);
         return json;
     }
 
     return Value{kNullType};
 }
 
-static bool Fits(VFSHost &_alive, const std::any &_encoded)
+bool PanelDataPersistency::Fits(VFSHost &_alive, const std::any &_encoded)
 {
     const auto tag = _alive.Tag();
     const auto encoded = &_encoded;
@@ -523,7 +490,7 @@ static bool Fits(VFSHost &_alive, const std::any &_encoded)
     }
     else if( IsNetworkVFS(_alive) ) {
         if( auto network = std::any_cast<Network>(encoded) )
-            if( auto conn = ConnectionsManager().ConnectionForVFS(_alive) )
+            if( auto conn = m_ConnectionsManager.ConnectionForVFS(_alive) )
                 return network->connection == conn->Uuid();
     }
     else if( tag == vfs::ArchiveHost::UniqueTag ) {
@@ -537,9 +504,9 @@ static bool Fits(VFSHost &_alive, const std::any &_encoded)
     return false;
 }
 
-static VFSHostPtr FindFitting(const std::vector<std::weak_ptr<VFSHost>> &_hosts,
-                              const std::any &_encoded,
-                              const VFSHost *_parent /* may be nullptr */)
+VFSHostPtr PanelDataPersistency::FindFitting(const std::vector<std::weak_ptr<VFSHost>> &_hosts,
+                                             const std::any &_encoded,
+                                             const VFSHost *_parent /* may be nullptr */)
 {
     for( auto &weak_host : _hosts )
         if( auto host = weak_host.lock() )
@@ -549,15 +516,13 @@ static VFSHostPtr FindFitting(const std::vector<std::weak_ptr<VFSHost>> &_hosts,
     return nullptr;
 }
 
-// TODO CancelChecker support???
-int PanelDataPersisency::CreateVFSFromLocation(const PersistentLocation &_state,
-                                               VFSHostPtr &_host,
-                                               core::VFSInstanceManager &_inst_mgr)
+// TODO: CancelChecker support???
+std::expected<VFSHostPtr, Error> PanelDataPersistency::CreateVFSFromLocation(const PersistentLocation &_state,
+                                                                             core::VFSInstanceManager &_inst_mgr)
 {
     if( _state.hosts.empty() ) {
         // short path for most common case - native vfs
-        _host = nc::bootstrap::NativeVFSHostInstance().SharedPtr();
-        return 0;
+        return nc::bootstrap::NativeVFSHostInstance().SharedPtr();
     }
 
     std::vector<VFSHostPtr> vfs;
@@ -572,60 +537,57 @@ int PanelDataPersisency::CreateVFSFromLocation(const PersistentLocation &_state,
             }
             // no luck - have to build this layer from scratch
 
-            if( auto native = std::any_cast<Native>(&h) ) {
+            if( std::any_cast<Native>(&h) ) {
                 vfs.emplace_back(nc::bootstrap::NativeVFSHostInstance().SharedPtr());
             }
-            else if( auto psfs = std::any_cast<PSFS>(&h) ) {
+            else if( std::any_cast<PSFS>(&h) ) {
                 vfs.emplace_back(vfs::PSHost::GetSharedOrNew());
             }
             else if( auto xattr = std::any_cast<XAttr>(&h) ) {
-                if( vfs.size() < 1 )
-                    return VFSError::GenericError; // invalid data
+                if( vfs.empty() )
+                    return std::unexpected(Error{Error::POSIX, EINVAL}); // invalid data
 
-                auto xattr_vfs =
-                    std::make_shared<vfs::XAttrHost>(xattr->junction.c_str(), vfs.back());
+                auto xattr_vfs = std::make_shared<vfs::XAttrHost>(xattr->junction.c_str(), vfs.back());
                 vfs.emplace_back(xattr_vfs);
             }
             else if( auto network = std::any_cast<Network>(&h) ) {
-                auto &mgr = ConnectionsManager();
-                if( auto conn = mgr.ConnectionByUUID(network->connection) ) {
-                    if( auto host = mgr.SpawnHostFromConnection(*conn) )
+                if( auto conn = m_ConnectionsManager.ConnectionByUUID(network->connection) ) {
+                    if( auto host = m_ConnectionsManager.SpawnHostFromConnection(*conn) )
                         vfs.emplace_back(host);
                     else
-                        return VFSError::GenericError; // failed to spawn connection
+                        return std::unexpected(Error{Error::POSIX, EINVAL}); // failed to spawn connection
                 }
                 else
-                    return VFSError::GenericError; // failed to find connection by uuid
+                    return std::unexpected(Error{Error::POSIX, EINVAL}); // failed to find connection by uuid
             }
             else if( auto la = std::any_cast<ArcLA>(&h) ) {
-                if( vfs.size() < 1 )
-                    return VFSError::GenericError; // invalid data
+                if( vfs.empty() )
+                    return std::unexpected(Error{Error::POSIX, EINVAL}); // invalid data
 
                 auto host = std::make_shared<vfs::ArchiveHost>(la->junction.c_str(), vfs.back());
                 vfs.emplace_back(host);
             }
             else if( auto la_raw = std::any_cast<ArcLARaw>(&h) ) {
-                if( vfs.size() < 1 )
-                    return VFSError::GenericError; // invalid data
+                if( vfs.empty() )
+                    return std::unexpected(Error{Error::POSIX, EINVAL}); // invalid data
 
-                auto host =
-                    std::make_shared<vfs::ArchiveRawHost>(la_raw->junction.c_str(), vfs.back());
+                auto host = std::make_shared<vfs::ArchiveRawHost>(la_raw->junction.c_str(), vfs.back());
                 vfs.emplace_back(host);
             }
         }
-    } catch( VFSErrorException &ee ) {
-        return ee.code();
+    } catch( const ErrorException &ee ) {
+        return std::unexpected(ee.error());
     }
 
-    if( !vfs.empty() ) {
-        _host = vfs.back();
-        return VFSError::Ok;
-    }
+    if( !vfs.empty() )
+        return vfs.back();
     else
-        return VFSError::GenericError;
+        return std::unexpected(Error{Error::POSIX, EINVAL});
+    ;
 }
 
-std::string PanelDataPersisency::GetPathFromState(const Value &_state)
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+std::string PanelDataPersistency::GetPathFromState(const Value &_state)
 {
     if( _state.IsObject() && _state.HasMember(g_StackPathKey) && _state[g_StackPathKey].IsString() )
         return _state[g_StackPathKey].GetString();
@@ -634,7 +596,7 @@ std::string PanelDataPersisency::GetPathFromState(const Value &_state)
 }
 
 std::optional<NetworkConnectionsManager::Connection>
-PanelDataPersisency::ExtractConnectionFromLocation(const PersistentLocation &_location)
+PanelDataPersistency::ExtractConnectionFromLocation(const PersistentLocation &_location)
 {
     if( _location.hosts.empty() )
         return std::nullopt;

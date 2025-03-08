@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "QuickSearch.h"
 #include <Panel/PanelDataFilter.h>
 #include <Panel/PanelData.h>
@@ -27,7 +27,7 @@ static bool IsBackspace(NSString *_s);
 static NSString *RemoveLastCharacterWithNormalization(NSString *_s);
 static NSString *ModifyStringByKeyDownString(NSString *_str, NSString *_key);
 
-}
+} // namespace nc::panel::QuickSearch
 
 @implementation NCPanelQuickSearch {
     __weak NSObject<NCPanelQuickSearchDelegate> *m_Delegate;
@@ -47,7 +47,8 @@ static NSString *ModifyStringByKeyDownString(NSString *_str, NSString *_key);
                     delegate:(NSObject<NCPanelQuickSearchDelegate> *)_delegate
                       config:(nc::config::Config &)_config
 {
-    if( !(self = [super init]) )
+    self = [super init];
+    if( !self )
         return nil;
     m_Delegate = _delegate;
     m_Data = &_data;
@@ -147,13 +148,13 @@ static NSString *ModifyStringByKeyDownString(NSString *_str, NSString *_key);
 
     if( !empty_now ) {
         if( IsBackspace(character) )
-            return view::BiddingPriority::Default;
+            return view::BiddingPriority::Max;
         if( m_IsSoftFiltering ) {
             if( IsLeft(character) || IsRight(character) || IsUp(character) || IsDown(character) )
                 return view::BiddingPriority::Default;
         }
         if( _event.keyCode == 53 ) { // Esc button
-            return view::BiddingPriority::Default;
+            return view::BiddingPriority::Max;
         }
     }
 
@@ -335,7 +336,7 @@ static NSString *ModifyStringByKeyDownString(NSString *_str, NSString *_key);
 {
     __weak NCPanelQuickSearch *weak_self = self;
     auto clear_filtering = [=] {
-        if( NCPanelQuickSearch *strong_self = weak_self ) {
+        if( NCPanelQuickSearch *const strong_self = weak_self ) {
             if( strong_self->m_SoftFilteringLastAction + g_SoftFilteringTimeout <= nc::base::machtime() )
                 [strong_self setSearchCriteria:nil];
         }
@@ -489,4 +490,4 @@ static KeyModif KeyModifFromInt(int _k)
     return KeyModif::WithAlt;
 }
 
-}
+} // namespace nc::panel::QuickSearch

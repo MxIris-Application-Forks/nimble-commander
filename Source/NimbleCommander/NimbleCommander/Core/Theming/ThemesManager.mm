@@ -1,13 +1,15 @@
 // Copyright (C) 2016-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ThemesManager.h"
 #include "Theme.h"
-#include <Config/RapidJSON.h>
 #include <Base/dispatch_cpp.h>
-#include <robin_hood.h>
+#include <Config/RapidJSON.h>
+#include <algorithm>
+#include <ankerl/unordered_dense.h>
 #include <charconv>
 #include <fmt/core.h>
+#include <frozen/string.h>
+#include <frozen/unordered_map.h>
 #include <ranges>
-#include <algorithm>
 
 namespace nc {
 
@@ -15,12 +17,20 @@ static const auto g_NameKey = "themeName";
 
 [[clang::no_destroy]] static std::shared_ptr<const Theme> g_CurrentTheme;
 
+template <size_t size, typename T, size_t... indexes>
+static constexpr auto make_array_n_impl(T &&value, std::index_sequence<indexes...> /*unused*/)
+{
+    return std::array<std::decay_t<T>, size>{(static_cast<void>(indexes), value)..., std::forward<T>(value)};
+}
+
+template <size_t size, typename T>
+static constexpr auto make_array_n(T &&value)
+{
+    return make_array_n_impl<size>(std::forward<T>(value), std::make_index_sequence<size - 1>{});
+}
+
 using TMN = ThemesManager::Notifications;
-
-using NotificationsMapping =
-    robin_hood::unordered_flat_map<std::string, uint64_t, RHTransparentStringHashEqual, RHTransparentStringHashEqual>;
-
-[[clang::no_destroy]] static const NotificationsMapping g_EntryToNotificationMapping = {
+static constexpr std::pair<const char *, uint64_t> g_EntryToNotificationMappingTable[] = {
     {"themeAppearance", TMN::Appearance},
     {"filePanelsColoringRules_v1", TMN::FilePanelsGeneral},
     {"filePanelsGeneralDropBorderColor", TMN::FilePanelsGeneral},
@@ -93,9 +103,25 @@ using NotificationsMapping =
     {"viewerFont", TMN::Viewer},
     {"viewerOverlayColor", TMN::Viewer},
     {"viewerTextColor", TMN::Viewer},
+    {"viewerTextSyntaxCommentColor", TMN::Viewer},
+    {"viewerTextSyntaxPreprocessorColor", TMN::Viewer},
+    {"viewerTextSyntaxKeywordColor", TMN::Viewer},
+    {"viewerTextSyntaxOperatorColor", TMN::Viewer},
+    {"viewerTextSyntaxIdentifierColor", TMN::Viewer},
+    {"viewerTextSyntaxNumberColor", TMN::Viewer},
+    {"viewerTextSyntaxStringColor", TMN::Viewer},
     {"viewerSelectionColor", TMN::Viewer},
     {"viewerBackgroundColor", TMN::Viewer},
 };
+
+static constinit const auto g_EntryToNotificationMapping = [] {
+    auto items = make_array_n<std::size(g_EntryToNotificationMappingTable)>(
+        std::pair<frozen::string, uint64_t>(frozen::string(""), 0));
+    for( size_t i = 0; i < std::size(g_EntryToNotificationMappingTable); ++i )
+        items[i] = std::pair<frozen::string, uint64_t>(g_EntryToNotificationMappingTable[i].first,
+                                                       g_EntryToNotificationMappingTable[i].second);
+    return frozen::make_unordered_map(items);
+}();
 
 static std::string MigrateThemeName(const std::string &_name);
 static std::optional<std::string> ExtractThemeNameAppearance(const nc::config::Value &_doc);
@@ -272,6 +298,7 @@ const Theme &CurrentTheme() noexcept
     return *g_CurrentTheme;
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 const Theme &ThemesManager::SelectedTheme() const
 {
     assert(g_CurrentTheme != nullptr);
@@ -433,9 +460,9 @@ std::string ThemesManager::SuitableNameForNewTheme(const std::string &_current_t
         return {}; // empty names are not allowed
 
     const auto themes = ThemeNames();
-    robin_hood::unordered_flat_set<std::string> names(themes.begin(), themes.end());
+    const ankerl::unordered_dense::set<std::string> names(themes.begin(), themes.end());
 
-    if( names.contains(_current_theme_name) == false ) {
+    if( !names.contains(_current_theme_name) ) {
         // no collision, accept as-is
         return _current_theme_name;
     }
@@ -448,14 +475,14 @@ std::string ThemesManager::SuitableNameForNewTheme(const std::string &_current_t
         std::from_chars(cn.data() + sp_idx + 1, cn.data() + cn.length(), current_idx).ec == std::errc{} ) {
         for( ; current_idx < 99; ++current_idx ) {
             auto name = fmt::format("{} {}", std::string_view(cn.data(), sp_idx), current_idx);
-            if( names.contains(name) == false )
+            if( !names.contains(name) )
                 return name;
         }
     }
     else {
         for( ; current_idx < 99; ++current_idx ) {
             auto name = fmt::format("{} {}", cn, current_idx);
-            if( names.contains(name) == false )
+            if( !names.contains(name) )
                 return name;
         }
     }
@@ -524,7 +551,7 @@ bool ThemesManager::RenameTheme(const std::string &_theme_name, const std::strin
 
     m_Themes.erase(_theme_name);
     m_Themes.emplace(_to_name, std::make_shared<nc::config::Document>(std::move(doc)));
-    std::replace(m_OrderedThemeNames.begin(), m_OrderedThemeNames.end(), _theme_name, _to_name);
+    std::ranges::replace(m_OrderedThemeNames, _theme_name, _to_name);
 
     // TODO: move to background thread, delay execution
     WriteThemes();
@@ -550,12 +577,12 @@ void ThemesManager::SetAutomaticSwitching(const AutoSwitchingSettings &_as)
 
 ThemesManager::AutoSwitchingSettings ThemesManager::AutomaticSwitching() const
 {
-    return {m_AutomaticSwitchingEnabled, m_AutoLightThemeName, m_AutoDarkThemeName};
+    return {.enabled = m_AutomaticSwitchingEnabled, .light = m_AutoLightThemeName, .dark = m_AutoDarkThemeName};
 }
 
 void ThemesManager::NotifyAboutSystemAppearanceChange(ThemeAppearance _appearance)
 {
-    if( m_AutomaticSwitchingEnabled == false )
+    if( !m_AutomaticSwitchingEnabled )
         return; // nothing to do, ignore the notification
 
     if( _appearance == ThemeAppearance::Light ) {

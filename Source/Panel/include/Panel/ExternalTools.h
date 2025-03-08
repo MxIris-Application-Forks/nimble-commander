@@ -1,4 +1,4 @@
-// Copyright (C) 2022-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2022-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include "PanelData.h"
@@ -7,6 +7,7 @@
 #include <Utility/TemporaryFileStorage.h>
 
 #include <Base/Observable.h>
+#include <Base/UUID.h>
 
 #include <Config/Config.h>
 
@@ -40,16 +41,14 @@ namespace nc::panel {
 class ExternalToolsParameters
 {
 public:
-    enum class Location : uint8_t
-    {
+    enum class Location : uint8_t {
         Source,
         Target,
         Left,
         Right
     };
 
-    enum class FileInfo : uint8_t
-    {
+    enum class FileInfo : uint8_t {
         DirectoryPath,
         Path,
         Filename,
@@ -78,8 +77,7 @@ public:
         friend constexpr auto operator<=>(SelectedItems _lhs, SelectedItems _rhs) noexcept = default;
     };
 
-    enum class ActionType : uint8_t
-    {
+    enum class ActionType : uint8_t {
         UserDefined,
         EnterValue,
         CurrentItem,
@@ -123,7 +121,7 @@ private:
 class ExternalToolsParametersParser
 {
 public:
-    std::expected<ExternalToolsParameters, std::string> Parse(std::string_view _source);
+    static std::expected<ExternalToolsParameters, std::string> Parse(std::string_view _source);
 
 private:
 };
@@ -131,18 +129,17 @@ private:
 class ExternalTool
 {
 public:
-    enum class StartupMode : uint8_t
-    {
+    enum class StartupMode : uint8_t {
         Automatic = 0,
         RunInTerminal = 1,
         RunDeatached = 2
     };
-    enum class GUIArgumentInterpretation : uint8_t
-    {
+    enum class GUIArgumentInterpretation : uint8_t {
         PassAllAsArguments = 0,
         PassExistingPathsAsURLs = 1
     };
 
+    nc::base::UUID m_UUID;
     std::string m_Title;
     std::string m_ExecutablePath; // app by bundle?
     std::string m_Parameters;
@@ -161,8 +158,7 @@ public:
 class ExternalToolExecution
 {
 public:
-    enum class PanelFocus : uint8_t
-    {
+    enum class PanelFocus : uint8_t {
         left,
         right
     };
@@ -186,7 +182,7 @@ public:
     ExternalTool::StartupMode DeduceStartupMode() const;
 
     bool IsBundle() const;
-    
+
     std::filesystem::path ExecutablePath() const;
 
     // returns a pid (that can already be -1 if the process quit too fast) or an error description
@@ -194,7 +190,7 @@ public:
     // (StartDetachedFork)
     std::expected<pid_t, std::string> StartDetached();
 
-    std::expected<pid_t, std::string> StartDetachedFork();
+    std::expected<pid_t, std::string> StartDetachedFork() const;
 
     std::expected<pid_t, std::string> StartDetachedUI();
 
@@ -210,16 +206,28 @@ private:
 class ExternalToolsStorage : public base::ObservableBase
 {
 public:
-    ExternalToolsStorage(const char *_config_path, nc::config::Config &_config);
+    enum class WriteChanges : uint8_t {
+        Immediate,
+        Background
+    };
+
+    ExternalToolsStorage(const char *_config_path,
+                         nc::config::Config &_config,
+                         WriteChanges _write_changes = WriteChanges::Background);
 
     size_t ToolsCount() const;
-    std::shared_ptr<const ExternalTool> GetTool(size_t _no) const; // will return nullptr on invalid index
+    std::shared_ptr<const ExternalTool> GetTool(size_t _no) const;              // will return nullptr on invalid index
+    std::shared_ptr<const ExternalTool> GetTool(const base::UUID &_uuid) const; // will return nullptr on invalid uuid
+
     std::vector<std::shared_ptr<const ExternalTool>> GetAllTools() const;
 
     void ReplaceTool(ExternalTool _tool, size_t _at_index);
     void InsertTool(ExternalTool _tool); // adds tool at the end
     void RemoveTool(size_t _at_index);
     void MoveTool(size_t _at_index, size_t _to_index);
+
+    // Generates a new unique title for a new tool
+    std::string NewTitle() const;
 
     using ObservationTicket = ObservableBase::ObservationTicket;
     ObservationTicket ObserveChanges(std::function<void()> _callback);
@@ -234,6 +242,7 @@ private:
     const char *m_ConfigPath;
     nc::config::Config &m_Config;
     std::vector<nc::config::Token> m_ConfigObservations;
+    WriteChanges m_WriteChanges;
 };
 
 } // namespace nc::panel

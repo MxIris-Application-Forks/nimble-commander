@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ShellState.h"
 #include <Base/CommonPaths.h>
 #include <Utility/NativeFSManager.h>
@@ -6,7 +6,7 @@
 #include <NimbleCommander/Core/Alert.h>
 #include <NimbleCommander/Bootstrap/Config.h>
 #include <NimbleCommander/Core/Theming/Theme.h>
-#include <NimbleCommander/Core/ActionsShortcutsManager.h>
+#include <Utility/ActionsShortcutsManager.h>
 #include <NimbleCommander/States/MainWindowController.h>
 #include <Term/ShellTask.h>
 #include <Term/Screen.h>
@@ -37,18 +37,22 @@ static const auto g_CustomPath = "terminal.customShellPath";
     std::unique_ptr<Interpreter> m_Interpreter;
     NSLayoutConstraint *m_TopLayoutConstraint;
     nc::utility::NativeFSManager *m_NativeFSManager;
+    const nc::utility::ActionsShortcutsManager *m_ActionsShortcutsManager;
     std::string m_InitalWD;
     std::string m_WindowTitle;
     std::string m_IconTitle;
     std::unique_ptr<ChildrenTracker> m_ChildrenTracker;
 }
 
-- (id)initWithFrame:(NSRect)frameRect nativeFSManager:(nc::utility::NativeFSManager &)_native_fs_man
+- (id)initWithFrame:(NSRect)frameRect
+            nativeFSManager:(nc::utility::NativeFSManager &)_native_fs_man
+    actionsShortcutsManager:(const nc::utility::ActionsShortcutsManager &)_actions_shortcuts_manager
 {
     self = [super initWithFrame:frameRect];
     if( self ) {
         __weak NCTermShellState *weak_self = self;
         m_NativeFSManager = &_native_fs_man;
+        m_ActionsShortcutsManager = &_actions_shortcuts_manager;
         m_InitalWD = nc::base::CommonPaths::Home();
 
         m_TermScrollView = [[NCTermScrollView alloc] initWithFrame:self.bounds
@@ -78,7 +82,7 @@ static const auto g_CustomPath = "terminal.customShellPath";
         });
 
         ParserImpl::Params parser_params;
-        parser_params.error_log = [](std::string_view _error) { Log::Error(SPDLOC, "parsing error: {}", _error); };
+        parser_params.error_log = [](std::string_view _error) { Log::Error("parsing error: {}", _error); };
         m_Parser = std::make_unique<ParserImpl>(parser_params);
 
         m_Interpreter = std::make_unique<InterpreterImpl>(m_TermScrollView.screen);
@@ -88,7 +92,7 @@ static const auto g_CustomPath = "terminal.customShellPath";
         m_Interpreter->SetBell([] { NSBeep(); });
         m_Interpreter->SetTitle([weak_self](const std::string &_title, Interpreter::TitleKind _kind) {
             dispatch_to_main_queue([weak_self, _title, _kind] {
-                if( NCTermShellState *me = weak_self ) {
+                if( NCTermShellState *const me = weak_self ) {
                     if( _kind == Interpreter::TitleKind::Icon )
                         me->m_IconTitle = _title;
                     if( _kind == Interpreter::TitleKind::Window )
@@ -99,25 +103,25 @@ static const auto g_CustomPath = "terminal.customShellPath";
         });
         m_Interpreter->SetInputTranslator(m_InputTranslator.get());
         m_Interpreter->SetShowCursorChanged([weak_self](bool _show) {
-            NCTermShellState *me = weak_self;
+            NCTermShellState *const me = weak_self;
             me->m_TermScrollView.view.showCursor = _show;
         });
         m_Interpreter->SetCursorStyleChanged([weak_self](std::optional<CursorMode> _mode) {
-            NCTermShellState *me = weak_self;
+            NCTermShellState *const me = weak_self;
             if( _mode )
                 me->m_TermScrollView.view.cursorMode = *_mode;
             else
                 me->m_TermScrollView.view.cursorMode = me->m_TermScrollView.view.settings->CursorMode();
         });
         m_Interpreter->SetRequstedMouseEventsChanged([weak_self](Interpreter::RequestedMouseEvents _events) {
-            NCTermShellState *me = weak_self;
+            NCTermShellState *const me = weak_self;
             me->m_TermScrollView.view.mouseEvents = _events;
         });
         m_Interpreter->SetScreenResizeAllowed(false);
 
         [m_TermScrollView.view AttachToInputTranslator:m_InputTranslator.get()];
         m_TermScrollView.onScreenResized = [weak_self](int _sx, int _sy) {
-            NCTermShellState *me = weak_self;
+            NCTermShellState *const me = weak_self;
             me->m_Interpreter->NotifyScreenResized();
             me->m_Task->ResizeWindow(_sx, _sy);
             [me updateTitle];
@@ -207,8 +211,8 @@ static const auto g_CustomPath = "terminal.customShellPath";
 
         auto cmds = strongself->m_Parser->Parse(bytes);
         if( cmds.empty() )
-
             return;
+
         dispatch_to_main_queue([=, cmds = std::move(cmds)] {
             if( Log::Level() <= spdlog::level::debug )
                 nc::term::input::LogCommands(cmds);
@@ -369,9 +373,9 @@ static const auto g_CustomPath = "terminal.customShellPath";
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
-    auto tag = item.tag;
-    IF_MENU_TAG("menu.view.show_terminal")
-    {
+    static const int show_terminal_tag = m_ActionsShortcutsManager->TagFromAction("menu.view.show_terminal").value();
+    const long tag = item.tag;
+    if( tag == show_terminal_tag ) {
         item.title = NSLocalizedString(@"Hide Terminal", "Menu item title for hiding terminal");
         return true;
     }
@@ -398,7 +402,7 @@ static const auto g_CustomPath = "terminal.customShellPath";
     dispatch_assert_background_queue();
     if( Log::Level() <= spdlog::level::trace ) {
         auto input = term::input::FormatRawInput(_bytes);
-        dispatch_to_main_queue([input = std::move(input)] { Log::Trace(SPDLOC, "raw input: {}", input); });
+        dispatch_to_main_queue([input = std::move(input)] { Log::Trace("raw input: {}", input); });
     }
     //    std::cerr <<  term::input::FormatRawInput(_bytes) << std::endl;
 }

@@ -1,4 +1,4 @@
-// Copyright (C) 2014-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ProcessSheetController.h"
 #include <Base/dispatch_cpp.h>
 #include <Base/CommonPaths.h>
@@ -43,6 +43,9 @@ static NSBundle *Bundle() noexcept
 }
 
 @synthesize userCancelled = m_UserCancelled;
+@synthesize OnCancelOperation;
+@synthesize titleTextField;
+@synthesize progressIndicator;
 
 - (id)init
 {
@@ -89,7 +92,7 @@ static NSBundle *Bundle() noexcept
 {
     // consider using modal dialog here.
 
-    if( m_Running == true )
+    if( m_Running )
         return;
     dispatch_to_main_queue_after(g_ShowDelay, [=] {
         if( m_ClientClosed )
@@ -107,7 +110,7 @@ static NSBundle *Bundle() noexcept
 
 - (void)Discard
 {
-    if( m_Running == false )
+    if( !m_Running )
         return;
 
     dispatch_to_main_queue([=] { [self.window close]; });
@@ -131,8 +134,7 @@ static NSBundle *Bundle() noexcept
     }
     else {
         NSString *result = nil;
-        dispatch_sync(dispatch_get_main_queue(),
-                      [=, &result] { result = self.titleTextField.stringValue; });
+        dispatch_sync(dispatch_get_main_queue(), [=, &result] { result = self.titleTextField.stringValue; });
         return result;
     }
 }
@@ -146,8 +148,7 @@ static NSBundle *Bundle() noexcept
         self.progressIndicator.doubleValue = m_Progress;
     }
     else {
-        dispatch_async(dispatch_get_main_queue(),
-                       [=] { self.progressIndicator.doubleValue = m_Progress; });
+        dispatch_async(dispatch_get_main_queue(), [=] { self.progressIndicator.doubleValue = m_Progress; });
     }
 }
 

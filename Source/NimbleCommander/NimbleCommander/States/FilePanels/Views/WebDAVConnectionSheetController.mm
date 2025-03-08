@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "WebDAVConnectionSheetController.h"
 #include <Utility/StringExtras.h>
 #include <Base/algo.h>
@@ -17,10 +17,20 @@
 @end
 
 @implementation WebDAVConnectionSheetController {
-    std::optional<NetworkConnectionsManager::Connection> m_Original;
+    std::optional<nc::panel::NetworkConnectionsManager::Connection> m_Original;
     std::optional<std::string> m_Password;
-    NetworkConnectionsManager::WebDAV m_Connection;
+    nc::panel::NetworkConnectionsManager::WebDAV m_Connection;
 }
+@synthesize setupMode;
+@synthesize isValid;
+@synthesize titleTextField;
+@synthesize protocolPopup;
+@synthesize serverTextField;
+@synthesize basePathTextField;
+@synthesize usernameTextField;
+@synthesize passwordTextField;
+@synthesize remotePortTextField;
+@synthesize connectButton;
 
 - (id)init
 {
@@ -39,7 +49,7 @@
         self.connectButton.title = self.connectButton.alternateTitle;
 
     if( m_Original ) {
-        auto &c = m_Original->Get<NetworkConnectionsManager::WebDAV>();
+        auto &c = m_Original->Get<nc::panel::NetworkConnectionsManager::WebDAV>();
         self.titleTextField.stringValue = [NSString stringWithUTF8StdString:c.title];
         self.serverTextField.stringValue = [NSString stringWithUTF8StdString:c.host];
         self.basePathTextField.stringValue = [NSString stringWithUTF8StdString:c.path];
@@ -55,14 +65,14 @@
     [self validate];
 }
 
-- (void)setConnection:(NetworkConnectionsManager::Connection)connection
+- (void)setConnection:(nc::panel::NetworkConnectionsManager::Connection)connection
 {
     m_Original = connection;
 }
 
-- (NetworkConnectionsManager::Connection)connection
+- (nc::panel::NetworkConnectionsManager::Connection)connection
 {
-    return NetworkConnectionsManager::Connection(m_Connection);
+    return nc::panel::NetworkConnectionsManager::Connection(m_Connection);
 }
 
 - (void)setPassword:(std::string)_password
@@ -85,7 +95,7 @@ static const char *SafeStr(const char *_s)
     if( m_Original )
         m_Connection.uuid = m_Original->Uuid();
     else
-        m_Connection.uuid = NetworkConnectionsManager::MakeUUID();
+        m_Connection.uuid = nc::panel::NetworkConnectionsManager::MakeUUID();
 
     m_Connection.title = SafeStr(self.titleTextField.stringValue.UTF8String);
     m_Connection.host = SafeStr(self.serverTextField.stringValue.UTF8String);

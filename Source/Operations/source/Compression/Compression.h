@@ -1,19 +1,15 @@
-// Copyright (C) 2017-2019 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include "../Operation.h"
 #include <VFS/VFS.h>
-
-
 
 /*
 +TODO:
 - adjusting stats on skips
 */
 
-
-namespace nc::ops
-{
+namespace nc::ops {
 
 class CompressionJob;
 
@@ -34,10 +30,10 @@ private:
     std::string BuildInitialTitle() const;
     std::string BuildTitleWithArchiveFilename() const;
     void OnTargetPathDefined();
-    void OnTargetWriteError(int _err, const std::string &_path, VFSHost &_vfs);
+    void OnTargetWriteError(Error _err, const std::string &_path, VFSHost &_vfs);
     int OnSourceReadError(int _err, const std::string &_path, VFSHost &_vfs);
-    int OnSourceScanError(int _err, const std::string &_path, VFSHost &_vfs);
-    int OnSourceAccessError(int _err, const std::string &_path, VFSHost &_vfs);
+    int OnSourceScanError(Error _err, const std::string &_path, VFSHost &_vfs);
+    int OnSourceAccessError(Error _err, const std::string &_path, VFSHost &_vfs);
 
     std::unique_ptr<CompressionJob> m_Job;
     bool m_SkipAll = false;
@@ -45,4 +41,4 @@ private:
     std::string m_InitialSingleItemFilename = "";
 };
 
-}
+} // namespace nc::ops

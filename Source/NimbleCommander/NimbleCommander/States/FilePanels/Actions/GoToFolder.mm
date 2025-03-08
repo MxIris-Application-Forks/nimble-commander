@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "GoToFolder.h"
 #include <Base/CommonPaths.h>
 #include <VFS/Native.h>
@@ -22,9 +22,9 @@ namespace nc::panel::actions {
 
 using namespace std::literals;
 
-void GoToFolder::Perform(PanelController *_target, id) const
+void GoToFolder::Perform(PanelController *_target, id /*_sender*/) const
 {
-    GoToFolderSheetController *sheet = [GoToFolderSheetController new];
+    GoToFolderSheetController *const sheet = [GoToFolderSheetController new];
     sheet.panel = _target;
     [sheet showSheetWithParentWindow:_target.window
                              handler:[=] {
@@ -34,8 +34,8 @@ void GoToFolder::Perform(PanelController *_target, id) const
                                                             : nc::bootstrap::NativeVFSHostInstance().SharedPtr();
                                  c->PerformAsynchronous = true;
                                  c->InitiatedByUser = true;
-                                 c->LoadingResultCallback = [=](int _code) {
-                                     dispatch_to_main_queue([=] { [sheet tellLoadingResult:_code]; });
+                                 c->LoadingResultCallback = [=](const std::expected<void, Error> &_result) {
+                                     dispatch_to_main_queue([=] { [sheet tellLoadingResult:_result]; });
                                  };
                                  [_target GoToDirWithContext:c];
                              }];
@@ -51,73 +51,62 @@ static void GoToNativeDir(const std::string &_path, PanelController *_target)
     [_target GoToDirWithContext:request];
 }
 
-void GoToHomeFolder::Perform(PanelController *_target, id) const
+void GoToHomeFolder::Perform(PanelController *_target, id /*_sender*/) const
 {
     GoToNativeDir(base::CommonPaths::Home(), _target);
 }
 
-void GoToDocumentsFolder::Perform(PanelController *_target, id) const
+void GoToDocumentsFolder::Perform(PanelController *_target, id /*_sender*/) const
 {
     GoToNativeDir(base::CommonPaths::Documents(), _target);
 }
 
-void GoToDesktopFolder::Perform(PanelController *_target, id) const
+void GoToDesktopFolder::Perform(PanelController *_target, id /*_sender*/) const
 {
     GoToNativeDir(base::CommonPaths::Desktop(), _target);
 }
 
-void GoToDownloadsFolder::Perform(PanelController *_target, id) const
+void GoToDownloadsFolder::Perform(PanelController *_target, id /*_sender*/) const
 {
     GoToNativeDir(base::CommonPaths::Downloads(), _target);
 }
 
-void GoToApplicationsFolder::Perform(PanelController *_target, id) const
+void GoToApplicationsFolder::Perform(PanelController *_target, id /*_sender*/) const
 {
-    if( utility::GetOSXVersion() < utility::OSXVersion::OSX_15 ) {
-        GoToNativeDir(base::CommonPaths::Applications(), _target);
-    }
-    else {
-        auto task = [_target](const std::function<bool()> &_cancelled) {
-            VFSListingPtr listing;
-            int rc = vfs::native::FetchUnifiedApplicationsListing(
-                nc::bootstrap::NativeVFSHostInstance(), listing, _target.vfsFetchingFlags, _cancelled);
-            if( rc == VFSError::Ok ) {
-                dispatch_to_main_queue([listing, _target] { [_target loadListing:listing]; });
-            }
-        };
-        [_target commitCancelableLoadingTask:std::move(task)];
-    }
+
+    auto task = [_target](const std::function<bool()> &_cancelled) {
+        const std::expected<VFSListingPtr, Error> listing = vfs::native::FetchUnifiedApplicationsListing(
+            nc::bootstrap::NativeVFSHostInstance(), _target.vfsFetchingFlags, _cancelled);
+        if( listing ) {
+            dispatch_to_main_queue([listing, _target] { [_target loadListing:*listing]; });
+        }
+    };
+    [_target commitCancelableLoadingTask:std::move(task)];
 }
 
-void GoToUtilitiesFolder::Perform(PanelController *_target, id) const
+void GoToUtilitiesFolder::Perform(PanelController *_target, id /*_sender*/) const
 {
-    if( utility::GetOSXVersion() < utility::OSXVersion::OSX_15 ) {
-        GoToNativeDir(base::CommonPaths::Utilities(), _target);
-    }
-    else {
-        auto task = [_target](const std::function<bool()> &_cancelled) {
-            VFSListingPtr listing;
-            int rc = vfs::native::FetchUnifiedUtilitiesListing(
-                nc::bootstrap::NativeVFSHostInstance(), listing, _target.vfsFetchingFlags, _cancelled);
-            if( rc == VFSError::Ok ) {
-                dispatch_to_main_queue([listing, _target] { [_target loadListing:listing]; });
-            }
-        };
-        [_target commitCancelableLoadingTask:std::move(task)];
-    }
+    auto task = [_target](const std::function<bool()> &_cancelled) {
+        const std::expected<VFSListingPtr, Error> listing = vfs::native::FetchUnifiedUtilitiesListing(
+            nc::bootstrap::NativeVFSHostInstance(), _target.vfsFetchingFlags, _cancelled);
+        if( listing ) {
+            dispatch_to_main_queue([listing, _target] { [_target loadListing:*listing]; });
+        }
+    };
+    [_target commitCancelableLoadingTask:std::move(task)];
 }
 
-void GoToLibraryFolder::Perform(PanelController *_target, id) const
+void GoToLibraryFolder::Perform(PanelController *_target, id /*_sender*/) const
 {
     GoToNativeDir(base::CommonPaths::Library(), _target);
 }
 
-void GoToRootFolder::Perform(PanelController *_target, id) const
+void GoToRootFolder::Perform(PanelController *_target, id /*_sender*/) const
 {
     GoToNativeDir(base::CommonPaths::Root(), _target);
 }
 
-void GoToProcessesList::Perform(PanelController *_target, id) const
+void GoToProcessesList::Perform(PanelController *_target, id /*_sender*/) const
 {
     auto request = std::make_shared<DirectoryChangeRequest>();
     request->RequestedDirectory = "/";
@@ -125,6 +114,10 @@ void GoToProcessesList::Perform(PanelController *_target, id) const
     request->PerformAsynchronous = true;
     request->InitiatedByUser = true;
     [_target GoToDirWithContext:request];
+}
+
+GoToFavoriteLocation::GoToFavoriteLocation(NetworkConnectionsManager &_net_mgr) : m_NetMgr(_net_mgr)
+{
 }
 
 void GoToFavoriteLocation::Perform(PanelController *_target, id _sender) const
@@ -139,7 +132,7 @@ void GoToFavoriteLocation::Perform(PanelController *_target, id _sender) const
     if( location == nil )
         return;
 
-    auto restorer = AsyncPersistentLocationRestorer(_target, _target.vfsInstanceManager);
+    auto restorer = AsyncPersistentLocationRestorer(_target, _target.vfsInstanceManager, m_NetMgr);
     auto handler = [path = location->path, panel = _target](VFSHostPtr _host) {
         dispatch_to_main_queue([=] {
             auto request = std::make_shared<DirectoryChangeRequest>();
@@ -178,10 +171,10 @@ void GoToEnclosingFolder::Perform(PanelController *_target, id _sender) const
 
         if( cur == "/" ) {
             if( const auto parent_vfs = vfs->Parent() ) {
-                std::filesystem::path junct = vfs->JunctionPath();
+                const std::filesystem::path junct = vfs->JunctionPath();
                 assert(!junct.empty());
-                std::string dir = junct.parent_path();
-                std::string sel_fn = junct.filename();
+                const std::string dir = junct.parent_path();
+                const std::string sel_fn = junct.filename();
 
                 auto request = std::make_shared<DirectoryChangeRequest>();
                 request->RequestedDirectory = dir;
@@ -194,8 +187,8 @@ void GoToEnclosingFolder::Perform(PanelController *_target, id _sender) const
             }
         }
         else {
-            std::string dir = cur.parent_path().remove_filename();
-            std::string sel_fn = cur.parent_path().filename();
+            const std::string dir = cur.parent_path().remove_filename();
+            const std::string sel_fn = cur.parent_path().filename();
 
             auto request = std::make_shared<DirectoryChangeRequest>();
             request->RequestedDirectory = dir;
@@ -252,7 +245,7 @@ bool GoIntoFolder::ValidateMenuItem(PanelController *_target, NSMenuItem *_item)
     return Predicate(_target);
 }
 
-void GoIntoFolder::Perform(PanelController *_target, id) const
+void GoIntoFolder::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto item = _target.view.item;
     if( !item )

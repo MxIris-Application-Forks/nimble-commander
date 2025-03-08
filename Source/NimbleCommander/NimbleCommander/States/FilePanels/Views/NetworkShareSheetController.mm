@@ -1,4 +1,4 @@
-// Copyright (C) 2014-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "NetworkShareSheetController.h"
 #include <Utility/StringExtras.h>
 
@@ -18,22 +18,35 @@
 @end
 
 @implementation NetworkShareSheetController {
-    std::optional<NetworkConnectionsManager::Connection> m_Original;
-    NetworkConnectionsManager::LANShare m_Connection;
+    std::optional<nc::panel::NetworkConnectionsManager::Connection> m_Original;
+    nc::panel::NetworkConnectionsManager::LANShare m_Connection;
 }
+@synthesize setupMode;
+@synthesize title;
+@synthesize server;
+@synthesize share;
+@synthesize username;
+@synthesize passwordEntered;
+@synthesize mountpath;
+@synthesize protocol;
+@synthesize connectButton;
+@synthesize valid;
+@synthesize nfsSelected;
 
 - (instancetype)init
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         self.valid = true;
         self.nfsSelected = false;
     }
     return self;
 }
 
-- (instancetype)initWithConnection:(NetworkConnectionsManager::Connection)_connection
+- (instancetype)initWithConnection:(nc::panel::NetworkConnectionsManager::Connection)_connection
 {
-    if( self = [self init] ) {
+    self = [self init];
+    if( self ) {
         m_Original = _connection;
     }
     return self;
@@ -47,7 +60,7 @@
         self.connectButton.title = self.connectButton.alternateTitle;
 
     if( m_Original ) {
-        auto &c = m_Original->Get<NetworkConnectionsManager::LANShare>();
+        auto &c = m_Original->Get<nc::panel::NetworkConnectionsManager::LANShare>();
         self.title = [NSString stringWithUTF8StdString:c.title];
         self.server = [NSString stringWithUTF8StdString:c.host];
         self.username = [NSString stringWithUTF8StdString:c.user];
@@ -69,7 +82,7 @@
     if( m_Original )
         m_Connection.uuid = m_Original->Uuid();
     else
-        m_Connection.uuid = NetworkConnectionsManager::MakeUUID();
+        m_Connection.uuid = nc::panel::NetworkConnectionsManager::MakeUUID();
 
     auto extract_string = [](NSString *s) { return s.UTF8String ? s.UTF8String : ""; };
 
@@ -78,17 +91,17 @@
     m_Connection.host = extract_string(self.server);
     m_Connection.user = extract_string(self.username);
     m_Connection.mountpoint = extract_string(self.mountpath);
-    m_Connection.proto = NetworkConnectionsManager::LANShare::Protocol(self.protocol.selectedTag);
+    m_Connection.proto = nc::panel::NetworkConnectionsManager::LANShare::Protocol(self.protocol.selectedTag);
 
     [self endSheet:NSModalResponseOK];
 }
 
-- (NetworkConnectionsManager::Connection)connection
+- (nc::panel::NetworkConnectionsManager::Connection)connection
 {
-    return NetworkConnectionsManager::Connection(m_Connection);
+    return nc::panel::NetworkConnectionsManager::Connection(m_Connection);
 }
 
-- (void)setConnection:(NetworkConnectionsManager::Connection)connection
+- (void)setConnection:(nc::panel::NetworkConnectionsManager::Connection)connection
 {
     m_Original = connection;
 }
@@ -152,8 +165,8 @@
 - (void)validate
 {
     self.valid = [self isValid];
-    self.nfsSelected = self.protocol.selectedTag ==
-                       static_cast<int>(NetworkConnectionsManager::LANShare::Protocol::NFS);
+    self.nfsSelected =
+        self.protocol.selectedTag == static_cast<int>(nc::panel::NetworkConnectionsManager::LANShare::Protocol::NFS);
 }
 
 - (bool)isValid

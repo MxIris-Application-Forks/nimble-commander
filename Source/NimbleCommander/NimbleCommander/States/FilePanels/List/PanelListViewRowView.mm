@@ -33,6 +33,7 @@ using namespace nc::panel;
 @synthesize tagAccentColor = m_TagAccentColor;
 @synthesize itemIndex = m_ItemIndex;
 @synthesize item = m_Item;
+@synthesize listView;
 
 - (id)initWithItem:(VFSListingItem)_item
 {
@@ -134,9 +135,9 @@ static NSColor *Blend(NSColor *_front, NSColor *_back)
     const auto cs = NSColorSpace.genericRGBColorSpace;
     _front = [_front colorUsingColorSpace:cs];
     _back = [_back colorUsingColorSpace:cs];
-    const auto r = _front.redComponent * alpha + _back.redComponent * (1. - alpha);
-    const auto g = _front.greenComponent * alpha + _back.greenComponent * (1. - alpha);
-    const auto b = _front.blueComponent * alpha + _back.blueComponent * (1. - alpha);
+    const auto r = (_front.redComponent * alpha) + (_back.redComponent * (1. - alpha));
+    const auto g = (_front.greenComponent * alpha) + (_back.greenComponent * (1. - alpha));
+    const auto b = (_front.blueComponent * alpha) + (_back.blueComponent * (1. - alpha));
     return [NSColor colorWithCalibratedRed:r green:g blue:b alpha:1.];
 }
 

@@ -7,6 +7,7 @@
 #include <Utility/Log.h>
 #include <Base/dispatch_cpp.h>
 #include <Base/spinlock.h>
+#include <Base/StackAllocator.h>
 #include <fmt/ranges.h>
 #include <span>
 
@@ -17,18 +18,21 @@ static const CFAbsoluteTime g_FSEventsLatency = 0.05; // 50ms
 // ask FS about real file path - case sensitive etc
 // also we're getting rid of symlinks - it will be a real file
 // return path with trailing slash
-static std::string GetRealPath(const char *_path_in)
+static std::string GetRealPath(std::string_view _path_in)
 {
-    int tfd = open(_path_in, O_RDONLY);
+    StackAllocator alloc;
+    const std::pmr::string path_in(_path_in, &alloc);
+
+    const int tfd = open(path_in.c_str(), O_RDONLY);
     if( tfd == -1 ) {
-        Log::Warn(SPDLOC, "GetRealPath() failed to open '{}'", _path_in);
+        Log::Warn("GetRealPath() failed to open '{}'", _path_in);
         return {};
     }
     char path_buf[MAXPATHLEN];
-    int ret = fcntl(tfd, F_GETPATH, path_buf);
+    const int ret = fcntl(tfd, F_GETPATH, path_buf);
     close(tfd);
     if( ret == -1 ) {
-        Log::Warn(SPDLOC, "GetRealPath() failed to F_GETPATH of '{}', errno: {}", _path_in, errno);
+        Log::Warn("GetRealPath() failed to F_GETPATH of '{}', errno: {}", _path_in, errno);
         return {};
     }
 
@@ -84,8 +88,7 @@ void FSEventsDirUpdateImpl::FSEventsDirUpdateCallback([[maybe_unused]] ConstFSEv
 {
     // WTF this data access is not locked????
 
-    Log::Trace(SPDLOC,
-               "FSEventsDirUpdate::Impl::FSEventsDirUpdateCallback for {} path(s): {}",
+    Log::Trace("FSEventsDirUpdate::Impl::FSEventsDirUpdateCallback for {} path(s): {}",
                _num,
                fmt::join(std::span<const char *>{reinterpret_cast<const char **>(_paths), _num}, ", "));
 
@@ -98,14 +101,14 @@ void FSEventsDirUpdateImpl::FSEventsDirUpdateCallback([[maybe_unused]] ConstFSEv
 
 FSEventStreamRef FSEventsDirUpdateImpl::CreateEventStream(const std::string &path, void *context_ptr)
 {
-    Log::Debug(SPDLOC, "CreateEventStream called for '{}'", path);
+    Log::Debug("CreateEventStream called for '{}'", path);
     auto cf_path = base::CFStringCreateWithUTF8StdString(path);
     if( !cf_path ) {
-        Log::Warn(SPDLOC, "CreateEventStream failed to create a CFStringRef for '{}'", path);
-        return 0;
+        Log::Warn("CreateEventStream failed to create a CFStringRef for '{}'", path);
+        return nullptr;
     }
 
-    CFArrayRef pathsToWatch = CFArrayCreate(0, reinterpret_cast<const void **>(&cf_path), 1, nullptr);
+    CFArrayRef pathsToWatch = CFArrayCreate(nullptr, reinterpret_cast<const void **>(&cf_path), 1, nullptr);
     FSEventStreamRef stream = nullptr;
     auto create_stream = [&] {
         const auto flags = kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagWatchRoot;
@@ -118,7 +121,7 @@ FSEventStreamRef FSEventsDirUpdateImpl::CreateEventStream(const std::string &pat
                                      g_FSEventsLatency,
                                      flags);
         if( stream == nullptr ) {
-            Log::Warn(SPDLOC, "FSEventStreamCreate failed to create a stream for '{}'", path);
+            Log::Warn("FSEventStreamCreate failed to create a stream for '{}'", path);
         }
     };
 
@@ -141,7 +144,7 @@ static void StartStream(FSEventStreamRef _stream)
         FSEventStreamScheduleWithRunLoop(_stream, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
         const bool started = FSEventStreamStart(_stream);
         if( !started ) {
-            Log::Error(SPDLOC, "FSEventStreamStart failed to start");
+            Log::Error("FSEventStreamStart failed to start");
         }
     };
 
@@ -166,17 +169,17 @@ static void StopStream(FSEventStreamRef _stream)
     });
 }
 
-uint64_t FSEventsDirUpdateImpl::AddWatchPath(const char *_path, std::function<void()> _handler)
+uint64_t FSEventsDirUpdateImpl::AddWatchPath(std::string_view _path, std::function<void()> _handler)
 {
-    if( !_path || !_handler )
+    if( _path.empty() || !_handler )
         return no_ticket;
 
-    Log::Debug(SPDLOC, "FSEventsDirUpdate::Impl::AddWatchPath called for '{}'", _path);
+    Log::Debug("FSEventsDirUpdate::Impl::AddWatchPath called for '{}'", _path);
 
     // convert _path into canonical path of OS
     const auto dir_path = GetRealPath(_path);
     if( dir_path.empty() ) {
-        Log::Debug(SPDLOC, "Failed to get a real path of '{}'", _path);
+        Log::Debug("Failed to get a real path of '{}'", _path);
         return no_ticket;
     }
 
@@ -187,16 +190,16 @@ uint64_t FSEventsDirUpdateImpl::AddWatchPath(const char *_path, std::function<vo
 
     // check if this path already presents in watched paths
     if( auto it = m_Watches.find(dir_path); it != m_Watches.end() ) {
-        Log::Trace(SPDLOC, "Using an already existing watcher for '{}'", _path);
-        it->second.handlers.emplace_back(ticket, std::move(_handler));
+        Log::Trace("Using an already existing watcher for '{}'", _path);
+        it->second->handlers.emplace_back(ticket, std::move(_handler));
         return ticket;
     }
 
     // create a new watch stream
-    Log::Trace(SPDLOC, "Creating a new watcher for '{}'", _path);
-    auto ep = m_Watches.emplace(dir_path, WatchData{});
+    Log::Trace("Creating a new watcher for '{}'", _path);
+    auto ep = m_Watches.emplace(dir_path, std::make_unique<WatchData>());
     assert(ep.second == true);
-    WatchData &w = ep.first->second;
+    WatchData &w = *ep.first->second;
     w.stream = CreateEventStream(dir_path, &w);
     if( w.stream == nullptr ) {
         // failed to creat the event stream, roll back the changes and return a failure indication
@@ -230,14 +233,14 @@ void FSEventsDirUpdateImpl::RemoveWatchPathWithTicket(uint64_t _ticket)
         return;
 
     if( !dispatch_is_main_queue() ) {
-        dispatch_to_main_queue([=] { RemoveWatchPathWithTicket(_ticket); });
+        dispatch_to_main_queue([=, this] { RemoveWatchPathWithTicket(_ticket); });
         return;
     }
 
     auto lock = std::lock_guard{m_Lock};
 
     for( auto i = m_Watches.begin(), e = m_Watches.end(); i != e; ++i ) {
-        auto &watch = i->second;
+        auto &watch = *i->second;
         for( auto h = watch.handlers.begin(), he = watch.handlers.end(); h != he; ++h )
             if( h->first == _ticket ) {
                 unordered_erase(watch.handlers, h);
@@ -256,8 +259,8 @@ void FSEventsDirUpdateImpl::OnVolumeDidUnmount(const std::string &_on_path)
     dispatch_assert_main_queue();
     // locking??
     for( auto &i : m_Watches ) {
-        if( i.second.path.starts_with(_on_path) ) {
-            for( auto &h : i.second.handlers )
+        if( i.second->path.starts_with(_on_path) ) {
+            for( auto &h : i.second->handlers )
                 h.second();
         }
     }

@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "OpenNetworkConnection.h"
 #include "../PanelController.h"
 #include "../Views/FTPConnectionSheetController.h"
@@ -19,6 +19,7 @@
 #include <Base/dispatch_cpp.h>
 #include <Utility/StringExtras.h>
 #include <Utility/ObjCpp.h>
+#include <CUI/CommandPopover.h>
 
 namespace nc::panel::actions {
 
@@ -48,12 +49,12 @@ static bool GoToFTP(PanelController *_target,
         _net_mgr.ReportUsage(_connection);
 
         return true;
-    } catch( VFSErrorException &e ) {
+    } catch( const ErrorException &e ) {
         dispatch_to_main_queue([=] {
-            Alert *alert = [[Alert alloc] init];
+            Alert *const alert = [[Alert alloc] init];
             alert.messageText =
                 NSLocalizedString(@"FTP connection error:", "Showing error when connecting to FTP server");
-            alert.informativeText = VFSError::ToNSError(e.code()).localizedDescription;
+            alert.informativeText = [NSString stringWithUTF8StdString:e.error().LocalizedFailureReason()];
             [alert addButtonWithTitle:NSLocalizedString(@"OK", "")];
             [alert runModal];
         });
@@ -83,12 +84,12 @@ static bool GoToSFTP(PanelController *_target,
         _net_mgr.ReportUsage(_connection);
 
         return true;
-    } catch( const VFSErrorException &e ) {
+    } catch( const ErrorException &e ) {
         dispatch_to_main_queue([=] {
-            Alert *alert = [[Alert alloc] init];
+            Alert *const alert = [[Alert alloc] init];
             alert.messageText =
                 NSLocalizedString(@"SFTP connection error:", "Showing error when connecting to SFTP server");
-            alert.informativeText = VFSError::ToNSError(e.code()).localizedDescription;
+            alert.informativeText = [NSString stringWithUTF8StdString:e.error().LocalizedFailureReason()];
             [alert addButtonWithTitle:NSLocalizedString(@"OK", "")];
             [alert runModal];
         });
@@ -118,12 +119,12 @@ static bool GoToWebDAV(PanelController *_target,
         _net_mgr.ReportUsage(_connection);
 
         return true;
-    } catch( const VFSErrorException &e ) {
+    } catch( const ErrorException &e ) {
         dispatch_to_main_queue([=] {
-            Alert *alert = [[Alert alloc] init];
+            Alert *const alert = [[Alert alloc] init];
             alert.messageText =
                 NSLocalizedString(@"WebDAV connection error:", "Showing error when connecting to WebDAV server");
-            alert.informativeText = VFSError::ToNSError(e.code()).localizedDescription;
+            alert.informativeText = [NSString stringWithUTF8StdString:e.error().LocalizedFailureReason()];
             [alert addButtonWithTitle:NSLocalizedString(@"OK", "")];
             [alert runModal];
         });
@@ -156,12 +157,12 @@ static void GoToDropboxStorage(PanelController *_target,
 
         // save successful connection to history
         _net_mgr.ReportUsage(_connection);
-    } catch( const VFSErrorException &e ) {
+    } catch( const ErrorException &e ) {
         dispatch_to_main_queue([=] {
-            Alert *alert = [[Alert alloc] init];
+            Alert *const alert = [[Alert alloc] init];
             alert.messageText =
                 NSLocalizedString(@"Dropbox connection error:", "Showing error when connecting to Dropbox service");
-            alert.informativeText = VFSError::ToNSError(e.code()).localizedDescription;
+            alert.informativeText = [NSString stringWithUTF8StdString:e.error().LocalizedFailureReason()];
             [alert addButtonWithTitle:NSLocalizedString(@"OK", "")];
             [alert runModal];
         });
@@ -178,7 +179,7 @@ static void GoToLANShare(PanelController *_target,
     __weak PanelController *weak_panel = _target;
     auto cb = [weak_panel, activity, _connection, _passwd, _save_password_on_success, &_net_mgr](
                   const std::string &_path, const std::string &_err) {
-        if( PanelController *panel = weak_panel ) {
+        if( PanelController *const panel = weak_panel ) {
             if( !_path.empty() ) {
                 auto request = std::make_shared<DirectoryChangeRequest>();
                 request->RequestedDirectory = _path;
@@ -194,7 +195,7 @@ static void GoToLANShare(PanelController *_target,
             }
             else {
                 dispatch_to_main_queue([=] {
-                    Alert *alert = [[Alert alloc] init];
+                    Alert *const alert = [[Alert alloc] init];
                     alert.messageText = NSLocalizedString(@"Unable to connect to a network share",
                                                           "Informing a user that NC can't connect to network share");
                     alert.informativeText = [NSString stringWithUTF8StdString:_err];
@@ -213,7 +214,7 @@ OpenNewFTPConnection::OpenNewFTPConnection(NetworkConnectionsManager &_net_mgr) 
 {
 }
 
-void OpenNewFTPConnection::Perform(PanelController *_target, id) const
+void OpenNewFTPConnection::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto sheet = [[FTPConnectionSheetController alloc] init];
     const auto window = _target.window;
@@ -223,12 +224,12 @@ void OpenNewFTPConnection::Perform(PanelController *_target, id) const
                    return;
 
                auto connection = sheet.connection;
-               std::string password = sheet.password;
+               const std::string password = sheet.password;
 
                m_NetMgr.InsertConnection(connection);
                m_NetMgr.SetPassword(connection, password);
 
-               dispatch_to_background([=] {
+               dispatch_to_background([=, this] {
                    auto activity = [_target registerExtActivity];
                    GoToFTP(_target, connection, password, m_NetMgr);
                });
@@ -239,7 +240,7 @@ OpenNewSFTPConnection::OpenNewSFTPConnection(NetworkConnectionsManager &_net_mgr
 {
 }
 
-void OpenNewSFTPConnection::Perform(PanelController *_target, id) const
+void OpenNewSFTPConnection::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto sheet = [[SFTPConnectionSheetController alloc] init];
     const auto window = _target.window;
@@ -249,11 +250,11 @@ void OpenNewSFTPConnection::Perform(PanelController *_target, id) const
                    return;
 
                auto connection = sheet.connection;
-               std::string password = sheet.password;
+               const std::string password = sheet.password;
 
                m_NetMgr.InsertConnection(connection);
                m_NetMgr.SetPassword(connection, password);
-               dispatch_to_background([=] {
+               dispatch_to_background([=, this] {
                    auto activity = [_target registerExtActivity];
                    GoToSFTP(_target, connection, password, m_NetMgr);
                });
@@ -264,7 +265,7 @@ OpenNewDropboxStorage::OpenNewDropboxStorage(NetworkConnectionsManager &_net_mgr
 {
 }
 
-void OpenNewDropboxStorage::Perform(PanelController *_target, id) const
+void OpenNewDropboxStorage::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto sheet = [[DropboxAccountSheetController alloc] init];
     const auto window = _target.window;
@@ -274,11 +275,11 @@ void OpenNewDropboxStorage::Perform(PanelController *_target, id) const
                    return;
 
                auto connection = sheet.connection;
-               std::string password = sheet.password;
+               const std::string password = sheet.password;
 
                m_NetMgr.InsertConnection(connection);
                m_NetMgr.SetPassword(connection, password);
-               dispatch_to_background([=] {
+               dispatch_to_background([=, this] {
                    auto activity = [_target registerExtActivity];
                    GoToDropboxStorage(_target, connection, password, m_NetMgr);
                });
@@ -289,7 +290,7 @@ OpenNewLANShare::OpenNewLANShare(NetworkConnectionsManager &_net_mgr) : OpenConn
 {
 }
 
-void OpenNewLANShare::Perform(PanelController *_target, id) const
+void OpenNewLANShare::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto sheet = [[NetworkShareSheetController alloc] init];
     const auto window = _target.window;
@@ -311,7 +312,7 @@ OpenNewWebDAVConnection::OpenNewWebDAVConnection(NetworkConnectionsManager &_net
 {
 }
 
-void OpenNewWebDAVConnection::Perform(PanelController *_target, id) const
+void OpenNewWebDAVConnection::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto sheet = [[WebDAVConnectionSheetController alloc] init];
     const auto window = _target.window;
@@ -321,11 +322,11 @@ void OpenNewWebDAVConnection::Perform(PanelController *_target, id) const
                    return;
 
                auto connection = sheet.connection;
-               std::string password = sheet.password;
+               const std::string password = sheet.password;
 
                m_NetMgr.InsertConnection(connection);
                m_NetMgr.SetPassword(connection, password);
-               dispatch_to_background([=] {
+               dispatch_to_background([=, this] {
                    auto activity = [_target registerExtActivity];
                    GoToWebDAV(_target, connection, password, m_NetMgr);
                });
@@ -347,14 +348,14 @@ static void GoToConnection(PanelController *_target,
     if( connection.IsType<NetworkConnectionsManager::FTP>() )
         dispatch_to_background([=, &_net_mgr] {
             auto activity = [_target registerExtActivity];
-            bool success = GoToFTP(_target, connection, passwd, _net_mgr);
+            const bool success = GoToFTP(_target, connection, passwd, _net_mgr);
             if( success && should_save_passwd )
                 _net_mgr.SetPassword(connection, passwd);
         });
     else if( connection.IsType<NetworkConnectionsManager::SFTP>() )
         dispatch_to_background([=, &_net_mgr] {
             auto activity = [_target registerExtActivity];
-            bool success = GoToSFTP(_target, connection, passwd, _net_mgr);
+            const bool success = GoToSFTP(_target, connection, passwd, _net_mgr);
             if( success && should_save_passwd )
                 _net_mgr.SetPassword(connection, passwd);
         });
@@ -368,7 +369,7 @@ static void GoToConnection(PanelController *_target,
     else if( connection.IsType<NetworkConnectionsManager::WebDAV>() )
         dispatch_to_background([=, &_net_mgr] {
             auto activity = [_target registerExtActivity];
-            bool success = GoToWebDAV(_target, connection, passwd, _net_mgr);
+            const bool success = GoToWebDAV(_target, connection, passwd, _net_mgr);
             if( success && should_save_passwd )
                 _net_mgr.SetPassword(connection, passwd);
         });
@@ -378,7 +379,7 @@ OpenNetworkConnections::OpenNetworkConnections(NetworkConnectionsManager &_net_m
 {
 }
 
-void OpenNetworkConnections::Perform(PanelController *_target, id) const
+void OpenNetworkConnections::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto sheet = [[ConnectToServer alloc] initWithNetworkConnectionsManager:m_NetMgr];
     const auto window = _target.window;
@@ -399,10 +400,17 @@ OpenExistingNetworkConnection::OpenExistingNetworkConnection(NetworkConnectionsM
 
 void OpenExistingNetworkConnection::Perform(PanelController *_target, id _sender) const
 {
+    AnyHolder *holder = nil;
     if( auto menuitem = objc_cast<NSMenuItem>(_sender) )
-        if( auto holder = objc_cast<AnyHolder>(menuitem.representedObject) )
-            if( auto conn = std::any_cast<NetworkConnectionsManager::Connection>(&holder.any) )
-                GoToConnection(_target, *conn, m_NetMgr);
+        holder = objc_cast<AnyHolder>(menuitem.representedObject);
+    else if( auto command = objc_cast<NCCommandPopoverItem>(_sender) )
+        holder = objc_cast<AnyHolder>(command.representedObject);
+
+    if( holder ) {
+        if( auto conn = std::any_cast<NetworkConnectionsManager::Connection>(&holder.any) ) {
+            GoToConnection(_target, *conn, m_NetMgr);
+        }
+    }
 }
 
 } // namespace nc::panel::actions

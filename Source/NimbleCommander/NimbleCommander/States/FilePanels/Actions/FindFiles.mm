@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <VFS/VFSListingInput.h>
 #include <NimbleCommander/States/FilePanels/FindFilesSheetController.h>
 #include "../PanelController.h"
@@ -35,11 +35,10 @@ static VFSListingPtr FetchSearchResultsAsListing(const std::vector<vfs::VFSPath>
     std::vector<VFSListingPtr> listings;
 
     for( auto &p : _filepaths ) {
-        VFSListingPtr listing;
-        int ret = p.Host()->FetchSingleItemListing(
-            p.Path().c_str(), listing, _fetch_flags, _cancel_checker);
-        if( ret == 0 )
-            listings.emplace_back(listing);
+        const std::expected<VFSListingPtr, Error> listing =
+            p.Host()->FetchSingleItemListing(p.Path(), _fetch_flags, _cancel_checker);
+        if( listing )
+            listings.emplace_back(*listing);
 
         if( _cancel_checker && _cancel_checker() )
             return {};
@@ -48,15 +47,15 @@ static VFSListingPtr FetchSearchResultsAsListing(const std::vector<vfs::VFSPath>
     return VFSListing::Build(VFSListing::Compose(listings));
 }
 
-void FindFiles::Perform(PanelController *_target, id) const
+void FindFiles::Perform(PanelController *_target, id /*_sender*/) const
 {
-    FindFilesSheetController *sheet = [FindFilesSheetController new];
+    FindFilesSheetController *const sheet = [FindFilesSheetController new];
     sheet.vfsInstanceManager = &_target.vfsInstanceManager;
     sheet.host = _target.isUniform ? _target.vfs : _target.view.item.Host();
     sheet.path = _target.isUniform ? _target.currentDirectoryPath : _target.view.item.Directory();
     __weak PanelController *wp = _target;
     sheet.onPanelize = [wp](const std::vector<vfs::VFSPath> &_paths) {
-        if( PanelController *panel = wp ) {
+        if( PanelController *const panel = wp ) {
             auto task = [=](const std::function<bool()> &_cancelled) {
                 auto l = FetchSearchResultsAsListing(_paths, panel.vfsFetchingFlags, _cancelled);
                 if( l )
@@ -94,23 +93,20 @@ void FindFiles::OnView(const FindFilesSheetViewRequest &_request) const
                 if( success ) {
                     [sheet beginSheetForWindow:_request.sender.window];
                     if( _request.content_mark ) {
-                        auto range = CFRangeMake(_request.content_mark->bytes_offset,
-                                                 _request.content_mark->bytes_length);
-                        [sheet markInitialSelection:range
-                                         searchTerm:_request.content_mark->search_term];
+                        auto range =
+                            CFRangeMake(_request.content_mark->bytes_offset, _request.content_mark->bytes_length);
+                        [sheet markInitialSelection:range searchTerm:_request.content_mark->search_term];
                     }
                 }
             });
         });
     }
     else { // as a window
-        auto window = [NCAppDelegate.me retrieveInternalViewerWindowForPath:_request.path
-                                                                      onVFS:_request.vfs];
+        auto window = [NCAppDelegate.me retrieveInternalViewerWindowForPath:_request.path onVFS:_request.vfs];
         if( window.internalViewerController.isOpened ) {
             [window showWindow:_request.sender];
             if( _request.content_mark ) {
-                auto range = CFRangeMake(_request.content_mark->bytes_offset,
-                                         _request.content_mark->bytes_length);
+                auto range = CFRangeMake(_request.content_mark->bytes_offset, _request.content_mark->bytes_length);
                 [window markInitialSelection:range searchTerm:_request.content_mark->search_term];
             }
         }
@@ -121,10 +117,9 @@ void FindFiles::OnView(const FindFilesSheetViewRequest &_request) const
                     if( opening_result ) {
                         [window showAsFloatingWindow];
                         if( _request.content_mark ) {
-                            auto range = CFRangeMake(_request.content_mark->bytes_offset,
-                                                     _request.content_mark->bytes_length);
-                            [window markInitialSelection:range
-                                              searchTerm:_request.content_mark->search_term];
+                            auto range =
+                                CFRangeMake(_request.content_mark->bytes_offset, _request.content_mark->bytes_length);
+                            [window markInitialSelection:range searchTerm:_request.content_mark->search_term];
                         }
                     }
                 });
@@ -133,4 +128,4 @@ void FindFiles::OnView(const FindFilesSheetViewRequest &_request) const
     }
 }
 
-};
+}; // namespace nc::panel::actions

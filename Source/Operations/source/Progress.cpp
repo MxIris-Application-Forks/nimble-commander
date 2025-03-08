@@ -9,9 +9,7 @@ Progress::Progress() : m_Estimated{0}, m_Processed{0}, m_BaseTimePoint{0}, m_Las
 {
 }
 
-Progress::~Progress()
-{
-}
+Progress::~Progress() = default;
 
 void Progress::CommitEstimated(uint64_t _delta)
 {
@@ -23,7 +21,7 @@ void Progress::CommitSkipped(uint64_t _delta)
     if( _delta + m_Processed > m_Estimated ) {
         std::cerr << "Progress::CommitSkipped: supicious argument: "
                      "_delta + m_Processed > m_Estimated"
-                  << std::endl;
+                  << '\n';
         m_Estimated = m_Processed.load();
     }
     else {

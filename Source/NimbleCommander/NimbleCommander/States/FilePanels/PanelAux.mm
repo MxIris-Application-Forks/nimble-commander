@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -15,7 +15,6 @@
 #include <Operations/Copying.h>
 #include <Base/dispatch_cpp.h>
 #include <Utility/StringExtras.h>
-#include <robin_hood.h>
 
 // TODO: remove this, DI stuff instead
 #include <NimbleCommander/Bootstrap/AppDelegate.h>
@@ -30,7 +29,7 @@ static const auto g_ConfigDefaultVerificationSetting = "filePanel.operations.def
 static const auto g_CheckDelay = "filePanel.operations.vfsShadowUploadChangesCheckDelay";
 static const auto g_DropDelay = "filePanel.operations.vfsShadowUploadObservationDropDelay";
 static const auto g_QLPanel = "filePanel.presentation.showQuickLookAsFloatingPanel";
-static const uint64_t g_MaxFileSizeForVFSOpen = 64 * 1024 * 1024; // 64mb
+static const uint64_t g_MaxFileSizeForVFSOpen = 64ull * 1024ull * 1024ull; // 64mb
 
 static std::chrono::milliseconds UploadingCheckDelay()
 {
@@ -71,10 +70,10 @@ static void RegisterRemoteFileUploading(const std::string &_original_path,
 
     __weak NCMainWindowController *origin_window = _origin.mainWindowController;
     __weak PanelController *origin_controller = _origin;
-    VFSHostWeakPtr weak_host(_original_vfs);
+    const VFSHostWeakPtr weak_host(_original_vfs);
 
     auto on_file_change = [=] {
-        NCMainWindowController *window = origin_window;
+        NCMainWindowController *const window = origin_window;
         if( !window )
             return;
 
@@ -82,17 +81,17 @@ static void RegisterRemoteFileUploading(const std::string &_original_path,
         if( !vfs )
             return;
 
-        std::vector<VFSListingItem> listing_items;
         auto &storage_host = nc::bootstrap::NativeVFSHostInstance();
         const auto changed_item_directory = std::filesystem::path(_native_path).parent_path().native();
         const auto changed_item_filename = std::filesystem::path(_native_path).filename().native();
-        const auto ret = storage_host.FetchFlexibleListingItems(
-            changed_item_directory, {1, changed_item_filename}, 0, listing_items, nullptr);
-        if( ret == 0 ) {
+        // TODO: why is FetchFlexibleListingItems() used here instead of FetchSingleItemListing()?
+        const std::expected<std::vector<VFSListingItem>, Error> listing_items =
+            storage_host.FetchFlexibleListingItems(changed_item_directory, {1, changed_item_filename}, 0);
+        if( listing_items ) {
             auto opts = panel::MakeDefaultFileCopyOptions();
             opts.exist_behavior = nc::ops::CopyingOptions::ExistBehavior::OverwriteAll;
-            const auto op = std::make_shared<nc::ops::Copying>(listing_items, _original_path, vfs, opts);
-            if( auto pc = static_cast<PanelController *>(origin_controller) )
+            const auto op = std::make_shared<nc::ops::Copying>(*listing_items, _original_path, vfs, opts);
+            if( static_cast<PanelController *>(origin_controller) )
                 op->ObserveUnticketed(nc::ops::Operation::NotifyAboutCompletion, [=] {
                     dispatch_to_main_queue([=] {
                         // TODO: perhaps need to check that path didn't changed
@@ -111,18 +110,18 @@ FileOpener::FileOpener(nc::utility::TemporaryFileStorage &_temp_storage) : m_Tem
 {
 }
 
-void FileOpener::Open(std::string _filename, std::shared_ptr<VFSHost> _host, PanelController *_panel)
+void FileOpener::Open(std::string _filepath, std::shared_ptr<VFSHost> _host, PanelController *_panel)
 {
-    Open(_filename, _host, "", _panel);
+    Open(_filepath, _host, "", _panel);
 }
 
-void FileOpener::Open(std::string _filename,
+void FileOpener::Open(std::string _filepath,
                       std::shared_ptr<VFSHost> _host,
                       std::string _with_app_path,
                       PanelController *_panel)
 {
     if( _host->IsNativeFS() ) {
-        NSString *filename = [NSString stringWithUTF8String:_filename.c_str()];
+        NSString *const filename = [NSString stringWithUTF8String:_filepath.c_str()];
 
         if( !_with_app_path.empty() ) {
             if( ![[NSWorkspace sharedWorkspace] openFile:filename
@@ -137,28 +136,28 @@ void FileOpener::Open(std::string _filename,
         return;
     }
 
-    dispatch_to_default([=] {
+    dispatch_to_default([=, this] {
         auto activity_ticket = [_panel registerExtActivity];
-        if( _host->IsDirectory(_filename.c_str(), 0, 0) ) {
+        if( _host->IsDirectory(_filepath, 0, nullptr) ) {
             NSBeep();
             return;
         }
 
-        VFSStat st;
-        if( _host->Stat(_filename.c_str(), st, 0, 0) < 0 ) {
+        const std::expected<VFSStat, Error> st = _host->Stat(_filepath, 0);
+        if( !st ) {
             NSBeep();
             return;
         }
 
-        if( st.size > g_MaxFileSizeForVFSOpen ) {
+        if( st->size > g_MaxFileSizeForVFSOpen ) {
             NSBeep();
             return;
         }
 
-        if( auto tmp_path = CopyFileToTempStorage(_filename, *_host, m_TemporaryFileStorage) ) {
-            RegisterRemoteFileUploading(_filename, _host, *tmp_path, _panel);
+        if( auto tmp_path = CopyFileToTempStorage(_filepath, *_host, m_TemporaryFileStorage) ) {
+            RegisterRemoteFileUploading(_filepath, _host, *tmp_path, _panel);
 
-            NSString *fn = [NSString stringWithUTF8StdString:*tmp_path];
+            NSString *const fn = [NSString stringWithUTF8StdString:*tmp_path];
             dispatch_to_main_queue([=] {
                 if( !_with_app_path.empty() ) {
                     if( ![NSWorkspace.sharedWorkspace openFile:fn
@@ -177,15 +176,15 @@ void FileOpener::Open(std::string _filename,
 }
 
 // TODO: write version with FlexListingItem as an input - it would be much simplier
-void FileOpener::Open(std::vector<std::string> _filenames,
+void FileOpener::Open(std::vector<std::string> _filepaths,
                       std::shared_ptr<VFSHost> _host,
                       NSString *_with_app_bundle, // can be nil, use default app in such case
                       PanelController *_panel)
 {
     if( _host->IsNativeFS() ) {
-        NSMutableArray *arr = [NSMutableArray arrayWithCapacity:_filenames.size()];
-        for( auto &i : _filenames )
-            if( NSString *s = [NSString stringWithUTF8String:i.c_str()] )
+        NSMutableArray *const arr = [NSMutableArray arrayWithCapacity:_filepaths.size()];
+        for( auto &i : _filepaths )
+            if( NSString *const s = [NSString stringWithUTF8String:i.c_str()] )
                 [arr addObject:[[NSURL alloc] initFileURLWithPath:s]];
 
         if( ![NSWorkspace.sharedWorkspace openURLs:arr
@@ -198,23 +197,23 @@ void FileOpener::Open(std::vector<std::string> _filenames,
         return;
     }
 
-    dispatch_to_default([=] {
+    dispatch_to_default([=, this] {
         auto activity_ticket = [_panel registerExtActivity];
-        NSMutableArray *arr = [NSMutableArray arrayWithCapacity:_filenames.size()];
-        for( auto &i : _filenames ) {
-            if( _host->IsDirectory(i.c_str(), 0, 0) )
+        NSMutableArray *const arr = [NSMutableArray arrayWithCapacity:_filepaths.size()];
+        for( auto &i : _filepaths ) {
+            if( _host->IsDirectory(i, 0, nullptr) )
                 continue;
 
-            VFSStat st;
-            if( _host->Stat(i.c_str(), st, 0, 0) < 0 )
+            const std::expected<VFSStat, Error> st = _host->Stat(i, 0);
+            if( !st )
                 continue;
 
-            if( st.size > g_MaxFileSizeForVFSOpen )
+            if( st->size > g_MaxFileSizeForVFSOpen )
                 continue;
 
             if( auto tmp_path = CopyFileToTempStorage(i, *_host, m_TemporaryFileStorage) ) {
                 RegisterRemoteFileUploading(i, _host, *tmp_path, _panel);
-                if( NSString *s = [NSString stringWithUTF8StdString:*tmp_path] )
+                if( NSString *const s = [NSString stringWithUTF8StdString:*tmp_path] )
                     [arr addObject:[[NSURL alloc] initFileURLWithPath:s]];
             }
         }
@@ -243,29 +242,31 @@ void FileOpener::OpenInExternalEditorTerminal(std::string _filepath,
                                               fileTitle:_file_title];
     }
     else
-        dispatch_to_default([=] { // do downloading down in a background thread
+        dispatch_to_default([=,
+                             this] { // do downloading down in a background thread
             auto activity_ticket = [_panel registerExtActivity];
 
-            if( _host->IsDirectory(_filepath.c_str(), 0, 0) ) {
+            if( _host->IsDirectory(_filepath, 0, nullptr) ) {
                 NSBeep();
                 return;
             }
 
-            VFSStat st;
-            if( _host->Stat(_filepath.c_str(), st, 0, 0) < 0 ) {
+            const std::expected<VFSStat, Error> st = _host->Stat(_filepath, 0);
+            if( !st ) {
                 NSBeep();
                 return;
             }
 
-            if( st.size > g_MaxFileSizeForVFSOpen ) {
+            if( st->size > g_MaxFileSizeForVFSOpen ) {
                 NSBeep();
                 return;
             }
 
             if( auto tmp_path = CopyFileToTempStorage(_filepath, *_host, m_TemporaryFileStorage) ) {
                 RegisterRemoteFileUploading(_filepath, _host, *tmp_path, _panel);
-                dispatch_to_main_queue([=] { // when we sucessfuly download a file - request
-                                             // terminal execution in main thread
+                dispatch_to_main_queue([=] { // when we sucessfuly download a file -
+                                             // request terminal execution in main
+                                             // thread
                     if( auto wnd = static_cast<NCMainWindowController *>(_panel.window.delegate) )
                         [wnd RequestExternalEditorTerminalExecution:_ext_ed->Path()
                                                              params:_ext_ed->SubstituteFileName(*tmp_path)
@@ -282,7 +283,7 @@ bool IsEligbleToTryToExecuteInConsole(const VFSListingItem &_item)
 
     // TODO: need more sophisticated executable handling here
     // THIS IS WRONG!
-    bool uexec = (_item.UnixMode() & S_IXUSR) || (_item.UnixMode() & S_IXGRP) || (_item.UnixMode() & S_IXOTH);
+    const bool uexec = (_item.UnixMode() & S_IXUSR) || (_item.UnixMode() & S_IXGRP) || (_item.UnixMode() & S_IXOTH);
 
     if( !uexec )
         return false;
@@ -299,7 +300,7 @@ bool IsEligbleToTryToExecuteInConsole(const VFSListingItem &_item)
 static ops::CopyingOptions::ChecksumVerification DefaultChecksumVerificationSetting()
 {
     // TODO: make depencies on Config explicit
-    int v = GlobalConfig().GetInt(g_ConfigDefaultVerificationSetting);
+    const int v = GlobalConfig().GetInt(g_ConfigDefaultVerificationSetting);
     if( v == static_cast<int>(ops::CopyingOptions::ChecksumVerification::Always) )
         return ops::CopyingOptions::ChecksumVerification::Always;
     else if( v == static_cast<int>(ops::CopyingOptions::ChecksumVerification::WhenMoves) )
@@ -326,9 +327,9 @@ ops::CopyingOptions MakeDefaultFileMoveOptions()
     return options;
 }
 
-bool IsExtensionInArchivesWhitelist(const char *_ext) noexcept
+bool IsExtensionInArchivesWhitelist(std::string_view _ext) noexcept
 {
-    if( !_ext )
+    if( _ext.empty() )
         return false;
     [[clang::no_destroy]] static const utility::ExtensionsLowercaseList archive_extensions(
         GlobalConfig().GetString(g_ConfigArchivesExtensionsWhiteList));
@@ -345,4 +346,4 @@ bool ShowQuickLookAsFloatingPanel() noexcept
     return value;
 }
 
-}
+} // namespace nc::panel

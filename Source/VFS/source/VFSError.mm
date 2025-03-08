@@ -14,14 +14,14 @@ static NSString *const g_Domain = @"vfs";
 layout:
 0                        : OK code
 [-1..              -1000]: Files             vfs err = vfs err
-[-1'001..         -2'000]: POSIX             vfs err = posix - 1'500
+[-1'001..         -1'999]: POSIX             vfs err = posix - 1'500
 [-1'000'000.. -2'000'000): Cocoa             vfs err = cocoa - 1'500'000
 [-2'000'000.. -3'000'000): NSURLError        vfs err = nsurlerror - 2'500'000
  */
 
 static constexpr int g_PosixMax = -1001;
 static constexpr int g_PosixBase = -1500;
-static constexpr int g_PosixMin = -2000;
+static constexpr int g_PosixMin = -1999;
 
 // EWOULDBLOCK was skipped as a duplicate
 static constexpr frozen::unordered_map<int, frozen::string, 103> g_PosixCodes = {
@@ -130,30 +130,6 @@ static constexpr frozen::unordered_map<int, frozen::string, 103> g_PosixCodes = 
     {EQFULL, "EQFULL"},
 };
 
-namespace nc::vfs {
-
-using namespace std::literals;
-
-ErrorException::ErrorException(int _err) : m_Code(_err)
-{
-    m_Verb = "vfs exception code #"s + std::to_string(_err);
-    if( const auto e = VFSError::ToNSError(_err) )
-        if( const auto d = e.description )
-            m_Verb = d.UTF8String;
-}
-
-const char *ErrorException::what() const noexcept
-{
-    return m_Verb.c_str();
-}
-
-int ErrorException::code() const noexcept
-{
-    return m_Code;
-}
-
-}
-
 namespace VFSError {
 
 int FromErrno(int _errno) noexcept
@@ -162,7 +138,7 @@ int FromErrno(int _errno) noexcept
         return _errno + g_PosixBase;
     }
     else {
-        nc::vfs::Log::Warn(SPDLOC, "VFSError::FromErrno(): unknown errno - {}", _errno);
+        nc::vfs::Log::Warn("VFSError::FromErrno(): unknown errno - {}", _errno);
         return FromErrno(EINVAL);
     }
 }
@@ -208,18 +184,6 @@ static NSString *TextForCode(int _code)
             return @"Internal archive module error";
         case ArclibMiscError:
             return @"Unknown or unclassified archive error";
-        case UnRARFailedToOpenArchive:
-            return @"Failed to open RAR archive";
-        case UnRARBadData:
-            return @"Bad RAR data";
-        case UnRARBadArchive:
-            return @"Bad RAR archive";
-        case UnRARUnknownFormat:
-            return @"Unknown RAR format";
-        case UnRARMissingPassword:
-            return @"Missing RAR password";
-        case UnRARBadPassword:
-            return @"Bad RAR password";
         case NetFTPLoginDenied:
             return @"The remote server denied to login";
         case NetFTPURLMalformat:
@@ -296,8 +260,9 @@ static NSString *TextForCode(int _code)
             return @"Link loop";
         case NetSFTPCouldntReadKey:
             return @"Coundn't open the private key";
+        default:
+            return [NSString stringWithFormat:@"Error code %d", _code];
     }
-    return [NSString stringWithFormat:@"Error code %d", _code];
 }
 
 NSError *ToNSError(int _code)
@@ -313,14 +278,12 @@ NSError *ToNSError(int _code)
         return [NSError errorWithDomain:NSURLErrorDomain code:(_code + 2500000) userInfo:nil];
 
     // general codes section
-    return [NSError errorWithDomain:g_Domain
-                               code:_code
-                           userInfo:@{NSLocalizedDescriptionKey: TextForCode(_code)}];
+    return [NSError errorWithDomain:g_Domain code:_code userInfo:@{NSLocalizedDescriptionKey: TextForCode(_code)}];
 }
 
 int FromCFNetwork(int _errno)
 {
-    return int(_errno - 2500000);
+    return (_errno - 2500000);
 }
 
 int FromNSError(NSError *_err)
@@ -343,12 +306,51 @@ std::string FormatErrorCode(int _vfs_code)
     if( _vfs_code >= g_PosixMin && _vfs_code <= g_PosixMax ) {
         const int posix_code = _vfs_code - g_PosixBase;
         if( auto it = g_PosixCodes.find(posix_code); it != g_PosixCodes.end() ) {
-            return std::string("POSIX: ") + it->second.data() + "(" + std::to_string(posix_code) +
-                   ")";
+            return std::string("POSIX: ") + it->second.data() + "(" + std::to_string(posix_code) + ")";
         }
         return {};
     }
     return {};
 }
 
+namespace {
+
+// TODO: remove this later
+class ErrorDescriptionProvider : public nc::base::ErrorDescriptionProvider
+{
+public:
+    [[nodiscard]] std::string Description(int64_t _code) const noexcept override;
+};
+
+// TODO: remove this later
+std::string ErrorDescriptionProvider::Description(int64_t _code) const noexcept
+{
+    return ToNSError(static_cast<int>(_code)).description.UTF8String;
 }
+
+} // namespace
+
+// TODO: remove this later
+nc::Error ToError(int _vfs_error_code)
+{
+    static std::once_flag once;
+    std::call_once(once,
+                   [] { nc::Error::DescriptionProvider(ErrorDomain, std::make_shared<ErrorDescriptionProvider>()); });
+
+    if( _vfs_error_code >= g_PosixMin && _vfs_error_code <= g_PosixMax ) {
+        const int posix_code = _vfs_error_code - g_PosixBase;
+        return {nc::Error::POSIX, posix_code};
+    }
+
+    return {ErrorDomain, _vfs_error_code};
+}
+
+// TODO: remove this later
+std::expected<void, nc::Error> ToExpectedError(int _vfs_error_code)
+{
+    if( _vfs_error_code == VFSError::Ok )
+        return {};
+    return std::unexpected(ToError(_vfs_error_code));
+}
+
+} // namespace VFSError

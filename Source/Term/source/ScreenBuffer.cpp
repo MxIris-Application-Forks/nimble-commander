@@ -1,6 +1,8 @@
-// Copyright (C) 2015-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2015-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ScreenBuffer.h"
 #include <CoreFoundation/CoreFoundation.h>
+#include <algorithm>
+#include <cstddef>
 
 namespace nc::term {
 
@@ -18,14 +20,14 @@ ScreenBuffer::ScreenBuffer(unsigned _width, unsigned _height, ExtendedCharRegist
 
 std::unique_ptr<ScreenBuffer::Space[]> ScreenBuffer::ProduceRectangularSpaces(unsigned _width, unsigned _height)
 {
-    return std::make_unique<Space[]>(_width * _height);
+    return std::make_unique<Space[]>(static_cast<size_t>(_width) * static_cast<size_t>(_height));
 }
 
 std::unique_ptr<ScreenBuffer::Space[]>
 ScreenBuffer::ProduceRectangularSpaces(unsigned _width, unsigned _height, Space _initial_char)
 {
     auto p = ProduceRectangularSpaces(_width, _height);
-    std::fill(&p[0], &p[_width * _height], _initial_char);
+    std::fill(&p[0], &p[static_cast<size_t>(_width) * static_cast<size_t>(_height)], _initial_char);
     return p;
 }
 
@@ -48,15 +50,16 @@ std::span<const ScreenBuffer::Space> ScreenBuffer::LineFromNo(int _line_number) 
 std::span<ScreenBuffer::Space> ScreenBuffer::LineFromNo(int _line_number) noexcept
 {
     if( _line_number >= 0 && _line_number < static_cast<int>(m_OnScreenLines.size()) ) {
-        auto &l = m_OnScreenLines[_line_number];
-        assert(l.start_index + l.line_length <= m_Height * m_Width);
-        return {&m_OnScreenSpaces[l.start_index], l.line_length};
+        const LineMeta line = m_OnScreenLines[_line_number];
+        assert(line.start_index + line.line_length <= m_Height * m_Width);
+        return {m_OnScreenSpaces.get() + line.start_index, line.line_length};
     }
     else if( _line_number < 0 && -_line_number <= static_cast<int>(m_BackScreenLines.size()) ) {
-        unsigned ind = unsigned(static_cast<int>(m_BackScreenLines.size()) + _line_number);
-        auto &l = m_BackScreenLines[ind];
-        assert(l.start_index + l.line_length <= m_BackScreenSpaces.size());
-        return {&m_BackScreenSpaces[l.start_index], l.line_length};
+        const unsigned ind = unsigned(static_cast<int>(m_BackScreenLines.size()) + _line_number);
+        const LineMeta line = m_BackScreenLines[ind];
+        assert(line.start_index + line.line_length <= m_BackScreenSpaces.size());
+        // NB! use .data() + offset instead of operator[] since &[size] is UB
+        return {m_BackScreenSpaces.data() + line.start_index, line.line_length};
     }
     else
         return {};
@@ -77,7 +80,7 @@ ScreenBuffer::LineMeta *ScreenBuffer::MetaFromLineNo(int _line_number)
     if( _line_number >= 0 && _line_number < static_cast<int>(m_OnScreenLines.size()) )
         return &m_OnScreenLines[_line_number];
     else if( _line_number < 0 && -_line_number <= static_cast<int>(m_BackScreenLines.size()) ) {
-        unsigned ind = unsigned(static_cast<signed>(m_BackScreenLines.size()) + _line_number);
+        const unsigned ind = unsigned(static_cast<signed>(m_BackScreenLines.size()) + _line_number);
         return &m_BackScreenLines[ind];
     }
     else
@@ -89,7 +92,7 @@ const ScreenBuffer::LineMeta *ScreenBuffer::MetaFromLineNo(int _line_number) con
     if( _line_number >= 0 && _line_number < static_cast<int>(m_OnScreenLines.size()) )
         return &m_OnScreenLines[_line_number];
     else if( _line_number < 0 && -_line_number <= static_cast<int>(m_BackScreenLines.size()) ) {
-        unsigned ind = unsigned(static_cast<signed>(m_BackScreenLines.size()) + _line_number);
+        const unsigned ind = unsigned(static_cast<signed>(m_BackScreenLines.size()) + _line_number);
         return &m_BackScreenLines[ind];
     }
     else
@@ -238,13 +241,13 @@ std::string ScreenBuffer::DumpScreenAsANSIBreaked() const
     return result;
 }
 
-std::u32string ScreenBuffer::DumpScreenAsUTF32(const int _opts) const
+std::u32string ScreenBuffer::DumpScreenAsUTF32(const int _options) const
 {
     std::u32string result;
     for( auto &l : m_OnScreenLines ) {
         for( auto *i = &m_OnScreenSpaces[l.start_index], *e = i + l.line_length; i != e; ++i ) {
             if( i->l == MultiCellGlyph ) {
-                if( _opts & DumpOptions::ReportMultiCellGlyphs )
+                if( _options & DumpOptions::ReportMultiCellGlyphs )
                     result += ' ';
             }
             else if( i->l >= 32 ) {
@@ -261,7 +264,7 @@ std::u32string ScreenBuffer::DumpScreenAsUTF32(const int _opts) const
                 result += ' ';
             }
         }
-        if( _opts & DumpOptions::BreakLines )
+        if( _options & DumpOptions::BreakLines )
             result += '\r';
     }
     return result;
@@ -317,15 +320,16 @@ void ScreenBuffer::ResizeScreen(unsigned _new_sx, unsigned _new_sy, bool _merge_
         throw std::out_of_range("TermScreenBuffer::ResizeScreen - screen sizes can't be zero");
 
     using ConstIt = std::vector<std::tuple<std::vector<Space>, bool>>::const_iterator;
-    auto fill_scr_from_declines = [=](ConstIt _i, ConstIt _e, size_t _l = 0) {
-        for( ; _i != _e; ++_i, ++_l ) {
+    auto fill_scr_from_declines = [this](ConstIt _i, ConstIt _e) {
+        size_t l = 0;
+        for( ; _i != _e; ++_i, ++l ) {
             std::copy(std::begin(std::get<0>(*_i)),
                       std::end(std::get<0>(*_i)),
-                      &m_OnScreenSpaces[m_OnScreenLines[_l].start_index]);
-            m_OnScreenLines[_l].is_wrapped = std::get<1>(*_i);
+                      &m_OnScreenSpaces[m_OnScreenLines[l].start_index]);
+            m_OnScreenLines[l].is_wrapped = std::get<1>(*_i);
         }
     };
-    auto fill_bkscr_from_declines = [=](ConstIt _i, ConstIt _e) {
+    auto fill_bkscr_from_declines = [this](ConstIt _i, ConstIt _e) {
         for( ; _i != _e; ++_i ) {
             LineMeta lm;
             lm.start_index = static_cast<int>(m_BackScreenSpaces.size());
@@ -376,11 +380,13 @@ void ScreenBuffer::ResizeScreen(unsigned _new_sx, unsigned _new_sy, bool _merge_
     m_Height = _new_sy;
 }
 
-void ScreenBuffer::FeedBackscreen(const Space *_from, const Space *_to, bool _wrapped)
+void ScreenBuffer::FeedBackscreen(const std::span<const Space> _with_spaces, const bool _wrapped)
 {
+    const Space *_from = _with_spaces.data();
+    const Space *_to = _with_spaces.data() + _with_spaces.size();
     // TODO: trimming and empty lines ?
     while( _from < _to ) {
-        unsigned line_len = std::min(m_Width, unsigned(_to - _from));
+        const unsigned line_len = std::min(m_Width, unsigned(_to - _from));
 
         m_BackScreenLines.emplace_back();
         m_BackScreenLines.back().start_index = static_cast<unsigned>(m_BackScreenSpaces.size());
@@ -497,7 +503,7 @@ ScreenBuffer::Snapshot::Snapshot() : width(0), height(0)
 }
 
 ScreenBuffer::Snapshot::Snapshot(unsigned _w, unsigned _h)
-    : width(_w), height(_h), chars(std::make_unique<Space[]>(_w * _h))
+    : width(_w), height(_h), chars(std::make_unique<Space[]>(static_cast<size_t>(_w) * static_cast<size_t>(_h)))
 {
 }
 
@@ -516,16 +522,17 @@ void ScreenBuffer::RevertToSnapshot(const Snapshot &_snapshot)
     else { // TODO: anchor?
         std::fill_n(m_OnScreenSpaces.get(), m_Width * m_Height, m_EraseChar);
         for( int y = 0, e = std::min(_snapshot.height, m_Height); y != e; ++y ) {
-            std::copy_n(_snapshot.chars.get() + y * _snapshot.width,
+            std::copy_n(_snapshot.chars.get() + (static_cast<size_t>(y * _snapshot.width)),
                         std::min(_snapshot.width, m_Width),
-                        m_OnScreenSpaces.get() + y * m_Width);
+                        m_OnScreenSpaces.get() + (static_cast<size_t>(y * m_Width)));
         }
     }
 }
 
 std::optional<std::pair<int, int>> ScreenBuffer::OccupiedOnScreenLines() const
 {
-    int first = std::numeric_limits<int>::max(), last = std::numeric_limits<int>::min();
+    int first = std::numeric_limits<int>::max();
+    int last = std::numeric_limits<int>::min();
     for( int i = 0, e = Height(); i < e; ++i )
         if( HasOccupiedChars(i) ) {
             first = std::min(first, i);
@@ -536,6 +543,21 @@ std::optional<std::pair<int, int>> ScreenBuffer::OccupiedOnScreenLines() const
         return std::nullopt;
 
     return std::make_pair(first, last + 1);
+}
+
+unsigned ScreenBuffer::Width() const
+{
+    return m_Width;
+}
+
+unsigned ScreenBuffer::Height() const
+{
+    return m_Height;
+}
+
+unsigned ScreenBuffer::BackScreenLines() const
+{
+    return static_cast<unsigned>(m_BackScreenLines.size());
 }
 
 static void Append(CFStringRef _what, std::u32string &_where)

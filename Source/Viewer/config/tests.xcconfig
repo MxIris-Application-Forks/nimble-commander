@@ -1,3 +1,5 @@
-GCC_PREPROCESSOR_DEFINITIONS = $(inherited) GTEST_DONT_DEFINE_FAIL=1 GTEST_DONT_DEFINE_SUCCEED=1
-OTHER_LDFLAGS = $(inherited) -lVFS -lVFSIcon -lCUI -lConfig -lViewer -lUtility
+OTHER_LDFLAGS = $(inherited) -lVFS -lVFSIcon -lCUI -lConfig -lViewer -lUtility -lCatch2
 ONLY_ACTIVE_ARCH=YES
+LIBRARY_SEARCH_PATHS = $(inherited) $(BUILD_DIR)/$(CONFIGURATION)
+CONFIGURATION_BUILD_DIR=$(BUILD_DIR)/$(CONFIGURATION)/ViewerUT.app/Contents/MacOS
+INFOPLIST_FILE = tests/Info.plist

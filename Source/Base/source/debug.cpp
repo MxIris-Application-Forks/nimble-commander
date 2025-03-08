@@ -11,11 +11,11 @@
  * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
  * DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
-#include <assert.h>
+#include <Base/debug.h>
+#include <cassert>
+#include <sys/sysctl.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <sys/sysctl.h>
-#include <Base/debug.h>
 
 namespace nc::base {
 
@@ -24,7 +24,6 @@ namespace nc::base {
 // running under the debugger or has a debugger attached post facto).
 bool AmIBeingDebugged() noexcept
 {
-    int junk;
     int mib[4];
     struct kinfo_proc info;
     size_t size;
@@ -42,7 +41,7 @@ bool AmIBeingDebugged() noexcept
 
     // Call sysctl.
     size = sizeof(info);
-    junk = sysctl(mib, sizeof(mib) / sizeof(*mib), &info, &size, NULL, 0);
+    [[maybe_unused]] const int junk = sysctl(mib, sizeof(mib) / sizeof(*mib), &info, &size, nullptr, 0);
     assert(junk == 0);
 
     // We're being debugged if the P_TRACED flag is set.

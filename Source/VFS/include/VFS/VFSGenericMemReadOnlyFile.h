@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include "VFSFile.h"
@@ -10,11 +10,11 @@ namespace nc::vfs {
 class GenericMemReadOnlyFile : public VFSFile
 {
 public:
-    GenericMemReadOnlyFile(const char *_relative_path,
+    GenericMemReadOnlyFile(std::string_view _relative_path,
                            const std::shared_ptr<VFSHost> &_host,
                            const void *_memory,
                            uint64_t _mem_size);
-    GenericMemReadOnlyFile(const char *_relative_path,
+    GenericMemReadOnlyFile(std::string_view _relative_path,
                            const std::shared_ptr<VFSHost> &_host,
                            std::string_view _memory);
 
@@ -24,7 +24,7 @@ public:
     std::shared_ptr<VFSFile> Clone() const override;
 
     ssize_t Read(void *_buf, size_t _size) override;
-    ssize_t ReadAt(off_t _pos, void *_buf, size_t _size) override;
+    std::expected<size_t, Error> ReadAt(off_t _pos, void *_buf, size_t _size) override;
     ReadParadigm GetReadParadigm() const override;
     off_t Seek(off_t _off, int _basis) override;
     ssize_t Pos() const override;

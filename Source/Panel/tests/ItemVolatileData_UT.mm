@@ -1,11 +1,11 @@
-// Copyright (C) 2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2023-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PanelDataItemVolatileData.h"
 #include "Tests.h"
 
 #define PREFIX "PanelDataItemVolatileData "
 
 using namespace nc;
-//using namespace nc::base;
+// using namespace nc::base;
 using namespace nc::panel::data;
 
 using R = QuickSearchHiglight::Range;
@@ -13,7 +13,7 @@ using R = QuickSearchHiglight::Range;
 TEST_CASE(PREFIX "empty constructor")
 {
     const QuickSearchHiglight hl;
-    CHECK(hl.size() == 0);
+    CHECK(hl.size() == 0); // NOLINT
     CHECK(hl.empty() == true);
     const auto r = hl.unpack();
     CHECK(r.count == 0);
@@ -24,7 +24,7 @@ TEST_CASE(PREFIX "ranges constructor")
     SECTION("Empty")
     {
         const QuickSearchHiglight hl(std::span<const R>{});
-        CHECK(hl.size() == 0);
+        CHECK(hl.size() == 0); // NOLINT
         CHECK(hl.empty() == true);
         const auto r = hl.unpack();
         CHECK(r.count == 0);
@@ -49,13 +49,50 @@ TEST_CASE(PREFIX "ranges constructor")
     SECTION("Multiple segments")
     {
         const QuickSearchHiglight::Ranges test_cases[] = {
-            {{{0, 1}, {16, 1}}, 2},
-            {{{0, 1}, {5, 1}, {10, 1}, {15, 1}, {20, 1}, {25, 1}}, 6},
-            {{{0, 1}, {5, 1}, {10, 1}, {15, 1}, {20, 1}, {25, 1}, {30, 1}}, 7},
-            {{{0, 1}, {5, 1}, {10, 1}, {15, 1}, {20, 1}, {25, 1}, {30, 1}, {35, 1}}, 8},
-            {{{0, 2}, {5, 2}, {10, 2}, {15, 2}, {20, 2}, {25, 2}, {30, 2}, {35, 2}}, 8},
-            {{{0, 4}, {5, 4}, {10, 4}, {15, 4}, {20, 4}, {25, 4}, {30, 4}, {35, 4}}, 8},
-            {{{0, 20}, {50, 20}}, 2},
+            {.segments = {{.offset = 0, .length = 1}, {.offset = 16, .length = 1}}, .count = 2},
+            {.segments = {{.offset = 0, .length = 1},
+                          {.offset = 5, .length = 1},
+                          {.offset = 10, .length = 1},
+                          {.offset = 15, .length = 1},
+                          {.offset = 20, .length = 1},
+                          {.offset = 25, .length = 1}},
+             .count = 6},
+            {.segments = {{.offset = 0, .length = 1},
+                          {.offset = 5, .length = 1},
+                          {.offset = 10, .length = 1},
+                          {.offset = 15, .length = 1},
+                          {.offset = 20, .length = 1},
+                          {.offset = 25, .length = 1},
+                          {.offset = 30, .length = 1}},
+             .count = 7},
+            {.segments = {{.offset = 0, .length = 1},
+                          {.offset = 5, .length = 1},
+                          {.offset = 10, .length = 1},
+                          {.offset = 15, .length = 1},
+                          {.offset = 20, .length = 1},
+                          {.offset = 25, .length = 1},
+                          {.offset = 30, .length = 1},
+                          {.offset = 35, .length = 1}},
+             .count = 8},
+            {.segments = {{.offset = 0, .length = 2},
+                          {.offset = 5, .length = 2},
+                          {.offset = 10, .length = 2},
+                          {.offset = 15, .length = 2},
+                          {.offset = 20, .length = 2},
+                          {.offset = 25, .length = 2},
+                          {.offset = 30, .length = 2},
+                          {.offset = 35, .length = 2}},
+             .count = 8},
+            {.segments = {{.offset = 0, .length = 4},
+                          {.offset = 5, .length = 4},
+                          {.offset = 10, .length = 4},
+                          {.offset = 15, .length = 4},
+                          {.offset = 20, .length = 4},
+                          {.offset = 25, .length = 4},
+                          {.offset = 30, .length = 4},
+                          {.offset = 35, .length = 4}},
+             .count = 8},
+            {.segments = {{.offset = 0, .length = 20}, {.offset = 50, .length = 20}}, .count = 2},
         };
 
         for( auto tc : test_cases ) {
@@ -72,12 +109,10 @@ TEST_CASE(PREFIX "ranges constructor")
     {
         struct TC {
             R src, dst;
-        } tcs[] = {
-            {
-                {0, 1000}, {0, 120},
-                // TODO: more?
-            }            
-        };
+        } const tcs[] = {{
+            .src = {0, 1000}, .dst = {0, 120},
+            // TODO: more?
+        }};
         for( auto test_case : tcs ) {
             const QuickSearchHiglight hl({&test_case.src, 1});
             CHECK(hl.size() == test_case.dst.length);
@@ -88,5 +123,4 @@ TEST_CASE(PREFIX "ranges constructor")
             CHECK(r.segments[0].length == test_case.dst.length);
         }
     }
-
 }

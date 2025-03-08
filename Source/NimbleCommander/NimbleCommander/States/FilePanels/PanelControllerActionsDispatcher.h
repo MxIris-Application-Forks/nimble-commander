@@ -1,29 +1,31 @@
-// Copyright (C) 2018-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <Utility/MIMResponder.h>
-#include <unordered_map>
 #include <Panel/PanelViewKeystrokeSink.h>
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 
 @class PanelController;
 
+namespace nc::utility {
+class ActionsShortcutsManager;
+}
+
 namespace nc::panel {
-namespace actions{
-    struct PanelAction;
+namespace actions {
+struct PanelAction;
 }
 
-using PanelActionsMap =
-    robin_hood::unordered_flat_map<SEL, std::unique_ptr<const actions::PanelAction>>;
-}
+using PanelActionsMap = ankerl::unordered_dense::map<SEL, std::unique_ptr<const actions::PanelAction>>;
+} // namespace nc::panel
 
-@interface NCPanelControllerActionsDispatcher : AttachedResponder<NCPanelViewKeystrokeSink>
+@interface NCPanelControllerActionsDispatcher : AttachedResponder <NCPanelViewKeystrokeSink>
 
-- (instancetype)initWithController:(PanelController*)_controller
-                     andActionsMap:(const nc::panel::PanelActionsMap&)_actions_map;
+- (instancetype)initWithController:(PanelController *)_controller
+                        actionsMap:(const nc::panel::PanelActionsMap &)_actions_map
+           actionsShortcutsManager:(const nc::utility::ActionsShortcutsManager &)_actions_shortcuts_manager;
 
-- (bool) validateActionBySelector:(SEL)_selector;
-
+- (bool)validateActionBySelector:(SEL)_selector;
 
 - (IBAction)OnBriefSystemOverviewCommand:(id)sender;
 - (IBAction)OnRefreshPanel:(id)sender;
@@ -72,7 +74,6 @@ using PanelActionsMap =
 - (IBAction)OnGoToProcessesList:(id)sender;
 - (IBAction)OnGoToFolder:(id)sender;
 - (IBAction)OnCreateDirectoryCommand:(id)sender;
-- (IBAction)OnCalculateChecksum:(id)sender;
 - (IBAction)OnQuickNewFolder:(id)sender;
 - (IBAction)OnQuickNewFolderWithSelection:(id)sender;
 - (IBAction)OnQuickNewFile:(id)sender;
@@ -89,8 +90,9 @@ using PanelActionsMap =
 - (IBAction)ToggleViewHiddenFiles:(id)sender;
 - (IBAction)ToggleSeparateFoldersFromFiles:(id)sender;
 - (IBAction)ToggleExtensionlessFolders:(id)sender;
-- (IBAction)ToggleCaseSensitiveComparison:(id)sender;
-- (IBAction)ToggleNumericComparison:(id)sender;
+- (IBAction)onToggleNaturalCollation:(id)sender;
+- (IBAction)onToggleCaseInsensitiveCollation:(id)sender;
+- (IBAction)onToggleCaseSensitiveCollation:(id)sender;
 - (IBAction)ToggleSortByName:(id)sender;
 - (IBAction)ToggleSortByExt:(id)sender;
 - (IBAction)ToggleSortByMTime:(id)sender;
@@ -117,10 +119,12 @@ using PanelActionsMap =
 - (IBAction)OnGoToQuickListsVolumes:(id)sender;
 - (IBAction)OnGoToQuickListsFavorites:(id)sender;
 - (IBAction)OnGoToQuickListsConnections:(id)sender;
+- (IBAction)OnGoToQuickListsTags:(id)sender;
 - (IBAction)OnCreateSymbolicLinkCommand:(id)sender;
 - (IBAction)OnEditSymbolicLinkCommand:(id)sender;
 - (IBAction)OnCreateHardLinkCommand:(id)sender;
 - (IBAction)OnFileViewCommand:(id)sender;
 - (IBAction)onFollowSymlink:(id)sender;
+- (IBAction)onShowContextMenu:(id)sender;
 
 @end

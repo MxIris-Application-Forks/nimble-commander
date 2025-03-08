@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "AppDelegate.h"
 #include "AppDelegateCPP.h"
 #include "AppDelegate+Migration.h"
@@ -10,19 +10,21 @@
 #include "Interactions.h"
 #include "NCHelpMenuDelegate.h"
 #include "SparkleShim.h"
+#include "PFMoveToApplicationsShim.h"
 #include "NativeVFSHostInstance.h"
+#include "Actions.h"
 #include "NCE.h"
 
-#include "../../3rd_Party/NSFileManagerDirectoryLocations/NSFileManager+DirectoryLocations.h"
-#include <LetsMove/PFMoveApplication.h>
-#include <spdlog/sinks/stdout_sinks.h>
+#include <algorithm>
 #include <magic_enum.hpp>
+#include <spdlog/sinks/stdout_sinks.h>
 
 #include <Base/CommonPaths.h>
 #include <Base/CFDefaultsCPP.h>
 #include <Base/algo.h>
 #include <Base/debug.h>
 
+#include <Utility/NSMenu+ActionsShortcutsManager.h>
 #include <Utility/NSMenu+Hierarchical.h>
 #include <Utility/NativeFSManagerImpl.h>
 #include <Utility/TemporaryFileStorageImpl.h>
@@ -35,13 +37,13 @@
 #include <Utility/Log.h>
 #include <Utility/FSEventsFileUpdateImpl.h>
 #include <Utility/SpdLogWindow.h>
+#include <Utility/Tags.h>
 
 #include <RoutedIO/RoutedIO.h>
 #include <RoutedIO/Log.h>
 
 #include <NimbleCommander/Core/ActionsShortcutsManager.h>
 #include <NimbleCommander/Core/SandboxManager.h>
-#include <NimbleCommander/Core/FeedbackManagerImpl.h>
 #include <NimbleCommander/Core/Dock.h>
 #include <NimbleCommander/Core/ServicesHandler.h>
 #include <NimbleCommander/Core/ConfigBackedNetworkConnectionsManager.h>
@@ -62,7 +64,6 @@
 #include <NimbleCommander/States/FilePanels/Helpers/ClosedPanelsHistoryImpl.h>
 #include <NimbleCommander/States/FilePanels/Helpers/RecentlyClosedMenuDelegate.h>
 #include <NimbleCommander/Preferences/Preferences.h>
-#include <NimbleCommander/GeneralUI/VFSListWindowController.h>
 
 #include <Operations/Pool.h>
 #include <Operations/PoolEnqueueFilter.h>
@@ -78,6 +79,7 @@
 #include <Viewer/Log.h>
 #include <Viewer/ViewerViewController.h>
 #include <Viewer/InternalViewerWindowController.h>
+#include <Viewer/Highlighting/FileSettingsStorage.h>
 
 #include <Term/Log.h>
 
@@ -87,6 +89,7 @@
 
 #include <Panel/Log.h>
 #include <Panel/ExternalTools.h>
+#include <Panel/TagsStorage.h>
 
 #include <filesystem>
 #include <fstream>
@@ -97,8 +100,8 @@ using namespace nc::bootstrap;
 
 static std::optional<std::string> Load(const std::string &_filepath);
 
-static auto g_ConfigDirPostfix = @"/Config/";
-static auto g_StateDirPostfix = @"/State/";
+static auto g_ConfigDirPostfix = "Config/";
+static auto g_StateDirPostfix = "State/";
 
 static nc::config::ConfigImpl *g_Config = nullptr;
 static nc::config::ConfigImpl *g_State = nullptr;
@@ -111,6 +114,7 @@ static const auto g_ConfigLayoutsList = "filePanel.layout.layouts_v1";
 static const auto g_ConfigSelectedTheme = "general.theme";
 static const auto g_ConfigThemes = "themes";
 static const auto g_ConfigExtEditorsList = "externalEditors.editors_v1";
+static const auto g_ConfigFinderTags = "filePanel.FinderTags.tags";
 
 nc::config::Config &GlobalConfig() noexcept
 {
@@ -133,23 +137,6 @@ static void ResetDefaults()
     g_State->ResetToDefaults();
     g_Config->Commit();
     g_State->Commit();
-}
-
-static void UpdateMenuItemsPlaceholders(int _tag)
-{
-    static const auto app_name =
-        static_cast<NSString *>([NSBundle.mainBundle.infoDictionary objectForKey:@"CFBundleName"]);
-
-    if( auto menu_item = [NSApp.mainMenu itemWithTagHierarchical:_tag] ) {
-        auto title = menu_item.title;
-        title = [title stringByReplacingOccurrencesOfString:@"{AppName}" withString:app_name];
-        menu_item.title = title;
-    }
-}
-
-static void UpdateMenuItemsPlaceholders(const char *_action)
-{
-    UpdateMenuItemsPlaceholders(ActionsShortcutsManager::Instance().TagFromAction(_action));
 }
 
 static void CheckDefaultsReset()
@@ -223,11 +210,10 @@ static NCAppDelegate *g_Me = nil;
     std::vector<NCMainWindowController *> m_MainWindows;
     std::vector<InternalViewerWindowController *> m_ViewerWindows;
     nc::spinlock m_ViewerWindowsLock;
-    std::string m_SupportDirectory;
-    std::string m_ConfigDirectory;
-    std::string m_StateDirectory;
+    std::filesystem::path m_SupportDirectory;
+    std::filesystem::path m_ConfigDirectory;
+    std::filesystem::path m_StateDirectory;
     std::vector<nc::config::Token> m_ConfigObservationTickets;
-    AppStoreHelper *m_AppStoreHelper;
     upward_flag m_FinishedLaunching;
     std::shared_ptr<nc::panel::FavoriteLocationsStorageImpl> m_Favorites;
     NSMutableArray *m_FilesToOpen;
@@ -246,7 +232,7 @@ static NCAppDelegate *g_Me = nil;
 @synthesize configDirectory = m_ConfigDirectory;
 @synthesize stateDirectory = m_StateDirectory;
 @synthesize supportDirectory = m_SupportDirectory;
-@synthesize appStoreHelper = m_AppStoreHelper;
+@synthesize recentlyClosedMenu;
 
 - (id)init
 {
@@ -260,8 +246,7 @@ static NCAppDelegate *g_Me = nil;
         m_NativeFSManager = std::make_unique<nc::utility::NativeFSManagerImpl>();
         m_NativeHost = std::make_shared<nc::vfs::NativeHost>(*m_NativeFSManager, *m_FSEventsFileUpdate);
         CheckDefaultsReset();
-        m_SupportDirectory =
-            EnsureTrailingSlash(NSFileManager.defaultManager.applicationSupportDirectory.fileSystemRepresentationSafe);
+        m_SupportDirectory = nc::AppDelegate::SupportDirectory();
         [self setupConfigs];
         m_SystemThemeDetector = std::make_unique<nc::SystemThemeDetector>();
     }
@@ -276,8 +261,6 @@ static NCAppDelegate *g_Me = nil;
 - (void)applicationWillFinishLaunching:(NSNotification *) [[maybe_unused]] _notification
 {
     RegisterAvailableVFS();
-
-    [self feedbackManager];
 
     // Init themes manager
     m_ThemesManager = std::make_unique<nc::ThemesManager>(GlobalConfig(), g_ConfigSelectedTheme, g_ConfigThemes);
@@ -295,12 +278,12 @@ static NCAppDelegate *g_Me = nil;
 
     [self themesManager];
     [self favoriteLocationsStorage];
+    [self tagsStorage]; // might kickstart a background scanning of the finder tags
 
     [self updateMainMenuFeaturesByVersionAndState];
 
     // update menu with current shortcuts layout
-    ActionsShortcutsManager::Instance().SetMenuShortCuts([NSApp mainMenu]);
-
+    [NSApp.mainMenu nc_setMenuItemShortcutsWithActionsShortcutsManager:self.actionsShortcutsManager];
     [self wireMenuDelegates];
 
     if( nc::base::AmISandboxed() ) {
@@ -318,9 +301,11 @@ static NCAppDelegate *g_Me = nil;
 - (void)wireMenuDelegates
 {
     // set up menu delegates. do this via DI to reduce links to AppDelegate in whole codebase
-    auto item_for_action = [](const char *_action) {
-        auto tag = ActionsShortcutsManager::Instance().TagFromAction(_action);
-        return [NSApp.mainMenu itemWithTagHierarchical:tag];
+    auto item_for_action = [&](const char *_action) -> NSMenuItem * {
+        const std::optional<int> tag = self.actionsShortcutsManager.TagFromAction(_action);
+        if( tag == std::nullopt )
+            return nil;
+        return [NSApp.mainMenu itemWithTagHierarchical:*tag];
     };
 
     static auto layouts_delegate = [[PanelViewLayoutsMenuDelegate alloc] initWithStorage:*self.panelLayouts];
@@ -340,7 +325,7 @@ static NCAppDelegate *g_Me = nil;
 
     const auto connections_menu_item = item_for_action("menu.go.connect.network_server");
     static const auto conn_delegate = [[ConnectionsMenuDelegate alloc]
-        initWithManager:[]() -> NetworkConnectionsManager & { return *g_Me.networkConnectionsManager; }];
+        initWithManager:[]() -> nc::panel::NetworkConnectionsManager & { return *g_Me.networkConnectionsManager; }];
     connections_menu_item.menu.delegate = conn_delegate;
 
     auto panels_locator = []() -> MainWindowFilePanelState * {
@@ -371,7 +356,7 @@ static NCAppDelegate *g_Me = nil;
 - (void)updateMainMenuFeaturesByVersionAndState
 {
     // disable some features available in menu by configuration limitation
-    auto tag_from_lit = [](const char *s) { return ActionsShortcutsManager::Instance().TagFromAction(s); };
+    auto tag_from_lit = [&](const char *s) { return self.actionsShortcutsManager.TagFromAction(s).value(); };
     auto current_menuitem = [&](const char *s) { return [NSApp.mainMenu itemWithTagHierarchical:tag_from_lit(s)]; };
     auto hide = [&](const char *s) {
         auto item = current_menuitem(s);
@@ -408,13 +393,6 @@ static NCAppDelegate *g_Me = nil;
 #pragma clang diagnostic pop
     NSUpdateDynamicServices();
 
-    // Since we have different app names (Nimble Commander and Nimble Commander Pro) and one
-    // fixed menu, we have to emplace the right title upon startup in some menu elements.
-    UpdateMenuItemsPlaceholders("menu.nimble_commander.about");
-    UpdateMenuItemsPlaceholders("menu.nimble_commander.hide");
-    UpdateMenuItemsPlaceholders("menu.nimble_commander.quit");
-    UpdateMenuItemsPlaceholders(17000); // Menu->Help
-
     [self temporaryFileStorage]; // implicitly runs the background temp storage purging
 
     // Non-MAS version extended logic below:
@@ -430,9 +408,7 @@ static NCAppDelegate *g_Me = nil;
         if( GlobalConfig().GetBool(g_ConfigForceFn) )
             nc::utility::FunctionalKeysPass::Instance().Enable(); // accessibility - remapping functional keys FnXX
 
-#ifdef __NC_VERSION_TRIAL__ // no-lic - temp workaround
         PFMoveToApplicationsFolderIfNecessary();
-#endif
     }
 
     m_ConfigWiring = std::make_unique<ConfigWiring>(GlobalConfig(), m_PoolEnqueueFilter);
@@ -447,30 +423,27 @@ static NCAppDelegate *g_Me = nil;
 - (void)setupConfigs
 {
     assert(g_Config == nullptr && g_State == nullptr);
-    auto fm = NSFileManager.defaultManager;
 
-    NSString *config = [fm.applicationSupportDirectory stringByAppendingString:g_ConfigDirPostfix];
-    if( ![fm fileExistsAtPath:config] )
-        [fm createDirectoryAtPath:config withIntermediateDirectories:true attributes:nil error:nil];
-    m_ConfigDirectory = config.fileSystemRepresentationSafe;
+    m_ConfigDirectory = m_SupportDirectory / g_ConfigDirPostfix;
+    if( !std::filesystem::exists(m_ConfigDirectory) )
+        std::filesystem::create_directories(m_ConfigDirectory);
 
-    NSString *state = [fm.applicationSupportDirectory stringByAppendingString:g_StateDirPostfix];
-    if( ![fm fileExistsAtPath:state] )
-        [fm createDirectoryAtPath:state withIntermediateDirectories:true attributes:nil error:nil];
-    m_StateDirectory = state.fileSystemRepresentationSafe;
+    m_StateDirectory = m_SupportDirectory / g_StateDirPostfix;
+    if( !std::filesystem::exists(m_StateDirectory) )
+        std::filesystem::create_directories(m_StateDirectory);
 
     const auto bundle = NSBundle.mainBundle;
     const auto config_defaults_path = [bundle pathForResource:@"Config" ofType:@"json"].fileSystemRepresentationSafe;
     const auto config_defaults = Load(config_defaults_path);
     if( config_defaults == std::nullopt ) {
-        std::cerr << "Failed to read the main config file: " << config_defaults_path << std::endl;
+        std::cerr << "Failed to read the main config file: " << config_defaults_path << '\n';
         exit(-1);
     }
 
     const auto state_defaults_path = [bundle pathForResource:@"State" ofType:@"json"].fileSystemRepresentationSafe;
     const auto state_defaults = Load(state_defaults_path);
     if( state_defaults == std::nullopt ) {
-        std::cerr << "Failed to read the state config file: " << state_defaults_path << std::endl;
+        std::cerr << "Failed to read the state config file: " << state_defaults_path << '\n';
         exit(-1);
     }
 
@@ -479,19 +452,19 @@ static NCAppDelegate *g_Me = nil;
 
     g_Config = new nc::config::ConfigImpl(
         *config_defaults,
-        std::make_shared<nc::config::FileOverwritesStorage>(self.configDirectory + "Config.json"),
+        std::make_shared<nc::config::FileOverwritesStorage>(self.configDirectory / "Config.json"),
         std::make_shared<nc::config::DelayedAsyncExecutor>(write_delay),
         std::make_shared<nc::config::DelayedAsyncExecutor>(reload_delay));
 
     g_State = new nc::config::ConfigImpl(
         *state_defaults,
-        std::make_shared<nc::config::FileOverwritesStorage>(self.stateDirectory + "State.json"),
+        std::make_shared<nc::config::FileOverwritesStorage>(self.stateDirectory / "State.json"),
         std::make_shared<nc::config::DelayedAsyncExecutor>(write_delay),
         std::make_shared<nc::config::DelayedAsyncExecutor>(reload_delay));
 
     g_NetworkConnectionsConfig = new nc::config::ConfigImpl(
         "",
-        std::make_shared<nc::config::FileOverwritesStorage>(self.configDirectory + "NetworkConnections.json"),
+        std::make_shared<nc::config::FileOverwritesStorage>(self.configDirectory / "NetworkConnections.json"),
         std::make_shared<nc::config::DelayedAsyncExecutor>(write_delay),
         std::make_shared<nc::config::DelayedAsyncExecutor>(reload_delay));
 
@@ -531,7 +504,7 @@ static NCAppDelegate *g_Me = nil;
 
 - (void)removeMainWindow:(NCMainWindowController *)_wnd
 {
-    auto it = find(begin(m_MainWindows), end(m_MainWindows), _wnd);
+    auto it = std::ranges::find(m_MainWindows, _wnd);
     if( it != end(m_MainWindows) )
         m_MainWindows.erase(it);
 }
@@ -549,11 +522,7 @@ static NCAppDelegate *g_Me = nil;
     bool has_running_ops = false;
     auto controllers = self.mainWindowControllers;
     for( const auto &wincont : controllers )
-        if( !wincont.operationsPool.Empty() ) {
-            has_running_ops = true;
-            break;
-        }
-        else if( wincont.terminalState && wincont.terminalState.isAnythingRunning ) {
+        if( !wincont.operationsPool.Empty() || (wincont.terminalState && wincont.terminalState.isAnythingRunning) ) {
             has_running_ops = true;
             break;
         }
@@ -573,11 +542,6 @@ static NCAppDelegate *g_Me = nil;
         m_Favorites->StoreData(StateConfig(), "filePanel.favorites");
 
     return NSTerminateNow;
-}
-
-- (IBAction)OnMenuSendFeedback:(id) [[maybe_unused]] _sender
-{
-    self.feedbackManager.EmailFeedback();
 }
 
 - (BOOL)applicationShouldOpenUntitledFile:(NSApplication *) [[maybe_unused]] _sender
@@ -643,7 +607,7 @@ static NCAppDelegate *g_Me = nil;
 
 - (IBAction)onMainMenuPerformGoToProductForum:(id) [[maybe_unused]] _sender
 {
-    const auto url = [NSURL URLWithString:@"http://magnumbytes.com/forum/"];
+    const auto url = [NSURL URLWithString:@"https://github.com/mikekazakov/nimble-commander/discussions"];
     [NSWorkspace.sharedWorkspace openURL:url];
 }
 
@@ -663,10 +627,11 @@ static NCAppDelegate *g_Me = nil;
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
-    auto tag = item.tag;
+    static const int admin_mode_tag =
+        self.actionsShortcutsManager.TagFromAction("menu.nimble_commander.toggle_admin_mode").value();
+    const long tag = item.tag;
 
-    IF_MENU_TAG("menu.nimble_commander.toggle_admin_mode")
-    {
+    if( tag == admin_mode_tag ) {
         bool enabled = nc::routedio::RoutedIO::Instance().Enabled();
         item.title = enabled ? NSLocalizedString(@"Disable Admin Mode", "Menu item title for disabling an admin mode")
                              : NSLocalizedString(@"Enable Admin Mode", "Menu item title for enabling an admin mode");
@@ -724,7 +689,7 @@ static NCAppDelegate *g_Me = nil;
     static std::once_flag once;
     std::call_once(once, [&] {
         using t = nc::panel::FavoriteLocationsStorageImpl;
-        m_Favorites = std::make_shared<t>(StateConfig(), "filePanel.favorites");
+        m_Favorites = std::make_shared<t>(StateConfig(), "filePanel.favorites", self.panelDataPersistency);
     });
 
     [[clang::no_destroy]] static const std::shared_ptr<nc::panel::FavoriteLocationsStorage> inst = m_Favorites;
@@ -749,7 +714,7 @@ static NCAppDelegate *g_Me = nil;
 - (void)removeInternalViewerWindow:(InternalViewerWindowController *)_wnd
 {
     auto lock = std::lock_guard{m_ViewerWindowsLock};
-    auto i = std::find(std::begin(m_ViewerWindows), std::end(m_ViewerWindows), _wnd);
+    auto i = std::ranges::find(m_ViewerWindows, _wnd);
     if( i != std::end(m_ViewerWindows) )
         m_ViewerWindows.erase(i);
 }
@@ -758,7 +723,7 @@ static NCAppDelegate *g_Me = nil;
                                                               onVFS:(const VFSHostPtr &)_vfs
 {
     auto lock = std::lock_guard{m_ViewerWindowsLock};
-    auto i = std::find_if(std::begin(m_ViewerWindows), std::end(m_ViewerWindows), [&](auto v) {
+    auto i = std::ranges::find_if(m_ViewerWindows, [&](auto v) {
         return v.internalViewerController.filePath == _path && v.internalViewerController.fileVFS == _vfs;
     });
     return i != std::end(m_ViewerWindows) ? *i : nil;
@@ -780,18 +745,6 @@ static NCAppDelegate *g_Me = nil;
     window.delegate = m_ViewerWindowDelegateBridge;
 
     return window;
-}
-
-- (IBAction)onMainMenuPerformShowVFSListAction:(id) [[maybe_unused]] _sender
-{
-    static __weak VFSListWindowController *existing_window = nil;
-    if( auto w = static_cast<VFSListWindowController *>(existing_window) )
-        [w show];
-    else {
-        auto window = [[VFSListWindowController alloc] initWithVFSManager:self.vfsInstanceManager];
-        [window show];
-        existing_window = window;
-    }
 }
 
 - (IBAction)onMainMenuPerformShowFavorites:(id) [[maybe_unused]] _sender
@@ -819,11 +772,11 @@ static NCAppDelegate *g_Me = nil;
     existing_window = window;
 }
 
-- (const std::shared_ptr<NetworkConnectionsManager> &)networkConnectionsManager
+- (const std::shared_ptr<nc::panel::NetworkConnectionsManager> &)networkConnectionsManager
 {
     [[clang::no_destroy]] static const auto mgr =
         std::make_shared<ConfigBackedNetworkConnectionsManager>(*g_NetworkConnectionsConfig, self.nativeFSManager);
-    [[clang::no_destroy]] static const std::shared_ptr<NetworkConnectionsManager> int_ptr = mgr;
+    [[clang::no_destroy]] static const std::shared_ptr<nc::panel::NetworkConnectionsManager> int_ptr = mgr;
     return int_ptr;
 }
 
@@ -834,7 +787,7 @@ static NCAppDelegate *g_Me = nil;
         apt->SetProgressCallback([](double _progress) { g_Me.dock.SetProgress(_progress); });
         return apt;
     }();
-    return *apt.get();
+    return *apt;
 }
 
 - (nc::core::Dock &)dock
@@ -890,7 +843,7 @@ static NCAppDelegate *g_Me = nil;
 static void DoTemporaryFileStoragePurge()
 {
     assert(g_TemporaryFileStorage != nullptr);
-    const auto deadline = time(nullptr) - 60 * 60 * 24; // 24 hours back
+    const auto deadline = time(nullptr) - (60l * 60l * 24l); // 24 hours back
     g_TemporaryFileStorage->Purge(deadline);
 
     dispatch_after(6h, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), DoTemporaryFileStoragePurge);
@@ -953,21 +906,58 @@ static void DoTemporaryFileStoragePurge()
     return m_PoolEnqueueFilter;
 }
 
-- (nc::FeedbackManager &)feedbackManager
-{
-    static nc::FeedbackManager *instance = [] {
-        auto fm = new nc::FeedbackManagerImpl();
-        atexit([] { instance->UpdateStatistics(); });
-        return fm;
-    }();
-    return *instance;
-}
-
 - (IBAction)onMainMenuShowLogs:(id)_sender
 {
     if( m_LogWindowController == nil )
         m_LogWindowController = [[NCSpdLogWindowController alloc] initWithLogs:Loggers()];
     [m_LogWindowController showWindow:self];
+}
+
+- (nc::panel::TagsStorage &)tagsStorage
+{
+    [[clang::no_destroy]] static nc::panel::TagsStorage storage(GlobalConfig(), g_ConfigFinderTags);
+    static std::once_flag once;
+    std::call_once(once, [] {
+        if( !storage.Initialized() ) {
+            dispatch_to_background([] {
+                auto tags = nc::utility::Tags::GatherAllItemsTags();
+                storage.Set(tags);
+            });
+        }
+    });
+    return storage;
+}
+
+- (nc::viewer::hl::SettingsStorage &)syntaxHighlightingSettingsStorage
+{
+    // if the overrides directory doesn't exist - create it. Check it only once per run
+    static std::once_flag once;
+    std::call_once(once, [self] {
+        const std::filesystem::path overrides_dir = self.supportDirectory / "SyntaxHighlighting";
+        std::error_code ec = {};
+        if( !std::filesystem::exists(overrides_dir, ec) ) {
+            std::filesystem::create_directory(overrides_dir, ec);
+        }
+    });
+
+    [[clang::no_destroy]] static nc::viewer::hl::FileSettingsStorage storage{
+        [NSBundle.mainBundle pathForResource:@"SyntaxHighlighting" ofType:@""].fileSystemRepresentation,
+        self.supportDirectory / "SyntaxHighlighting"};
+
+    return storage;
+}
+
+- (nc::panel::PanelDataPersistency &)panelDataPersistency
+{
+    [[clang::no_destroy]] static nc::panel::PanelDataPersistency persistency{*self.networkConnectionsManager};
+    return persistency;
+}
+
+- (nc::utility::ActionsShortcutsManager &)actionsShortcutsManager
+{
+    [[clang::no_destroy]] static nc::core::ActionsShortcutsManager manager(
+        g_ActionsTags, g_DefaultActionShortcuts, GlobalConfig());
+    return manager;
 }
 
 @end
@@ -982,7 +972,7 @@ static std::optional<std::string> Load(const std::string &_filepath)
     in.seekg(0, std::ios::end);
     contents.resize(in.tellg());
     in.seekg(0, std::ios::beg);
-    in.read(&contents[0], contents.size());
+    in.read(contents.data(), contents.size());
     in.close();
     return contents;
 }

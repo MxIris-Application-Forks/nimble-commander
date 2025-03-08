@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Delete.h"
 #include "../PanelController.h"
 #include "../MainWindowFilePanelState.h"
@@ -9,14 +9,16 @@
 #include <Operations/Deletion.h>
 #include <Operations/DeletionDialog.h>
 #include "../../MainWindowController.h"
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 #include <Base/dispatch_cpp.h>
+
+#include <algorithm>
 
 namespace nc::panel::actions {
 
 static bool CommonDeletePredicate(PanelController *_target);
 static bool AllAreNative(const std::vector<VFSListingItem> &_c);
-static robin_hood::unordered_set<std::string> ExtractDirectories(const std::vector<VFSListingItem> &_c);
+static ankerl::unordered_dense::set<std::string> ExtractDirectories(const std::vector<VFSListingItem> &_c);
 static bool TryTrash(const std::vector<VFSListingItem> &_c, utility::NativeFSManager &_fsman);
 static void AddPanelRefreshEpilog(PanelController *_target, nc::ops::Operation &_operation);
 
@@ -30,7 +32,7 @@ bool Delete::Predicate(PanelController *_target) const
     return CommonDeletePredicate(_target);
 }
 
-void Delete::Perform(PanelController *_target, id) const
+void Delete::Perform(PanelController *_target, id /*_sender*/) const
 {
     auto items = to_shared_ptr(_target.selectedEntriesOrFocusedEntry);
     if( items->empty() )
@@ -40,9 +42,12 @@ void Delete::Perform(PanelController *_target, id) const
     if( AllAreNative(*items) ) {
         const auto try_trash = TryTrash(*items, m_NativeFSManager);
         sheet.allowMoveToTrash = try_trash;
-        sheet.defaultType = m_Permanently
-                                ? nc::ops::DeletionType::Permanent
-                                : (try_trash ? nc::ops::DeletionType::Trash : nc::ops::DeletionType::Permanent);
+        sheet.defaultType = [&] {
+            if( m_Permanently )
+                return nc::ops::DeletionType::Permanent;
+            else
+                return try_trash ? nc::ops::DeletionType::Trash : nc::ops::DeletionType::Permanent;
+        }();
     }
     else {
         sheet.allowMoveToTrash = false;
@@ -98,12 +103,12 @@ context::MoveToTrash::MoveToTrash(const std::vector<VFSListingItem> &_items) : m
     m_AllAreNative = AllAreNative(m_Items);
 }
 
-bool context::MoveToTrash::Predicate(PanelController *) const
+bool context::MoveToTrash::Predicate(PanelController * /*_target*/) const
 {
     return m_AllAreNative;
 }
 
-void context::MoveToTrash::Perform(PanelController *_target, id) const
+void context::MoveToTrash::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto operation = std::make_shared<nc::ops::Deletion>(m_Items, nc::ops::DeletionType::Trash);
     AddPanelRefreshEpilog(_target, *operation);
@@ -112,15 +117,15 @@ void context::MoveToTrash::Perform(PanelController *_target, id) const
 
 context::DeletePermanently::DeletePermanently(const std::vector<VFSListingItem> &_items) : m_Items(_items)
 {
-    m_AllWriteable = all_of(begin(m_Items), end(m_Items), [](const auto &i) { return i.Host()->IsWritable(); });
+    m_AllWriteable = std::ranges::all_of(m_Items, [](const auto &i) { return i.Host()->IsWritable(); });
 }
 
-bool context::DeletePermanently::Predicate(PanelController *) const
+bool context::DeletePermanently::Predicate(PanelController * /*_target*/) const
 {
     return m_AllWriteable;
 }
 
-void context::DeletePermanently::Perform(PanelController *_target, id) const
+void context::DeletePermanently::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto operation = std::make_shared<nc::ops::Deletion>(m_Items, nc::ops::DeletionType::Permanent);
     AddPanelRefreshEpilog(_target, *operation);
@@ -137,12 +142,12 @@ static bool CommonDeletePredicate(PanelController *_target)
 
 static bool AllAreNative(const std::vector<VFSListingItem> &_c)
 {
-    return std::all_of(std::begin(_c), std::end(_c), [&](auto &i) { return i.Host()->IsNativeFS(); });
+    return std::ranges::all_of(_c, [&](auto &i) { return i.Host()->IsNativeFS(); });
 }
 
-static robin_hood::unordered_set<std::string> ExtractDirectories(const std::vector<VFSListingItem> &_c)
+static ankerl::unordered_dense::set<std::string> ExtractDirectories(const std::vector<VFSListingItem> &_c)
 {
-    robin_hood::unordered_set<std::string> directories;
+    ankerl::unordered_dense::set<std::string> directories;
     for( const auto &i : _c )
         directories.emplace(i.Directory());
     return directories;
@@ -152,19 +157,18 @@ static bool TryTrash(const std::vector<VFSListingItem> &_c, utility::NativeFSMan
 {
     const auto directories = ExtractDirectories(_c);
 
-    const bool all_have_trash =
-        std::all_of(std::begin(directories), std::end(directories), [&](const std::string &dir) {
-            if( auto vol = _fsman.VolumeFromPath(dir); vol && vol->interfaces.has_trash )
-                return true;
-            return false;
-        });
+    const bool all_have_trash = std::ranges::all_of(directories, [&](const std::string &dir) {
+        if( auto vol = _fsman.VolumeFromPath(dir); vol && vol->interfaces.has_trash )
+            return true;
+        return false;
+    });
 
     // if we already know that each volume have a trash folder - just say yes
     if( all_have_trash )
         return true;
 
     // otherwise, speculate a bit and try doing trash on locally-mounted volumes as well
-    const bool all_are_local = std::all_of(std::begin(directories), std::end(directories), [&](const std::string &dir) {
+    const bool all_are_local = std::ranges::all_of(directories, [&](const std::string &dir) {
         if( auto vol = _fsman.VolumeFromPath(dir); vol && vol->mount_flags.local )
             return true;
         return false;
@@ -177,10 +181,10 @@ static void AddPanelRefreshEpilog(PanelController *_target, nc::ops::Operation &
     __weak PanelController *weak_panel = _target;
     _operation.ObserveUnticketed(nc::ops::Operation::NotifyAboutFinish, [=] {
         dispatch_to_main_queue([=] {
-            if( PanelController *strong_pc = weak_panel )
+            if( PanelController *const strong_pc = weak_panel )
                 [strong_pc hintAboutFilesystemChange];
         });
     });
 }
 
-}
+} // namespace nc::panel::actions

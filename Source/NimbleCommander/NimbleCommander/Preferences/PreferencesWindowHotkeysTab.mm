@@ -1,17 +1,23 @@
-// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PreferencesWindowHotkeysTab.h"
-#include <Utility/NSMenu+Hierarchical.h>
-#include <Utility/FunctionKeysPass.h>
-#import <GTMHotKeyTextField/GTMHotKeyTextField.h>
-#include "../Core/ActionsShortcutsManager.h"
-#include <Panel/ExternalTools.h>
-#include <any>
-#include <Base/dispatch_cpp.h>
+#include <Utility/ActionsShortcutsManager.h>
 #include <Base/debug.h>
+#include <Base/dispatch_cpp.h>
+#import <GTMHotKeyTextField/GTMHotKeyTextField.h>
+#include <Panel/ExternalTools.h>
+#include <Utility/FunctionKeysPass.h>
+#include <Utility/NSMenu+Hierarchical.h>
+#include <Utility/NSMenu+ActionsShortcutsManager.h>
 #include <Utility/ObjCpp.h>
 #include <Utility/StringExtras.h>
+#include <algorithm>
+#include <numeric>
+#include <ranges>
+#include <any>
 
 using nc::panel::ExternalTool;
+using nc::utility::ActionShortcut;
+using nc::utility::ActionsShortcutsManager;
 
 static NSString *ComposeVerboseMenuItemTitle(NSMenuItem *_item);
 static NSString *ComposeVerboseNonMenuActionTitle(const std::string &_action);
@@ -22,8 +28,8 @@ namespace {
 
 struct ActionShortcutNode {
     std::pair<std::string, int> tag;
-    nc::utility::ActionShortcut current_shortcut;
-    nc::utility::ActionShortcut default_shortcut;
+    ActionsShortcutsManager::Shortcuts current_shortcuts;
+    ActionsShortcutsManager::Shortcuts default_shortcuts;
     NSString *label = @"";
     bool is_menu_action = false;
     bool has_submenu = false;
@@ -40,14 +46,13 @@ struct ToolShortcutNode {
     bool is_conflicted;
 };
 
-enum class SourceType
-{
+enum class SourceType : uint8_t {
     All,
     Customized,
     Conflicts
 };
 
-}
+} // namespace
 
 @interface PreferencesWindowHotkeysTab ()
 
@@ -57,6 +62,10 @@ enum class SourceType
 @property(nonatomic) IBOutlet NSButton *sourceAllButton;
 @property(nonatomic) IBOutlet NSButton *sourceCustomizedButton;
 @property(nonatomic) IBOutlet NSButton *sourceConflictsButton;
+@property(nonatomic) IBOutlet NSTableColumn *firstShortcutColumn;
+@property(nonatomic) IBOutlet NSTableColumn *secondShortcutColumn;
+@property(nonatomic) IBOutlet NSTableColumn *thirdShortcutColumn;
+@property(nonatomic) IBOutlet NSTableColumn *fourthShortcutColumn;
 
 @property(nonatomic) SourceType sourceType;
 
@@ -71,27 +80,39 @@ enum class SourceType
     std::vector<std::any> m_SourceNodes;
     std::vector<std::any> m_FilteredNodes;
     SourceType m_SourceType;
+    nc::utility::ActionsShortcutsManager *m_ActionsShortcutsManager;
 }
 
 @synthesize sourceType = m_SourceType;
+@synthesize Table;
+@synthesize forceFnButton;
+@synthesize filterTextField;
+@synthesize sourceAllButton;
+@synthesize sourceCustomizedButton;
+@synthesize sourceConflictsButton;
+@synthesize firstShortcutColumn;
+@synthesize secondShortcutColumn;
+@synthesize thirdShortcutColumn;
+@synthesize fourthShortcutColumn;
 
 - (id)initWithToolsStorage:(std::function<nc::panel::ExternalToolsStorage &()>)_tool_storage
+    actionsShortcutsManager:(nc::utility::ActionsShortcutsManager &)_actions_shortcuts_manager
 {
     self = [super init];
     if( self ) {
         m_SourceType = SourceType::All;
         m_ToolsStorage = _tool_storage;
-        const auto &all_shortcuts = ActionsShortcutsManager::Instance().AllShortcuts();
-        m_Shortcuts.assign(begin(all_shortcuts), end(all_shortcuts));
+        m_ActionsShortcutsManager = &_actions_shortcuts_manager;
+        m_Shortcuts = m_ActionsShortcutsManager->AllShortcuts();
 
         // remove shortcuts whichs are absent in main menu
         const auto absent = [](auto &_t) {
             if( _t.first.find_first_of("menu.") != 0 )
                 return false;
             const auto menu_item = [NSApp.mainMenu itemWithTagHierarchical:_t.second];
-            return menu_item == nil || menu_item.isHidden == true;
+            return menu_item == nil || menu_item.isHidden;
         };
-        m_Shortcuts.erase(remove_if(begin(m_Shortcuts), end(m_Shortcuts), absent), end(m_Shortcuts));
+        std::erase_if(m_Shortcuts, absent);
     }
     return self;
 }
@@ -116,9 +137,8 @@ static bool ParticipatesInConflicts(const std::string &_action_name)
 
 - (void)buildData
 {
-    const auto &sm = ActionsShortcutsManager::Instance();
     m_AllNodes.clear();
-    std::unordered_map<nc::utility::ActionShortcut, int> counts;
+    ankerl::unordered_dense::map<nc::utility::ActionShortcut, int> counts;
     for( auto &v : m_Shortcuts ) {
         if( v.first == "menu.file.open_with_submenu" || v.first == "menu.file.always_open_with_submenu" ) {
             // Skip the menu items that are actually placeholders for submenus as shortcuts don't work for them.
@@ -131,14 +151,16 @@ static bool ParticipatesInConflicts(const std::string &_action_name)
         ActionShortcutNode shortcut;
         shortcut.tag = v;
         shortcut.label = LabelTitleForAction(v.first, menu_item);
-        shortcut.current_shortcut = sm.ShortCutFromTag(v.second);
-        shortcut.default_shortcut = sm.DefaultShortCutFromTag(v.second);
+        shortcut.current_shortcuts = m_ActionsShortcutsManager->ShortcutsFromTag(v.second).value();
+        shortcut.default_shortcuts = m_ActionsShortcutsManager->DefaultShortcutsFromTag(v.second).value();
         shortcut.is_menu_action = v.first.find_first_of("menu.") == 0;
-        shortcut.is_customized = shortcut.current_shortcut != shortcut.default_shortcut;
+        shortcut.is_customized = shortcut.current_shortcuts != shortcut.default_shortcuts;
         shortcut.has_submenu = menu_item != nil && menu_item.hasSubmenu;
         shortcut.participates_in_conflicts = ParticipatesInConflicts(v.first);
-        if( shortcut.participates_in_conflicts )
-            counts[shortcut.current_shortcut]++;
+        if( shortcut.participates_in_conflicts ) {
+            for( auto &sc : shortcut.current_shortcuts )
+                counts[sc]++;
+        }
 
         m_AllNodes.emplace_back(std::move(shortcut));
     }
@@ -156,10 +178,10 @@ static bool ParticipatesInConflicts(const std::string &_action_name)
     int conflicts_amount = 0;
     for( auto &v : m_AllNodes ) {
         if( auto node = std::any_cast<ActionShortcutNode>(&v) ) {
-            if( node->participates_in_conflicts == false )
+            if( !node->participates_in_conflicts )
                 continue;
-
-            node->is_conflicted = node->current_shortcut && counts[node->current_shortcut] > 1;
+            node->is_conflicted =
+                std::ranges::any_of(node->current_shortcuts, [&](auto &_sc) { return counts[_sc] > 1; });
             if( node->is_conflicted )
                 conflicts_amount++;
         }
@@ -234,7 +256,7 @@ static bool ParticipatesInConflicts(const std::string &_action_name)
 
 - (NSImage *)toolbarItemImage
 {
-    return [NSImage imageNamed:@"PreferencesIcons_Hotkeys"];
+    return [NSImage imageNamed:@"preferences.toolbar.hotkeys"];
 }
 
 - (NSString *)toolbarItemLabel
@@ -270,6 +292,7 @@ static NSTextField *SpawnLabelForAction(const ActionShortcutNode &_action)
     tf.bordered = false;
     tf.editable = false;
     tf.drawsBackground = false;
+    tf.lineBreakMode = NSLineBreakByTruncatingTail;
     return tf;
 }
 
@@ -291,28 +314,41 @@ static NSImageView *SpawnCautionSign()
     return iv;
 }
 
-- (NSView *)tableView:(NSTableView *) [[maybe_unused]] tableView
-    viewForTableColumn:(NSTableColumn *)tableColumn
-                   row:(NSInteger)row
+- (NSView *)tableView:(NSTableView *) [[maybe_unused]] _table_view
+    viewForTableColumn:(NSTableColumn *)_table_column
+                   row:(NSInteger)_row
 {
-    if( row >= 0 && row < static_cast<int>(m_FilteredNodes.size()) ) {
-        if( auto node = std::any_cast<ActionShortcutNode>(&m_FilteredNodes[row]) ) {
-            if( [tableColumn.identifier isEqualToString:@"action"] ) {
+    if( _row >= 0 && _row < static_cast<int>(m_FilteredNodes.size()) ) {
+        if( auto node = std::any_cast<ActionShortcutNode>(&m_FilteredNodes[_row]) ) {
+            if( [_table_column.identifier isEqualToString:@"action"] ) {
                 return SpawnLabelForAction(*node);
             }
-            if( [tableColumn.identifier isEqualToString:@"hotkey"] ) {
+
+            const std::array columns{self.firstShortcutColumn,
+                                     self.secondShortcutColumn,
+                                     self.thirdShortcutColumn,
+                                     self.fourthShortcutColumn};
+            if( auto it = std::ranges::find(columns, _table_column); it != columns.end() ) {
+                const size_t shortcut_idx = std::distance(columns.begin(), it);
+
                 const auto key_text_field = [self makeDefaultGTMHotKeyTextField];
                 assert(key_text_field);
                 key_text_field.action = @selector(onHKChanged:);
                 key_text_field.target = self;
                 key_text_field.tag = node->tag.second;
 
+                const ActionShortcut default_shortcut = node->default_shortcuts.size() > shortcut_idx
+                                                            ? node->default_shortcuts[shortcut_idx]
+                                                            : ActionShortcut{};
+                const ActionShortcut current_shortcut = node->current_shortcuts.size() > shortcut_idx
+                                                            ? node->current_shortcuts[shortcut_idx]
+                                                            : ActionShortcut{};
                 const auto field_cell = nc::objc_cast<GTMHotKeyTextFieldCell>(key_text_field.cell);
-                field_cell.hotKey = [GTMHotKey hotKeyWithKey:node->current_shortcut.Key()
-                                                        modifiers:node->current_shortcut.modifiers];
-                field_cell.defaultHotKey = [GTMHotKey hotKeyWithKey:node->default_shortcut.Key()
-                                                          modifiers:node->default_shortcut.modifiers];
-                field_cell.menuHotKey = node->is_menu_action;
+                field_cell.hotKey = [GTMHotKey hotKeyWithKey:current_shortcut.Key()
+                                                   modifiers:current_shortcut.modifiers];
+                field_cell.defaultHotKey = [GTMHotKey hotKeyWithKey:default_shortcut.Key()
+                                                          modifiers:default_shortcut.modifiers];
+                field_cell.menuHotKey = node->is_menu_action && shortcut_idx == 0;
 
                 if( node->is_customized )
                     field_cell.font = [NSFont boldSystemFontOfSize:field_cell.font.pointSize];
@@ -321,15 +357,16 @@ static NSImageView *SpawnCautionSign()
 
                 return key_text_field;
             }
-            if( [tableColumn.identifier isEqualToString:@"flag"] ) {
+
+            if( [_table_column.identifier isEqualToString:@"flag"] ) {
                 return node->is_conflicted ? SpawnCautionSign() : nil;
             }
         }
-        if( auto node = std::any_cast<ToolShortcutNode>(&m_FilteredNodes[row]) ) {
-            if( [tableColumn.identifier isEqualToString:@"action"] ) {
+        if( auto node = std::any_cast<ToolShortcutNode>(&m_FilteredNodes[_row]) ) {
+            if( [_table_column.identifier isEqualToString:@"action"] ) {
                 return SpawnLabelForTool(*node);
             }
-            if( [tableColumn.identifier isEqualToString:@"hotkey"] ) {
+            if( [_table_column.identifier isEqualToString:@"first"] ) {
                 const auto &tool = *node->tool;
                 const auto key_text_field = [self makeDefaultGTMHotKeyTextField];
                 assert(key_text_field);
@@ -338,8 +375,7 @@ static NSImageView *SpawnCautionSign()
                 key_text_field.tag = node->tool_index;
 
                 const auto field_cell = nc::objc_cast<GTMHotKeyTextFieldCell>(key_text_field.cell);
-                field_cell.hotKey = [GTMHotKey hotKeyWithKey:tool.m_Shorcut.Key()
-                                                        modifiers:tool.m_Shorcut.modifiers];
+                field_cell.hotKey = [GTMHotKey hotKeyWithKey:tool.m_Shorcut.Key() modifiers:tool.m_Shorcut.modifiers];
                 field_cell.defaultHotKey = [GTMHotKey hotKeyWithKey:tool.m_Shorcut.Key()
                                                           modifiers:tool.m_Shorcut.modifiers];
                 if( node->is_customized )
@@ -347,7 +383,7 @@ static NSImageView *SpawnCautionSign()
 
                 return key_text_field;
             }
-            if( [tableColumn.identifier isEqualToString:@"flag"] ) {
+            if( [_table_column.identifier isEqualToString:@"flag"] ) {
                 return node->is_conflicted ? SpawnCautionSign() : nil;
             }
         }
@@ -358,7 +394,7 @@ static NSImageView *SpawnCautionSign()
 - (nc::utility::ActionShortcut)shortcutFromGTMHotKey:(GTMHotKey *)_key
 {
     const auto key = _key.key.length > 0 ? [_key.key characterAtIndex:0] : static_cast<uint16_t>(0);
-    const auto hk = ActionsShortcutsManager::ShortCut(key, _key.modifiers);
+    const auto hk = ActionsShortcutsManager::Shortcut(key, _key.modifiers);
     return hk;
 }
 
@@ -382,17 +418,46 @@ static NSImageView *SpawnCautionSign()
 
 - (IBAction)onHKChanged:(id)sender
 {
-    auto &am = ActionsShortcutsManager::Instance();
-    if( auto tf = nc::objc_cast<GTMHotKeyTextField>(sender) )
-        if( auto gtm_hk = nc::objc_cast<GTMHotKeyTextFieldCell>(tf.cell).hotKey ) {
-            auto tag = int(tf.tag);
-            auto hk = [self shortcutFromGTMHotKey:gtm_hk];
-            auto action = am.ActionFromTag(tag);
-            if( am.SetShortCutOverride(action, hk) ) {
-                am.SetMenuShortCuts(NSApp.mainMenu);
-                [self rebuildAll];
-            }
-        }
+    GTMHotKeyTextField *tf = nc::objc_cast<GTMHotKeyTextField>(sender);
+    if( !tf )
+        return;
+
+    GTMHotKey *hk = nc::objc_cast<GTMHotKeyTextFieldCell>(tf.cell).hotKey;
+    if( !hk )
+        return;
+
+    const ActionShortcut updated_shortcut = [self shortcutFromGTMHotKey:hk];
+
+    const long column = [self.Table columnForView:tf];
+    if( column < 1 )
+        return;
+
+    const size_t shortcut_idx = column - 1; // primary shortcut is the column #1
+
+    const int tag = static_cast<int>(tf.tag);
+
+    const std::optional<std::string_view> action = m_ActionsShortcutsManager->ActionFromTag(tag);
+    if( !action )
+        return;
+
+    const std::optional<ActionsShortcutsManager::Shortcuts> current_shortcuts =
+        m_ActionsShortcutsManager->ShortcutsFromTag(tag);
+    if( !current_shortcuts )
+        return;
+
+    std::vector<ActionShortcut> updated_shortcuts(current_shortcuts->begin(), current_shortcuts->end());
+
+    if( shortcut_idx < updated_shortcuts.size() )
+        updated_shortcuts[shortcut_idx] = updated_shortcut;
+    else
+        updated_shortcuts.push_back(updated_shortcut);
+
+    if( m_ActionsShortcutsManager->SetShortcutsOverride(*action, updated_shortcuts) ) {
+        [NSApp.mainMenu nc_setMenuItemShortcutsWithActionsShortcutsManager:*m_ActionsShortcutsManager];
+    }
+
+    // Rebuild everything just in case the shortcut was a duplicate that ASM filtered out
+    [self rebuildAll];
 }
 
 - (IBAction)OnDefaults:(id) [[maybe_unused]] sender
@@ -409,8 +474,8 @@ static NSImageView *SpawnCautionSign()
     [alert addButtonWithTitle:NSLocalizedString(@"Cancel", "")];
     [[alert.buttons objectAtIndex:0] setKeyEquivalent:@""];
     if( [alert runModal] == NSAlertFirstButtonReturn ) {
-        ActionsShortcutsManager::Instance().RevertToDefaults();
-        ActionsShortcutsManager::Instance().SetMenuShortCuts(NSApp.mainMenu);
+        m_ActionsShortcutsManager->RevertToDefaults();
+        [NSApp.mainMenu nc_setMenuItemShortcutsWithActionsShortcutsManager:*m_ActionsShortcutsManager];
         [self rebuildAll];
     }
 }
@@ -440,11 +505,10 @@ static bool ValidateNodeForFilter(const std::any &_node, NSString *_filter)
         if( [scid rangeOfString:_filter options:NSCaseInsensitiveSearch].length != 0 )
             return true;
 
-        const auto prettry_hotkey = node->current_shortcut.PrettyString();
-        if( [prettry_hotkey rangeOfString:_filter options:NSCaseInsensitiveSearch].length != 0 )
-            return true;
-
-        return false;
+        return std::ranges::any_of(node->current_shortcuts, [&](const ActionShortcut &_sc) {
+            const auto prettry_hotkey = _sc.PrettyString();
+            return [prettry_hotkey rangeOfString:_filter options:NSCaseInsensitiveSearch].length != 0;
+        });
     }
     if( auto node = std::any_cast<ToolShortcutNode>(&_node) ) {
         const auto label = node->label;
@@ -456,10 +520,7 @@ static bool ValidateNodeForFilter(const std::any &_node, NSString *_filter)
             return true;
 
         const auto app_path = [NSString stringWithUTF8StdString:node->tool->m_ExecutablePath];
-        if( [app_path rangeOfString:_filter options:NSCaseInsensitiveSearch].length != 0 )
-            return true;
-
-        return false;
+        return [app_path rangeOfString:_filter options:NSCaseInsensitiveSearch].length != 0;
     }
 
     return false;
@@ -541,7 +602,7 @@ static NSString *ComposeVerboseMenuItemTitle(NSMenuItem *_item)
 
 static NSString *ComposeVerboseNonMenuActionTitle(const std::string &_action)
 {
-    [[clang::no_destroy]] static const std::vector<std::pair<const char *, NSString *>> titles = {
+    [[clang::no_destroy]] static const ankerl::unordered_dense::map<std::string, NSString *> titles = {
         {"panel.move_up", NSLocalizedString(@"File Panels ▶ Move Up", "")},
         {"panel.move_down", NSLocalizedString(@"File Panels ▶ Move Down", "")},
         {"panel.move_left", NSLocalizedString(@"File Panels ▶ Move Left", "")},
@@ -576,6 +637,7 @@ static NSString *ComposeVerboseNonMenuActionTitle(const std::string &_action)
         {"panel.show_tab_no_10", NSLocalizedString(@"File Panels ▶ Show Tab №10", "")},
         {"panel.focus_left_panel", NSLocalizedString(@"File Panels ▶ Focus Left Panel", "")},
         {"panel.focus_right_panel", NSLocalizedString(@"File Panels ▶ Focus Right Panel", "")},
+        {"panel.show_context_menu", NSLocalizedString(@"File Panels ▶ Show Context Menu", "")},
         {"viewer.toggle_text", NSLocalizedString(@"Viewer ▶ Toggle Text", "")},
         {"viewer.toggle_hex", NSLocalizedString(@"Viewer ▶ Toggle Hex", "")},
         {"viewer.toggle_preview", NSLocalizedString(@"Viewer ▶ Toggle Preview", "")},
@@ -584,9 +646,8 @@ static NSString *ComposeVerboseNonMenuActionTitle(const std::string &_action)
         {"viewer.refresh", NSLocalizedString(@"Viewer ▶ Refresh", "")},
     };
 
-    for( auto &i : titles )
-        if( i.first == _action )
-            return i.second;
+    if( const auto it = titles.find(_action); it != titles.end() )
+        return it->second;
 
     return nil;
 }

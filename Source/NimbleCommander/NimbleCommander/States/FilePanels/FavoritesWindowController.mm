@@ -1,24 +1,24 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
-#include <Carbon/Carbon.h>
-#include <Base/algo.h>
-#include <Utility/SheetWithHotkeys.h>
-#include <NimbleCommander/Core/Alert.h>
-#include <NimbleCommander/States/MainWindowController.h>
-#include <NimbleCommander/States/FilePanels/MainWindowFilePanelState.h>
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "FavoritesWindowController.h"
-#include "Favorites.h"
 #include "FavoriteComposing.h"
+#include "Favorites.h"
 #include "FilesDraggingSource.h"
-#include <Utility/ObjCpp.h>
-#include <Utility/StringExtras.h>
+#include <Base/algo.h>
 #include <Base/dispatch_cpp.h>
+#include <Carbon/Carbon.h>
+#include <NimbleCommander/Core/Alert.h>
+#include <NimbleCommander/States/FilePanels/MainWindowFilePanelState.h>
+#include <NimbleCommander/States/MainWindowController.h>
+#include <Utility/ObjCpp.h>
+#include <Utility/SheetWithHotkeys.h>
+#include <Utility/StringExtras.h>
+#include <algorithm>
 #include <unordered_map>
 
 using namespace nc::panel;
 using namespace std::literals;
 
-static const auto g_FavoritesWindowControllerDragDataType =
-    @"com.magnumbytes.nc.FavoritesWindowControllerDragDataType";
+static const auto g_FavoritesWindowControllerDragDataType = @"com.magnumbytes.nc.FavoritesWindowControllerDragDataType";
 
 @interface FavoritesWindowController ()
 @property(nonatomic) IBOutlet NSTableView *table;
@@ -38,6 +38,9 @@ static const auto g_FavoritesWindowControllerDragDataType =
     bool m_IsCommitingFavorites;
     std::function<std::vector<std::pair<VFSHostPtr, std::string>>()> m_ProvideCurrentUniformPaths;
 }
+@synthesize table;
+@synthesize buttons;
+@synthesize optionsMenu;
 
 - (id)initWithFavoritesStorage:(std::function<FavoriteLocationsStorage &()>)_favorites_storage
 {
@@ -66,8 +69,8 @@ static const auto g_FavoritesWindowControllerDragDataType =
     sheet.onCtrlX = [sheet makeActionHotkey:@selector(removeFavorite:)];
     sheet.onCtrlO = [sheet makeActionHotkey:@selector(showOptionsMenu:)];
 
-    m_ObservationTicket = m_Storage().ObserveFavoritesChanges(
-        nc::objc_callback(self, @selector(favoritesHadChangedOutside)));
+    m_ObservationTicket =
+        m_Storage().ObserveFavoritesChanges(nc::objc_callback(self, @selector(favoritesHadChangedOutside)));
 }
 
 - (void)show
@@ -171,15 +174,13 @@ static const auto g_FavoritesWindowControllerDragDataType =
     if( operation == NSTableViewDropOn )
         return NSDragOperationNone;
 
-    const auto external_drag =
-    nc::objc_cast<FilesDraggingSource>(info.draggingSource) ||
-        [info.draggingPasteboard.types containsObject:FilesDraggingSource.fileURLsDragUTI];
+    const auto external_drag = nc::objc_cast<FilesDraggingSource>(info.draggingSource) ||
+                               [info.draggingPasteboard.types containsObject:FilesDraggingSource.fileURLsDragUTI];
 
     return external_drag ? NSDragOperationCopy : NSDragOperationMove;
 }
 
-- (nullable id<NSPasteboardWriting>)tableView:(NSTableView *)_table_view
-                       pasteboardWriterForRow:(NSInteger)_row
+- (nullable id<NSPasteboardWriting>)tableView:(NSTableView *)_table_view pasteboardWriterForRow:(NSInteger)_row
 {
     auto data = [NSKeyedArchiver archivedDataWithRootObject:[NSNumber numberWithInteger:_row]
                                       requiringSecureCoding:false
@@ -191,9 +192,7 @@ static const auto g_FavoritesWindowControllerDragDataType =
 
 - (bool)hasFavorite:(const FavoriteLocationsStorage::Favorite &)_f
 {
-    return any_of(begin(m_Favorites), end(m_Favorites), [&](auto &_i) {
-        return _i.footprint == _f.footprint;
-    });
+    return std::ranges::any_of(m_Favorites, [&](auto &_i) { return _i.footprint == _f.footprint; });
 }
 
 - (BOOL)tableView:(NSTableView *) [[maybe_unused]] aTableView
@@ -206,8 +205,7 @@ static const auto g_FavoritesWindowControllerDragDataType =
     if( [pasteboard.types containsObject:g_FavoritesWindowControllerDragDataType] ) {
         // dragging items inside table
         auto data = [info.draggingPasteboard dataForType:g_FavoritesWindowControllerDragDataType];
-        NSNumber *ind =
-            [NSKeyedUnarchiver unarchivedObjectOfClass:NSNumber.class fromData:data error:nil];
+        NSNumber *ind = [NSKeyedUnarchiver unarchivedObjectOfClass:NSNumber.class fromData:data error:nil];
         NSInteger drag_from = ind.integerValue;
 
         if( drag_to == drag_from ||    // same index, above
@@ -275,13 +273,14 @@ static const auto g_FavoritesWindowControllerDragDataType =
 
 - (void)keyDown:(NSEvent *)event
 {
-    if( event.type == NSEventTypeKeyDown && event.keyCode == kVK_Delete &&
-        self.window.firstResponder == self.table && self.table.selectedRow >= 0 ) {
+    if( event.type == NSEventTypeKeyDown && event.keyCode == kVK_Delete && self.window.firstResponder == self.table &&
+        self.table.selectedRow >= 0 ) {
         [self removeFavorite:self];
         return;
     }
 
-    return [super keyDown:event];
+    [super keyDown:event];
+    return;
 }
 
 - (IBAction)onButtonClicked:(id)sender
@@ -298,8 +297,7 @@ static const auto g_FavoritesWindowControllerDragDataType =
 - (void)showOptionsMenu:(id) [[maybe_unused]] sender
 {
     const auto b = self.buttons.bounds;
-    const auto origin =
-        NSMakePoint(b.size.width - [self.buttons widthForSegment:2] - 3, b.size.height + 3);
+    const auto origin = NSMakePoint(b.size.width - [self.buttons widthForSegment:2] - 3, b.size.height + 3);
     [self.optionsMenu popUpMenuPositioningItem:nil atLocation:origin inView:self.buttons];
 }
 
@@ -351,9 +349,8 @@ static const auto g_FavoritesWindowControllerDragDataType =
     auto ff = FavoriteComposing{m_Storage()}.FinderFavorites();
     if( ff.empty() ) {
         Alert *alert = [[Alert alloc] init];
-        alert.messageText =
-            NSLocalizedString(@"Failed to retreive Finder's Favorites",
-                              "Showing an error when NC isn't able to get Finder Favorites");
+        alert.messageText = NSLocalizedString(@"Failed to retreive Finder's Favorites",
+                                              "Showing an error when NC isn't able to get Finder Favorites");
         [alert addButtonWithTitle:NSLocalizedString(@"OK", "")];
         [alert beginSheetModalForWindow:self.window
                       completionHandler:^([[maybe_unused]] NSModalResponse rc){
@@ -373,8 +370,7 @@ static const auto g_FavoritesWindowControllerDragDataType =
     [self commit];
 }
 
-- (void)setProvideCurrentUniformPaths:
-    (std::function<std::vector<std::pair<VFSHostPtr, std::string>>()>)callback
+- (void)setProvideCurrentUniformPaths:(std::function<std::vector<std::pair<VFSHostPtr, std::string>>()>)callback
 {
     m_ProvideCurrentUniformPaths = std::move(callback);
 }

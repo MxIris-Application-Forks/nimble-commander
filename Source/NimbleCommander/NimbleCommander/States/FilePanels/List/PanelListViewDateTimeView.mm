@@ -121,7 +121,7 @@ using nc::utility::AdaptiveDateFormatting;
 {
     const auto new_string = [&] {
         if( m_Time >= 0 ) {
-            auto dts = AdaptiveDateFormatting{}.Format(m_Style, m_Time);
+            auto dts = AdaptiveDateFormatting::Format(m_Style, m_Time);
             return dts ? dts : @"";
         }
         else
@@ -138,10 +138,8 @@ using nc::utility::AdaptiveDateFormatting;
 - (void)buildLine
 {
     assert(m_String);
-    const auto attrs = @{
-        NSFontAttributeName: m_Font,
-        static_cast<NSString *>(kCTForegroundColorFromContextAttributeName): @YES
-    };
+    const auto attrs =
+        @{NSFontAttributeName: m_Font, static_cast<NSString *>(kCTForegroundColorFromContextAttributeName): @YES};
     NSAttributedString *as = [[NSAttributedString alloc] initWithString:m_String attributes:attrs];
 
     if( m_Line )

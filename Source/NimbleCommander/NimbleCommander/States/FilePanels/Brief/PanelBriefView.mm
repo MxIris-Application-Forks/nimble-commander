@@ -22,13 +22,15 @@
 #include "PanelBriefViewDynamicWidthLayout.h"
 #include "PanelBriefViewFixedNumberLayout.h"
 #include <Utility/ObjCpp.h>
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
+
+#include <algorithm>
 
 using namespace ::nc::panel;
 using ::nc::vfsicon::IconRepository;
 
 // font_size, double_icon, icon_size, line_height, text_baseline
-using LayoutDataT = std::tuple<int8_t, int8_t, int8_t, int8_t, int8_t>;
+using LayoutDataT = std::tuple<uint8_t, uint8_t, uint8_t, uint8_t, uint8_t>;
 static constinit const std::array<LayoutDataT, 21> g_FixedLayoutData = {{
     std::make_tuple(10, 0, 0, 17, 5),   //
     std::make_tuple(10, 1, 16, 17, 5),  //
@@ -66,7 +68,7 @@ static PanelBriefViewItemLayoutConstants BuildItemsLayout(NSFont *_font, PanelBr
     const int font_size = static_cast<int>(std::floor(_font.pointSize + 0.5));
 
     // check predefined values
-    auto pit = find_if(begin(g_FixedLayoutData), end(g_FixedLayoutData), [&](auto &l) {
+    auto pit = std::ranges::find_if(g_FixedLayoutData, [&](auto &l) {
         return std::get<0>(l) == font_size && std::get<1>(l) == _layout.icon_scale;
     });
 
@@ -122,7 +124,7 @@ bool PanelBriefViewItemLayoutConstants::operator!=(const PanelBriefViewItemLayou
     data::Model *m_Data;
     std::vector<unsigned short> m_IntrinsicItemsWidths;
     IconRepository *m_IconsRepository;
-    robin_hood::unordered_map<IconRepository::SlotKey, int> m_IconSlotToItemIndexMapping;
+    ankerl::unordered_dense::map<IconRepository::SlotKey, int> m_IconSlotToItemIndexMapping;
     PanelBriefViewItemLayoutConstants m_ItemLayout;
     PanelBriefViewColumnsLayout m_ColumnsLayout;
     __weak PanelView *m_PanelView;
@@ -207,7 +209,7 @@ bool PanelBriefViewItemLayoutConstants::operator!=(const PanelBriefViewItemLayou
 {
     if( auto pv = nc::objc_cast<PanelView>(self.superview) ) {
         m_PanelView = pv;
-        [pv addObserver:self forKeyPath:@"active" options:0 context:NULL];
+        [pv addObserver:self forKeyPath:@"active" options:0 context:nullptr];
         [self observeValueForKeyPath:@"active" ofObject:pv change:nil context:nil];
     }
 }
@@ -227,18 +229,15 @@ bool PanelBriefViewItemLayoutConstants::operator!=(const PanelBriefViewItemLayou
 - (NSInteger)collectionView:(NSCollectionView *) [[maybe_unused]] collectionView
      numberOfItemsInSection:(NSInteger) [[maybe_unused]] section
 {
-    Log::Trace(SPDLOC,
-               "[PanelBriefView collectionView:{} numberOfItemsInSection:{}]",
-               (__bridge void *)collectionView,
-               section);
+    Log::Trace(
+        "[PanelBriefView collectionView:{} numberOfItemsInSection:{}]", (__bridge void *)collectionView, section);
     return m_Data ? m_Data->SortedDirectoryEntries().size() : 0;
 }
 
 - (NSCollectionViewItem *)collectionView:(NSCollectionView *)collectionView
      itemForRepresentedObjectAtIndexPath:(NSIndexPath *)indexPath
 {
-    Log::Trace(SPDLOC,
-               "[PanelBriefView collectionView:{} itemForRepresentedObjectAtIndexPath:{}]",
+    Log::Trace("[PanelBriefView collectionView:{} itemForRepresentedObjectAtIndexPath:{}]",
                (__bridge void *)collectionView,
                indexPath.item);
     PanelBriefViewItem *item = [collectionView makeItemWithIdentifier:@"A" forIndexPath:indexPath];
@@ -251,10 +250,10 @@ bool PanelBriefViewItemLayoutConstants::operator!=(const PanelBriefViewItemLayou
 
             auto &vd = m_Data->VolatileDataAtSortPosition(index);
 
-            if( m_IconsRepository->IsValidSlot(vd.icon) == false )
+            if( !m_IconsRepository->IsValidSlot(vd.icon) )
                 vd.icon = m_IconsRepository->Register(vfs_item);
 
-            if( m_IconsRepository->IsValidSlot(vd.icon) == true ) {
+            if( m_IconsRepository->IsValidSlot(vd.icon) ) {
                 [item setIcon:m_IconsRepository->AvailableIconForSlot(vd.icon)];
                 m_IconsRepository->ScheduleIconProduction(vd.icon, vfs_item);
                 m_IconSlotToItemIndexMapping[vd.icon] = index;
@@ -295,7 +294,7 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
     const auto count = static_cast<int>(sorted_idices.size());
     for( int i = 0; i < count; ++i ) {
         const auto raw_idx = sorted_idices[i];
-        if(const auto tags = listing.Tags(raw_idx); !tags.empty() ) {
+        if( const auto tags = listing.Tags(raw_idx); !tags.empty() ) {
             const auto geom = TrailingTagsInplaceDisplay::Place(tags);
             _widths[i] += geom.margin + geom.width;
         }
@@ -304,8 +303,8 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
 
 - (void)calculateFilenamesWidths
 {
-    Log::Trace(SPDLOC, "[PanelBriefView calculateFilenamesWidths] started");
-    at_scope_end([]{Log::Trace(SPDLOC, "[PanelBriefView calculateFilenamesWidths] finished");});
+    Log::Trace("[PanelBriefView calculateFilenamesWidths] started");
+    at_scope_end([] { Log::Trace("[PanelBriefView calculateFilenamesWidths] finished"); });
     const auto strings = GatherDisplayFilenames(m_Data);
     const auto count = static_cast<int>(strings.size());
 
@@ -320,14 +319,14 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
     assert(static_cast<int>(widths.size()) == count);
 
     const auto &layout = m_ItemLayout;
-    const unsigned short width_addition = 2 * layout.inset_left + layout.icon_size + layout.inset_right;
+    const unsigned short width_addition = (2 * layout.inset_left) + layout.icon_size + layout.inset_right;
     if( m_ColumnsLayout.dynamic_width_equal ) {
         const auto max_width = *std::max_element(widths.begin(), widths.begin());
         const unsigned short width = max_width + width_addition;
-        std::fill(widths.begin(), widths.end(), width);
+        std::ranges::fill(widths, width);
     }
     else {
-        std::for_each(widths.begin(), widths.end(), [width_addition](auto &width) { width += width_addition; });
+        std::ranges::for_each(widths, [width_addition](auto &width) { width += width_addition; });
     }
     m_IntrinsicItemsWidths = std::move(widths);
 }
@@ -389,7 +388,7 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
 
 - (void)calculateItemLayout
 {
-    Log::Trace(SPDLOC, "[PanelBriefView calculateItemLayout]");
+    Log::Trace("[PanelBriefView calculateItemLayout]");
     m_ItemLayout = BuildItemsLayout(nc::CurrentTheme().FilePanelsBriefFont(), m_ColumnsLayout);
     [self updateItemsLayoutEngine];
 
@@ -420,7 +419,7 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
 
 - (void)dataChanged
 {
-    Log::Trace(SPDLOC, "[PanelBriefView dataChanged]");
+    Log::Trace("[PanelBriefView dataChanged]");
     dispatch_assert_main_queue();
     assert(m_Data);
     [self calculateFilenamesWidths];
@@ -441,7 +440,7 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
 
 - (void)ensureItemIsVisible:(int)_item_index
 {
-    Log::Trace(SPDLOC, "[PanelBriefView ensureItemIsVisible:{}]", _item_index);
+    Log::Trace("[PanelBriefView ensureItemIsVisible:{}]", _item_index);
     if( _item_index < 0 )
         return;
 
@@ -481,7 +480,7 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
         }
         else {
             // center
-            scroll_to(NSMakePoint(item_rect.origin.x - (visible_rect.size.width - item_rect.size.width) / 2., 0.));
+            scroll_to(NSMakePoint(item_rect.origin.x - ((visible_rect.size.width - item_rect.size.width) / 2.), 0.));
         }
     }
     else {
@@ -492,7 +491,7 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
 
 - (void)setCursorPosition:(int)_cursor_position
 {
-    Log::Trace(SPDLOC, "[PanelBriefView setCursorPosition:{}]", _cursor_position);
+    Log::Trace("[PanelBriefView setCursorPosition:{}]", _cursor_position);
     if( self.cursorPosition == _cursor_position )
         return;
 
@@ -516,7 +515,7 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
 
 - (bool)isItemVisible:(int)_sorted_item_index
 {
-    Log::Trace(SPDLOC, "[PanelBriefView isItemVisible:{}]", _sorted_item_index);
+    Log::Trace("[PanelBriefView isItemVisible:{}]", _sorted_item_index);
     const auto entries_count = [m_CollectionView numberOfItemsInSection:0];
     if( _sorted_item_index < 0 || _sorted_item_index >= entries_count )
         return false;
@@ -535,13 +534,13 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
 
 - (int)itemsInColumn
 {
-    Log::Trace(SPDLOC, "[PanelBriefView itemsInColumn]");
+    Log::Trace("[PanelBriefView itemsInColumn]");
     return m_Layout.rowsNumber;
 }
 
 - (void)syncVolatileData
 {
-    Log::Trace(SPDLOC, "[PanelBriefView syncVolatileData]");
+    Log::Trace("[PanelBriefView syncVolatileData]");
     dispatch_assert_main_queue();
     for( PanelBriefViewItem *i in m_CollectionView.visibleItems )
         if( NSIndexPath *index_path = [m_CollectionView indexPathForItem:i] ) {
@@ -649,8 +648,8 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
         if( visible_item_columns.empty() )
             return items_per_column;
 
-        const auto mm = minmax_element(begin(visible_item_columns), end(visible_item_columns));
-        const auto delta = *mm.second - *mm.first;
+        const auto mm = std::ranges::minmax_element(visible_item_columns);
+        const auto delta = *mm.max - *mm.min;
         return (delta + 1) * items_per_column;
     }
 }
@@ -667,11 +666,20 @@ static void PadWithSpaceForTags(std::span<unsigned short> _widths, const data::M
 
 - (void)collectionViewDidLayoutItems:(NSCollectionView *) [[maybe_unused]] collectionView
 {
-    Log::Trace(SPDLOC, "[PanelBriefView collectionViewDidLayoutItems:{}]", (__bridge void *)collectionView);
+    Log::Trace("[PanelBriefView collectionViewDidLayoutItems:{}]", (__bridge void *)collectionView);
     static const bool draws_grid =
         [m_CollectionView respondsToSelector:@selector(setBackgroundViewScrollsWithContent:)];
     if( draws_grid )
         [m_CollectionView.backgroundView setNeedsDisplay:true];
+}
+
+- (std::optional<NSRect>)frameOfItemAtIndex:(int)_sorted_item_index
+{
+    const auto index_path = [NSIndexPath indexPathForItem:_sorted_item_index inSection:0];
+    NSCollectionViewLayoutAttributes *const attrs = [m_CollectionView layoutAttributesForItemAtIndexPath:index_path];
+    if( attrs == nil )
+        return {};
+    return [self convertRect:attrs.frame fromView:m_CollectionView];
 }
 
 @end

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PanelBriefViewDynamicWidthLayout.h"
 #include "PanelBriefViewDynamicWidthLayoutEngine.h"
 #include <mutex>
@@ -19,7 +19,8 @@ using nc::panel::view::brief::DynamicWidthLayoutEngine;
 
 - (instancetype)init
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         m_ItemHeight = 20;
         m_ItemMinWidth = 140;
         m_ItemMaxWidth = 400;
@@ -45,17 +46,16 @@ using nc::panel::view::brief::DynamicWidthLayoutEngine;
 }
 
 - (nullable NSCollectionViewLayoutAttributes *)
-    layoutAttributesForSupplementaryViewOfKind:(NSCollectionViewSupplementaryElementKind)
-                                                   [[maybe_unused]] _elementKind
+    layoutAttributesForSupplementaryViewOfKind:(NSCollectionViewSupplementaryElementKind) [[maybe_unused]] _elementKind
                                    atIndexPath:(NSIndexPath *) [[maybe_unused]] _indexPath
 {
     return nil;
 }
 
-- (nullable NSCollectionViewLayoutAttributes *)
-    layoutAttributesForDecorationViewOfKind:(NSCollectionViewDecorationElementKind)
-                                                [[maybe_unused]] _elementKind
-                                atIndexPath:(NSIndexPath *) [[maybe_unused]] _indexPath
+- (nullable NSCollectionViewLayoutAttributes *)layoutAttributesForDecorationViewOfKind:
+                                                   (NSCollectionViewDecorationElementKind) [[maybe_unused]] _elementKind
+                                                                           atIndexPath:(NSIndexPath *)
+                                                                                           [[maybe_unused]] _indexPath
 {
     return nil;
 }
@@ -69,7 +69,7 @@ using nc::panel::view::brief::DynamicWidthLayoutEngine;
 {
     const auto delegate = self.layoutDelegate;
     const auto selector = @selector(collectionViewProvideIntrinsicItemsWidths:);
-    if( [delegate respondsToSelector:selector] == false ) {
+    if( ![delegate respondsToSelector:selector] ) {
         static std::once_flag once;
         std::call_once(once, [] {
             NSLog(@"A delegate doesn't provide collectionViewProvideIntrinsicItemsWidths:, "
@@ -82,14 +82,13 @@ using nc::panel::view::brief::DynamicWidthLayoutEngine;
 
 - (void)prepareLayout
 {
-    if( [self delegateProvidesIntrinsicWidths] == false )
+    if( ![self delegateProvidesIntrinsicWidths] )
         return;
 
     const auto collection_view = self.collectionView;
     const auto clip_bounds = collection_view.superview.bounds;
-    const auto items_number =
-        static_cast<int>([collection_view.dataSource collectionView:collection_view
-                                             numberOfItemsInSection:0]);
+    const auto items_number = static_cast<int>([collection_view.dataSource collectionView:collection_view
+                                                                   numberOfItemsInSection:0]);
     const auto delegate = self.layoutDelegate;
     const auto &widths = [delegate collectionViewProvideIntrinsicItemsWidths:collection_view];
 

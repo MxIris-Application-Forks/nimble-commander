@@ -1,0 +1,119 @@
+{
+    "langs": [
+        {
+            "name": "Assembler",
+            "settings": "Assembler.json",
+            "filemask": "*.asm, *.s"
+        },
+        {
+            "name": "Bash",
+            "settings": "Bash.json",
+            "filemask": "*.sh"
+        },
+        {
+            "name": "C",
+            "settings": "C.json",
+            "filemask": "*.c"
+        },
+        {
+            "name": "C++",
+            "settings": "C++.json",
+            "filemask": "*.cc, *.cpp, *.cxx, *.hpp, *.hxx"
+        },
+        {
+            "name": "C#",
+            "settings": "C#.json",
+            "filemask": "*.cs, *.csx"
+        },
+        {
+            "name": "CMake",
+            "settings": "CMake.json",
+            "filemask": "CMakeLists.txt, *.cmake"
+        },
+        {
+            "name": "CSS",
+            "settings": "CSS.json",
+            "filemask": "*.css"
+        },
+        {
+            "name": "Dart",
+            "settings": "Dart.json",
+            "filemask": "*.dart"
+        },
+        {
+            "name": "Diff",
+            "settings": "Diff.json",
+            "filemask": "*.diff, *.patch"
+        },
+        {
+            "name": "HTML",
+            "settings": "HTML.json",
+            "filemask": "*.htm, *.html"
+        },
+        {
+            "name": "INI",
+            "settings": "INI.json",
+            "filemask": "*.ini"
+        },
+        {
+            "name": "JavaScript",
+            "settings": "JavaScript.json",
+            "filemask": "*.js, *.cjs, *.mjs"
+        },
+        {
+            "name": "JSON",
+            "settings": "JSON.json",
+            "filemask": "*.json"
+        },
+        {
+            "name": "Lua",
+            "settings": "Lua.json",
+            "filemask": "*.lua"
+        },
+        {
+            "name": "Makefile",
+            "settings": "Makefile.json",
+            "filemask": "makefile, makefile.*"
+        },
+        {
+            "name": "Markdown",
+            "settings": "Markdown.json",
+            "filemask": "*.md, *.markdown"
+        },
+        {
+            "name": "Python",
+            "settings": "Python.json",
+            "filemask": "*.py"
+        },
+        {
+            "name": "Objective C",
+            "settings": "Objective C.json",
+            "filemask": "*.m"
+        },
+        {
+            "name": "Objective C++",
+            "settings": "Objective C++.json",
+            "filemask": "*.mm, *.h"
+        },
+        {
+            "name": "Rust",
+            "settings": "Rust.json",
+            "filemask": "*.rs, *.rlib"
+        },
+        {
+            "name": "XML",
+            "settings": "XML.json",
+            "filemask": "*.xml, *.plist"
+        },
+        {
+            "name": "YAML",
+            "settings": "YAML.json",
+            "filemask": "*.yaml, *.yml"
+        },
+        {
+            "name": "Zig",
+            "settings": "Zig.json",
+            "filemask": "*.zig, *.zir, *.zigr, *.zon"
+        }
+    ]
+}

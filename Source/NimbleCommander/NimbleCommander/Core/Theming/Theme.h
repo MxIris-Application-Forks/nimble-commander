@@ -1,4 +1,4 @@
-// Copyright (C) 2016-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2016-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <stdint.h>
@@ -6,6 +6,7 @@
 #include <vector>
 #include <Cocoa/Cocoa.h>
 #include "Appearance.h"
+#include <swift/bridging>
 
 namespace rapidjson {
 template <typename E, typename A>
@@ -34,7 +35,7 @@ class ThemesManager;
  */
 const Theme &CurrentTheme() noexcept;
 
-class Theme
+class SWIFT_UNSAFE_REFERENCE Theme
 {
 public:
     Theme(const nc::config::Value &_theme_data, const nc::config::Value &_backup_theme_data);
@@ -146,6 +147,13 @@ public:
     NSFont *ViewerFont() const noexcept;
     NSColor *ViewerOverlayColor() const noexcept;
     NSColor *ViewerTextColor() const noexcept;
+    NSColor *ViewerTextSyntaxCommentColor() const noexcept;
+    NSColor *ViewerTextSyntaxPreprocessorColor() const noexcept;
+    NSColor *ViewerTextSyntaxKeywordColor() const noexcept;
+    NSColor *ViewerTextSyntaxOperatorColor() const noexcept;
+    NSColor *ViewerTextSyntaxIdentifierColor() const noexcept;
+    NSColor *ViewerTextSyntaxNumberColor() const noexcept;
+    NSColor *ViewerTextSyntaxStringColor() const noexcept;
     NSColor *ViewerSelectionColor() const noexcept;
     NSColor *ViewerBackgroundColor() const noexcept;
 

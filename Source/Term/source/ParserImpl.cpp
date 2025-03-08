@@ -1,14 +1,15 @@
-// Copyright (C) 2020-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2020-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ParserImpl.h"
-#include <Utility/Encodings.h>
+#include "TranslateMaps.h"
 #include <Base/CFPtr.h>
 #include <Carbon/Carbon.h>
 #include <CoreFoundation/CoreFoundation.h>
-#include "TranslateMaps.h"
+#include <Utility/Encodings.h>
+#include <algorithm>
 #include <charconv>
 
+#include <fmt/format.h>
 #include <iostream>
-#include <algorithm>
 
 namespace nc::term {
 
@@ -81,7 +82,7 @@ bool ParserImpl::SSTextConsume(unsigned char _byte) noexcept
 void ParserImpl::ConsumeNextUTF8TextChar(unsigned char _byte)
 {
     auto &ts = m_TextState;
-    if( ts.UTF8StockLen < ts.UTF8CharsStockSize ) {
+    if( ts.UTF8StockLen < SS_Text::UTF8CharsStockSize ) {
         ts.UTF8CharsStock[ts.UTF8StockLen++] = static_cast<char>(_byte);
     }
 }
@@ -108,7 +109,7 @@ void ParserImpl::FlushCompleteText()
     if( m_TextState.UTF8StockLen == 0 )
         return;
 
-    const size_t valid_length = encodings::ScanUTF8ForValidSequenceLength(
+    const size_t valid_length = utility::ScanUTF8ForValidSequenceLength(
         reinterpret_cast<const unsigned char *>(m_TextState.UTF8CharsStock.data()), m_TextState.UTF8StockLen);
 
     if( valid_length == 0 )
@@ -207,7 +208,7 @@ void ParserImpl::LogMissedEscChar(unsigned char _c)
 {
     if( m_ErrorLog ) {
         char buf[256];
-        snprintf(buf, sizeof(buf), "Missed an Esc char: %d(\'%c\')", static_cast<int>(_c), _c);
+        *fmt::format_to(buf, "Missed an Esc char: {}(\'{}\')", static_cast<int>(_c), _c) = 0;
         m_ErrorLog(buf);
     }
 }
@@ -229,6 +230,8 @@ bool ParserImpl::SSEscConsume(unsigned char _byte) noexcept
         case '#':
             m_EscState.hash = true;
             return true;
+        default:
+            break;
     }
 
     SwitchTo(EscState::Text);
@@ -240,7 +243,6 @@ bool ParserImpl::SSEscConsume(unsigned char _byte) noexcept
             SwitchTo(EscState::OSC);
             return true;
         case '>': /* Numeric keypad - ignoring now */
-            return true;
         case '=': /* Appl. keypad - ignoring now */
             return true;
 
@@ -253,7 +255,7 @@ bool ParserImpl::SSEscConsume(unsigned char _byte) noexcept
             return true;
 
         case '8':
-            if( m_EscState.hash == true )
+            if( m_EscState.hash )
                 /* DECALN – Screen Alignment Display (DEC Private)
                  ESC # 8
                  This command fills the entire screen area with uppercase Es for screen focus and
@@ -338,23 +340,11 @@ bool ParserImpl::SSControlConsume(unsigned char _byte) noexcept
     if( c < 32 ) {
         switch( c ) {
             case 0:
-                SwitchTo(EscState::Text);
-                return true;
             case 1:
-                SwitchTo(EscState::Text);
-                return true;
             case 2:
-                SwitchTo(EscState::Text);
-                return true;
             case 3:
-                SwitchTo(EscState::Text);
-                return true;
             case 4:
-                SwitchTo(EscState::Text);
-                return true;
             case 5:
-                SwitchTo(EscState::Text);
-                return true;
             case 6:
                 SwitchTo(EscState::Text);
                 return true;
@@ -389,35 +379,15 @@ bool ParserImpl::SSControlConsume(unsigned char _byte) noexcept
                 SI();
                 return true;
             case 16:
-                SwitchTo(EscState::Text);
-                return true;
-            case 17:
-                SwitchTo(EscState::Text);
-                return true; // xon
+            case 17: // xon
             case 18:
-                SwitchTo(EscState::Text);
-                return true;
-            case 19:
-                SwitchTo(EscState::Text);
-                return true; // xoff
+            case 19: // xoff
             case 20:
-                SwitchTo(EscState::Text);
-                return true;
             case 21:
-                SwitchTo(EscState::Text);
-                return true;
             case 22:
-                SwitchTo(EscState::Text);
-                return true;
             case 23:
-                SwitchTo(EscState::Text);
-                return true;
             case 24:
-                SwitchTo(EscState::Text);
-                return true;
             case 25:
-                SwitchTo(EscState::Text);
-                return true;
             case 26:
                 SwitchTo(EscState::Text);
                 return true;
@@ -425,17 +395,13 @@ bool ParserImpl::SSControlConsume(unsigned char _byte) noexcept
                 SwitchTo(EscState::Esc);
                 return true;
             case 28:
-                SwitchTo(EscState::Text);
-                return true;
             case 29:
-                SwitchTo(EscState::Text);
-                return true;
             case 30:
-                SwitchTo(EscState::Text);
-                return true;
             case 31:
                 SwitchTo(EscState::Text);
                 return true;
+            default:
+                break;
         }
     }
     SwitchTo(EscState::Text);
@@ -493,29 +459,31 @@ void ParserImpl::SSOSCDiscard() noexcept
 void ParserImpl::SSOSCSubmit() noexcept
 {
     // parse the following format: Ps ; Pt
-    std::string_view s = m_OSCState.buffer;
+    const std::string_view s = m_OSCState.buffer;
     auto sc_pos = s.find(';');
-    if( sc_pos == s.npos )
+    if( sc_pos == std::string_view::npos )
         return;
     const std::string_view pt = s.substr(sc_pos + 1);
 
     unsigned ps = std::numeric_limits<unsigned>::max();
+    // NOLINTBEGIN(bugprone-suspicious-stringview-data-usage)
     if( std::from_chars(s.data(), s.data() + sc_pos, ps).ec != std::errc() )
+        // NOLINTEND(bugprone-suspicious-stringview-data-usage)
         return;
 
     using namespace input;
     // currently the parser ignores any OSC other than 0, 1, 3.
     if( ps == 0 ) {
         // Ps = 0  ⇒  Change Icon Name and Window Title to Pt.
-        m_Output.emplace_back(Type::change_title, Title{Title::IconAndWindow, std::string(pt)});
+        m_Output.emplace_back(Type::change_title, Title{.kind = Title::IconAndWindow, .title = std::string(pt)});
     }
     else if( ps == 1 ) {
         // Ps = 1  ⇒  Change Icon Name to Pt.
-        m_Output.emplace_back(Type::change_title, Title{Title::Icon, std::string(pt)});
+        m_Output.emplace_back(Type::change_title, Title{.kind = Title::Icon, .title = std::string(pt)});
     }
     else if( ps == 2 ) {
         // Ps = 2  ⇒  Change Window Title to Pt.
-        m_Output.emplace_back(Type::change_title, Title{Title::Window, std::string(pt)});
+        m_Output.emplace_back(Type::change_title, Title{.kind = Title::Window, .title = std::string(pt)});
     }
     else {
         LogMissedOSCRequest(ps, pt);
@@ -544,7 +512,7 @@ void ParserImpl::SSCSIExit() noexcept
 constexpr static std::array<bool, 256> Make8BitBoolTable(std::string_view _on)
 {
     std::array<bool, 256> flags{};
-    std::fill(flags.begin(), flags.end(), false);
+    std::ranges::fill(flags, false);
     for( auto c : _on )
         flags[static_cast<unsigned char>(c)] = true;
     return flags;
@@ -707,8 +675,6 @@ void ParserImpl::SSCSISubmit() noexcept
             CSI_g();
             break;
         case 'h':
-            CSI_hl();
-            break;
         case 'l':
             CSI_hl();
             break;
@@ -1441,7 +1407,7 @@ void ParserImpl::CSI_q() noexcept
     //  Ps = 4  ⇒  steady underline.
     //  Ps = 5  ⇒  blinking bar, xterm.
     //  Ps = 6  ⇒  steady bar, xterm.
-    std::string_view request = m_CSIState.buffer;
+    const std::string_view request = m_CSIState.buffer;
     const auto p = CSIParamsScanner::Parse(request);
     const auto is_sp = request.size() >= 2 && request[request.length() - 2] == ' ';
     if( is_sp ) {
@@ -1480,7 +1446,7 @@ void ParserImpl::CSI_r() noexcept
 {
     // CSI Ps ; Ps r
     //    Set Scrolling Region [top;bottom] (default = full size of window) (DECSTBM), VT100.
-    std::string_view request = m_CSIState.buffer;
+    const std::string_view request = m_CSIState.buffer;
     const auto p = CSIParamsScanner::Parse(request);
     if( p.count == 0 ) {
         input::ScrollingRegion scrolling_region;
@@ -1489,8 +1455,8 @@ void ParserImpl::CSI_r() noexcept
     else if( p.count == 2 ) {
         input::ScrollingRegion scrolling_region;
         if( p.values[0] >= 1 && p.values[1] >= 1 && p.values[1] > p.values[0] )
-            scrolling_region.range =
-                input::ScrollingRegion::Range{static_cast<int>(p.values[0] - 1), static_cast<int>(p.values[1])};
+            scrolling_region.range = input::ScrollingRegion::Range{.top = static_cast<int>(p.values[0] - 1),
+                                                                   .bottom = static_cast<int>(p.values[1])};
         m_Output.emplace_back(input::Type::set_scrolling_region, scrolling_region);
     }
     else {

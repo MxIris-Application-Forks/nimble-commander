@@ -2,20 +2,21 @@
 #include "Tests.h"
 #include <NimbleCommander/States/FilePanels/Brief/PanelBriefViewDynamicWidthLayoutEngine.h>
 
+using Catch::Approx;
 using nc::panel::view::brief::DynamicWidthLayoutEngine;
 
 #define PREFIX "nc::panel::view::brief::DynamicWidthLayoutEngine "
 
 TEST_CASE(PREFIX "empty by default")
 {
-    DynamicWidthLayoutEngine engine;
+    const DynamicWidthLayoutEngine engine;
 
     CHECK(engine.ItemsNumber() == 0);
     CHECK(engine.RowsNumber() == 0);
     CHECK(engine.ColumnsNumber() == 0);
     CHECK(NSEqualSizes(engine.ContentSize(), NSMakeSize(0.0, 0.0)));
-    CHECK(engine.ColumnsPositions().size() == 0);
-    CHECK(engine.ColumnsWidths().size() == 0);
+    CHECK(engine.ColumnsPositions().empty());
+    CHECK(engine.ColumnsWidths().empty());
 }
 
 TEST_CASE(PREFIX "rounds number of rows down")

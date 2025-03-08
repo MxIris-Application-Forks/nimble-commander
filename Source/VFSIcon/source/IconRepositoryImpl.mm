@@ -37,8 +37,7 @@ IconRepositoryImpl::~IconRepositoryImpl()
 
 bool IconRepositoryImpl::IsValidSlot(SlotKey _key) const
 {
-    return _key != InvalidKey && ToIndex(_key) < static_cast<int>(m_Slots.size()) &&
-           IsSlotUsed(m_Slots[ToIndex(_key)]);
+    return _key != InvalidKey && ToIndex(_key) < static_cast<int>(m_Slots.size()) && IsSlotUsed(m_Slots[ToIndex(_key)]);
 }
 
 NSImage *IconRepositoryImpl::AvailableIconForSlot(SlotKey _key) const
@@ -84,7 +83,7 @@ std::vector<IconRepositoryImpl::SlotKey> IconRepositoryImpl::AllSlots() const
 
 void IconRepositoryImpl::Unregister(SlotKey _key)
 {
-    if( IsValidSlot(_key) == false )
+    if( !IsValidSlot(_key) )
         return;
     const auto index = ToIndex(_key);
     auto &slot = m_Slots[index];
@@ -96,7 +95,7 @@ void IconRepositoryImpl::Unregister(SlotKey _key)
 
 void IconRepositoryImpl::ScheduleIconProduction(SlotKey _key, const VFSListingItem &_item)
 {
-    if( IsValidSlot(_key) == false )
+    if( !IsValidSlot(_key) )
         return;
 
     auto slot_index = ToIndex(_key);
@@ -105,7 +104,7 @@ void IconRepositoryImpl::ScheduleIconProduction(SlotKey _key, const VFSListingIt
     if( slot.production != nullptr )
         return; // there is an already ongoing production for this slot
 
-    if( slot.state == SlotState::Production && HasFileChanged(slot, _item) == false )
+    if( slot.state == SlotState::Production && !HasFileChanged(slot, _item) )
         return; // nothing to do
 
     if( m_ProductionQueue->QueueLength() >= m_MaxQueueLength )
@@ -121,17 +120,15 @@ void IconRepositoryImpl::ScheduleIconProduction(SlotKey _key, const VFSListingIt
     slot.state = SlotState::Production;
 
     auto work_block = [this, slot_index, context] {
-        if( context->must_stop == true )
+        if( context->must_stop )
             return;
 
         ProduceRealIcon(*context);
 
-        if( context->must_stop == true )
+        if( context->must_stop )
             return;
 
-        auto commit_block = [this, slot_index, context] {
-            CommitProductionResult(slot_index, *context);
-        };
+        auto commit_block = [this, slot_index, context] { CommitProductionResult(slot_index, *context); };
         m_ClientExecutor->Execute(std::move(commit_block));
     };
     m_ProductionQueue->Execute(std::move(work_block));
@@ -146,7 +143,7 @@ void IconRepositoryImpl::ProduceRealIcon(WorkerContext &_ctx)
 
 void IconRepositoryImpl::CommitProductionResult(int _slot_index, WorkerContext &_ctx)
 {
-    if( _ctx.must_stop == true )
+    if( _ctx.must_stop )
         return;
 
     auto &slot = m_Slots[_slot_index];
@@ -155,7 +152,7 @@ void IconRepositoryImpl::CommitProductionResult(int _slot_index, WorkerContext &
     slot.production.reset();
     const bool updated = RefreshImages(slot, _ctx);
 
-    if( updated == true ) {
+    if( updated ) {
         auto callback = m_IconUpdatedCallback;
         if( callback && *callback )
             (*callback)(FromIndex(_slot_index), slot.icon);
@@ -181,7 +178,7 @@ int IconRepositoryImpl::NumberOfUsedSlots() const
 
 int IconRepositoryImpl::AllocateSlot()
 {
-    if( m_FreeSlotsIndices.empty() == false ) {
+    if( !m_FreeSlotsIndices.empty() ) {
         const auto free_slot_index = m_FreeSlotsIndices.top();
         m_FreeSlotsIndices.pop();
         return free_slot_index;
@@ -231,8 +228,7 @@ int IconRepositoryImpl::ToIndex(SlotKey _key)
 
 bool IconRepositoryImpl::HasFileChanged(const Slot &_slot, const VFSListingItem &_item)
 {
-    return _slot.file_size != _item.Size() || _slot.file_mtime != _item.MTime() ||
-           _slot.file_mode != _item.UnixMode();
+    return _slot.file_size != _item.Size() || _slot.file_mtime != _item.MTime() || _slot.file_mode != _item.UnixMode();
 }
 
 static NSImage *BestFromLookupResult(const IconBuilder::LookupResult &_lr)

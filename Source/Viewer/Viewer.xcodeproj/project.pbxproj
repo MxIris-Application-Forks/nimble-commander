@@ -9,12 +9,38 @@
 /* Begin PBXBuildFile section */
 		CF1325622225FD630097F9A1 /* TextModeFrame_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF13255E2225FB610097F9A1 /* TextModeFrame_UT.cpp */; };
 		CF24E1D3227F0B2A00C166FA /* HexModeLayout_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF24E1D1227F0B2400C166FA /* HexModeLayout_UT.cpp */; };
+		CF26778A2C1E03FD00EE8F06 /* FileSettingsStorage.h in Headers */ = {isa = PBXBuildFile; fileRef = CF2677892C1E03FD00EE8F06 /* FileSettingsStorage.h */; };
+		CF26778C2C1E041400EE8F06 /* FileSettingsStorage.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF26778B2C1E041400EE8F06 /* FileSettingsStorage.cpp */; };
+		CF26778E2C1E0A0E00EE8F06 /* hlFileSettingsStorage_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF26778D2C1E0A0E00EE8F06 /* hlFileSettingsStorage_UT.cpp */; };
 		CF3989B62B41707F006103C1 /* libBase.a in Frameworks */ = {isa = PBXBuildFile; fileRef = CF3989B52B41707F006103C1 /* libBase.a */; };
 		CF46FEFF255EF4480095FC73 /* Internal.h in Headers */ = {isa = PBXBuildFile; fileRef = CF46FEFE255EF4480095FC73 /* Internal.h */; };
+		CF5BF7832BF90FF20057C92E /* Document.h in Headers */ = {isa = PBXBuildFile; fileRef = CF5BF7822BF90FF20057C92E /* Document.h */; };
+		CF5BF7862BF910100057C92E /* Document.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7852BF910100057C92E /* Document.cpp */; };
+		CF5BF7892BF922DE0057C92E /* hlDocument_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7872BF9209E0057C92E /* hlDocument_UT.cpp */; };
+		CF5BF78B2BFA12F70057C92E /* Style.h in Headers */ = {isa = PBXBuildFile; fileRef = CF5BF78A2BFA12F70057C92E /* Style.h */; };
+		CF5BF78D2BFA13A80057C92E /* Style.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF78C2BFA13A80057C92E /* Style.cpp */; };
+		CF5BF78F2BFA19F50057C92E /* hlStyle_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF78E2BFA19F50057C92E /* hlStyle_UT.cpp */; };
+		CF5BF7922BFBC9F90057C92E /* LexerSettings.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7912BFBC9F90057C92E /* LexerSettings.cpp */; };
+		CF5BF7942BFBCA030057C92E /* LexerSettings.h in Headers */ = {isa = PBXBuildFile; fileRef = CF5BF7932BFBCA030057C92E /* LexerSettings.h */; };
+		CF5BF7962BFBD9480057C92E /* Highlighter.h in Headers */ = {isa = PBXBuildFile; fileRef = CF5BF7952BFBD9480057C92E /* Highlighter.h */; };
+		CF5BF7982BFBD9510057C92E /* Highlighter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7972BFBD9510057C92E /* Highlighter.cpp */; };
+		CF5BF79A2BFBDF1F0057C92E /* hlHighlighter_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7992BFBDF1F0057C92E /* hlHighlighter_UT.cpp */; };
+		CF5BF79C2BFD39A60057C92E /* hlLexerSettings_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF79B2BFD39A60057C92E /* hlLexerSettings_UT.cpp */; };
+		CF5BF7AB2BFD48950057C92E /* Service.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7AA2BFD48950057C92E /* Service.cpp */; };
+		CF5BF7B02BFE86980057C92E /* Info.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = CF5BF7AF2BFE855E0057C92E /* Info.plist */; };
+		CF5BF7B62BFE8A870057C92E /* Highlighter.xpc in CopyFiles */ = {isa = PBXBuildFile; fileRef = CF5BF7A12BFD483D0057C92E /* Highlighter.xpc */; };
+		CF5BF7B92BFE8B540057C92E /* Client.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7B82BFE8B540057C92E /* Client.cpp */; };
+		CF5BF7BD2BFFD71B0057C92E /* Document.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7852BF910100057C92E /* Document.cpp */; };
+		CF5BF7BE2BFFD7220057C92E /* Highlighter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7972BFBD9510057C92E /* Highlighter.cpp */; };
+		CF5BF7BF2BFFD7280057C92E /* LexerSettings.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7912BFBC9F90057C92E /* LexerSettings.cpp */; };
+		CF5BF7C02BFFD72D0057C92E /* Style.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF78C2BFA13A80057C92E /* Style.cpp */; };
+		CF5BF7C22BFFDD240057C92E /* hlClient_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7C12BFFDD240057C92E /* hlClient_UT.cpp */; };
+		CF5BF7C42C0B41F90057C92E /* TextModeWorkingSetHighlighting.h in Headers */ = {isa = PBXBuildFile; fileRef = CF5BF7C32C0B41F80057C92E /* TextModeWorkingSetHighlighting.h */; };
+		CF5BF7C62C0B42260057C92E /* TextModeWorkingSetHighlighting.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7C52C0B42260057C92E /* TextModeWorkingSetHighlighting.cpp */; };
+		CF5BF7C82C0B89B40057C92E /* SettingsStorage.h in Headers */ = {isa = PBXBuildFile; fileRef = CF5BF7C72C0B89B40057C92E /* SettingsStorage.h */; };
+		CF5BF7CA2C0B89C90057C92E /* SettingsStorage.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF5BF7C92C0B89C90057C92E /* SettingsStorage.cpp */; };
 		CF5C1D36255EE63000ADE703 /* InternalViewerController.xib in Resources */ = {isa = PBXBuildFile; fileRef = CFD79B0821FE4F430043A26D /* InternalViewerController.xib */; };
-		CF5C1D3A255EE63C00ADE703 /* InternalViewerToolbar.xib in Resources */ = {isa = PBXBuildFile; fileRef = CFD79B1B2205DE520043A26D /* InternalViewerToolbar.xib */; };
 		CF5C1D3E255EE63F00ADE703 /* InternalViewerWindowController.xib in Resources */ = {isa = PBXBuildFile; fileRef = CFD79B232205DEB30043A26D /* InternalViewerWindowController.xib */; };
-		CF5C1D42255EE64200ADE703 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = CF2343F022CDDFC600F516CB /* Localizable.strings */; };
 		CF5C1D46255EE64500ADE703 /* NCViewerSheet.xib in Resources */ = {isa = PBXBuildFile; fileRef = CFD79B132205B8450043A26D /* NCViewerSheet.xib */; };
 		CF5C1D7A255EEA6A00ADE703 /* TextModeView.mm in Sources */ = {isa = PBXBuildFile; fileRef = CF132567222AB8170097F9A1 /* TextModeView.mm */; };
 		CF5C1D7B255EEA6A00ADE703 /* HexModeFrame.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF9BF908226B2B0C00AD36D9 /* HexModeFrame.cpp */; };
@@ -32,18 +58,20 @@
 		CF5C1D87255EEA6A00ADE703 /* TextModeWorkingSet.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CFD79B702210B6DB0043A26D /* TextModeWorkingSet.cpp */; };
 		CF5C1D8A255EEA6A00ADE703 /* HexModeLayout.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF9BF91C2275FD9500AD36D9 /* HexModeLayout.cpp */; };
 		CF5C1D8B255EEA6A00ADE703 /* History.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CFD79AB521FCA4F30043A26D /* History.cpp */; };
-		CF5C1D8C255EEA6A00ADE703 /* InternalViewerToolbarProtocol.mm in Sources */ = {isa = PBXBuildFile; fileRef = CFD79B192205DE480043A26D /* InternalViewerToolbarProtocol.mm */; };
 		CF5C1D8E255EEA6A00ADE703 /* InternalViewerWindowController.mm in Sources */ = {isa = PBXBuildFile; fileRef = CFD79B212205DEA40043A26D /* InternalViewerWindowController.mm */; };
 		CF5C1D8F255EEA6A00ADE703 /* TextModeFrame.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF13255A2222B6D40097F9A1 /* TextModeFrame.cpp */; };
 		CF5C1D90255EEA6A00ADE703 /* TextModeFrame.mm in Sources */ = {isa = PBXBuildFile; fileRef = CF13256322287F250097F9A1 /* TextModeFrame.mm */; };
 		CF61F2FC263D610A009FF900 /* TextMoveView_UT.mm in Sources */ = {isa = PBXBuildFile; fileRef = CF61F2FB263D610A009FF900 /* TextMoveView_UT.mm */; };
-		CF739C4129564D72004758C5 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = CF739C3F29564D72004758C5 /* Localizable.strings */; };
 		CF9BF9062269FD7000AD36D9 /* HexModeProcessing_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF9BF9052269FD7000AD36D9 /* HexModeProcessing_UT.cpp */; };
 		CF9BF90D226CF99000AD36D9 /* HexModeFrame_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CF9BF90C226CF99000AD36D9 /* HexModeFrame_UT.cpp */; };
 		CFA9998D26468A4300F72E93 /* Log.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CFA9998C26468A4300F72E93 /* Log.cpp */; };
+		CFC762C62D3D2841000498AA /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = CFC762C52D3D2841000498AA /* Localizable.xcstrings */; };
 		CFD79B5B22106E5F0043A26D /* Tests.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CFD79B5822106E3C0043A26D /* Tests.cpp */; };
 		CFD79B6A22106F080043A26D /* TextProcessing_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CFD79B6822106F000043A26D /* TextProcessing_UT.cpp */; };
 		CFD79B8422198DB50043A26D /* TextModeWorkingSet_UT.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CFD79B8222198DA80043A26D /* TextModeWorkingSet_UT.cpp */; };
+		CFE5AF8F2C5812C30035CCFA /* ViewerFooter.mm in Sources */ = {isa = PBXBuildFile; fileRef = CFE5AF8E2C5812C30035CCFA /* ViewerFooter.mm */; };
+		CFE5AF912C62C0940035CCFA /* Media.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CFE5AF902C62C0940035CCFA /* Media.xcassets */; };
+		CFE5AFBC2C6956CE0035CCFA /* ViewerSearchView.mm in Sources */ = {isa = PBXBuildFile; fileRef = CFE5AFBB2C6956CE0035CCFA /* ViewerSearchView.mm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -54,17 +82,42 @@
 			remoteGlobalIDString = CF5C1D1C255ED68200ADE703;
 			remoteInfo = ViewerResources;
 		};
+		CF5BF7B12BFE8A100057C92E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CFD79A5921F65A000043A26D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CF5BF7A02BFD483D0057C92E;
+			remoteInfo = Highlighter;
+		};
+		CF5BF7BA2BFFD6C90057C92E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CFD79A5921F65A000043A26D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CF5C1D6F255EEA5200ADE703;
+			remoteInfo = Viewer;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		CFD79B4E22106E010043A26D /* CopyFiles */ = {
+		CF5BF7B52BFE8A630057C92E /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
-			dstPath = /usr/share/man/man1/;
-			dstSubfolderSpec = 0;
+			dstPath = ../XPCServices;
+			dstSubfolderSpec = 16;
 			files = (
+				CF5BF7B62BFE8A870057C92E /* Highlighter.xpc in CopyFiles */,
 			);
-			runOnlyForDeploymentPostprocessing = 1;
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CFD79B4E22106E010043A26D /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 12;
+			dstPath = ..;
+			dstSubfolderSpec = 16;
+			files = (
+				CF5BF7B02BFE86980057C92E /* Info.plist in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
@@ -76,20 +129,43 @@
 		CF132565222AB80B0097F9A1 /* TextModeView.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = TextModeView.h; path = include/Viewer/TextModeView.h; sourceTree = "<group>"; };
 		CF132567222AB8170097F9A1 /* TextModeView.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = TextModeView.mm; path = source/TextModeView.mm; sourceTree = "<group>"; wrapsLines = 0; };
 		CF132569222ACF640097F9A1 /* TextModeViewDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = TextModeViewDelegate.h; path = include/Viewer/TextModeViewDelegate.h; sourceTree = "<group>"; };
-		CF2343F122CDDFC600F516CB /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Base; path = resources/Base.lproj/Localizable.strings; sourceTree = "<group>"; };
-		CF2343F322CDDFCF00F516CB /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = resources/ru.lproj/Localizable.strings; sourceTree = "<group>"; };
 		CF2343F422CDE0F000F516CB /* Internal.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = Internal.mm; path = source/Internal.mm; sourceTree = "<group>"; };
 		CF24E1D1227F0B2400C166FA /* HexModeLayout_UT.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = HexModeLayout_UT.cpp; path = tests/HexModeLayout_UT.cpp; sourceTree = "<group>"; };
 		CF24E1D62286E23800C166FA /* PreviewModeView.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = PreviewModeView.mm; path = source/PreviewModeView.mm; sourceTree = "<group>"; };
 		CF24E1D82286E24300C166FA /* PreviewModeView.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = PreviewModeView.h; path = include/Viewer/PreviewModeView.h; sourceTree = "<group>"; };
+		CF2677892C1E03FD00EE8F06 /* FileSettingsStorage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = FileSettingsStorage.h; path = include/Viewer/Highlighting/FileSettingsStorage.h; sourceTree = "<group>"; };
+		CF26778B2C1E041400EE8F06 /* FileSettingsStorage.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = FileSettingsStorage.cpp; path = source/Highlighting/FileSettingsStorage.cpp; sourceTree = "<group>"; };
+		CF26778D2C1E0A0E00EE8F06 /* hlFileSettingsStorage_UT.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = hlFileSettingsStorage_UT.cpp; path = tests/hlFileSettingsStorage_UT.cpp; sourceTree = "<group>"; };
 		CF3989B52B41707F006103C1 /* libBase.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libBase.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		CF46FEFE255EF4480095FC73 /* Internal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Internal.h; path = source/Internal.h; sourceTree = "<group>"; };
 		CF46FF03255EF4690095FC73 /* Bundle.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Bundle.h; path = include/Viewer/Bundle.h; sourceTree = "<group>"; };
+		CF5BF7822BF90FF20057C92E /* Document.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Document.h; path = include/Viewer/Highlighting/Document.h; sourceTree = "<group>"; };
+		CF5BF7852BF910100057C92E /* Document.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Document.cpp; path = source/Highlighting/Document.cpp; sourceTree = "<group>"; };
+		CF5BF7872BF9209E0057C92E /* hlDocument_UT.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = hlDocument_UT.cpp; path = tests/hlDocument_UT.cpp; sourceTree = "<group>"; };
+		CF5BF78A2BFA12F70057C92E /* Style.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Style.h; path = include/Viewer/Highlighting/Style.h; sourceTree = "<group>"; };
+		CF5BF78C2BFA13A80057C92E /* Style.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Style.cpp; path = source/Highlighting/Style.cpp; sourceTree = "<group>"; };
+		CF5BF78E2BFA19F50057C92E /* hlStyle_UT.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = hlStyle_UT.cpp; path = tests/hlStyle_UT.cpp; sourceTree = "<group>"; };
+		CF5BF7912BFBC9F90057C92E /* LexerSettings.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = LexerSettings.cpp; path = source/Highlighting/LexerSettings.cpp; sourceTree = "<group>"; };
+		CF5BF7932BFBCA030057C92E /* LexerSettings.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = LexerSettings.h; path = include/Viewer/Highlighting/LexerSettings.h; sourceTree = "<group>"; };
+		CF5BF7952BFBD9480057C92E /* Highlighter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Highlighter.h; path = include/Viewer/Highlighting/Highlighter.h; sourceTree = "<group>"; };
+		CF5BF7972BFBD9510057C92E /* Highlighter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Highlighter.cpp; path = source/Highlighting/Highlighter.cpp; sourceTree = "<group>"; };
+		CF5BF7992BFBDF1F0057C92E /* hlHighlighter_UT.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = hlHighlighter_UT.cpp; path = tests/hlHighlighter_UT.cpp; sourceTree = "<group>"; };
+		CF5BF79B2BFD39A60057C92E /* hlLexerSettings_UT.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = hlLexerSettings_UT.cpp; path = tests/hlLexerSettings_UT.cpp; sourceTree = "<group>"; };
+		CF5BF7A12BFD483D0057C92E /* Highlighter.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = Highlighter.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
+		CF5BF7AA2BFD48950057C92E /* Service.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Service.cpp; path = source/Highlighting/Service.cpp; sourceTree = "<group>"; };
+		CF5BF7AC2BFE6B160057C92E /* Highlighter.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Highlighter.plist; path = resources/Highlighter.plist; sourceTree = "<group>"; };
+		CF5BF7AF2BFE855E0057C92E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = tests/Info.plist; sourceTree = "<group>"; };
+		CF5BF7B72BFE8B3B0057C92E /* Client.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Client.h; path = include/Viewer/Highlighting/Client.h; sourceTree = "<group>"; };
+		CF5BF7B82BFE8B540057C92E /* Client.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Client.cpp; path = source/Highlighting/Client.cpp; sourceTree = "<group>"; };
+		CF5BF7C12BFFDD240057C92E /* hlClient_UT.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = hlClient_UT.cpp; path = tests/hlClient_UT.cpp; sourceTree = "<group>"; };
+		CF5BF7C32C0B41F80057C92E /* TextModeWorkingSetHighlighting.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = TextModeWorkingSetHighlighting.h; path = include/Viewer/TextModeWorkingSetHighlighting.h; sourceTree = "<group>"; };
+		CF5BF7C52C0B42260057C92E /* TextModeWorkingSetHighlighting.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TextModeWorkingSetHighlighting.cpp; path = source/TextModeWorkingSetHighlighting.cpp; sourceTree = "<group>"; };
+		CF5BF7C72C0B89B40057C92E /* SettingsStorage.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SettingsStorage.h; path = include/Viewer/Highlighting/SettingsStorage.h; sourceTree = "<group>"; };
+		CF5BF7C92C0B89C90057C92E /* SettingsStorage.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SettingsStorage.cpp; path = source/Highlighting/SettingsStorage.cpp; sourceTree = "<group>"; };
 		CF5C1D1D255ED68200ADE703 /* ViewerResources.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ViewerResources.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
 		CF5C1D2C255ED7D300ADE703 /* ViewerResources.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = ViewerResources.plist; path = resources/ViewerResources.plist; sourceTree = "<group>"; };
 		CF5C1D70255EEA5200ADE703 /* libViewer.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libViewer.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		CF61F2FB263D610A009FF900 /* TextMoveView_UT.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = TextMoveView_UT.mm; path = tests/TextMoveView_UT.mm; sourceTree = "<group>"; };
-		CF739C4029564D72004758C5 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/Localizable.strings; sourceTree = "<group>"; };
 		CF9BF8FF2269E4CD00AD36D9 /* HexModeProcessing.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = HexModeProcessing.h; path = include/Viewer/HexModeProcessing.h; sourceTree = "<group>"; };
 		CF9BF9012269E4D800AD36D9 /* HexModeProcessing.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = HexModeProcessing.cpp; path = source/HexModeProcessing.cpp; sourceTree = "<group>"; };
 		CF9BF9052269FD7000AD36D9 /* HexModeProcessing_UT.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = HexModeProcessing_UT.cpp; path = tests/HexModeProcessing_UT.cpp; sourceTree = "<group>"; };
@@ -103,10 +179,11 @@
 		CF9BF91E2275FD9E00AD36D9 /* HexModeLayout.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = HexModeLayout.h; path = include/Viewer/HexModeLayout.h; sourceTree = "<group>"; };
 		CFA9998B26468A3900F72E93 /* Log.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Log.h; path = include/Viewer/Log.h; sourceTree = "<group>"; };
 		CFA9998C26468A4300F72E93 /* Log.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Log.cpp; path = source/Log.cpp; sourceTree = "<group>"; };
+		CFC762C52D3D2841000498AA /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = Localizable.xcstrings; path = resources/Localizable.xcstrings; sourceTree = "<group>"; };
+		CFC762C72D3D2841000498AA /* mul */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = mul; path = resources/mul.lproj/NCViewerSheet.xcstrings; sourceTree = "<group>"; };
+		CFC762C82D3D2841000498AA /* mul */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = mul; path = resources/mul.lproj/InternalViewerController.xcstrings; sourceTree = "<group>"; };
 		CFD79A7B21F65A980043A26D /* default.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = default.xcconfig; path = config/default.xcconfig; sourceTree = "<group>"; wrapsLines = 1; };
 		CFD79A7C21F65A980043A26D /* tests.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = tests.xcconfig; path = config/tests.xcconfig; sourceTree = "<group>"; };
-		CFD79A7D21F65A980043A26D /* debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = config/debug.xcconfig; sourceTree = "<group>"; };
-		CFD79A7E21F65A980043A26D /* release.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = release.xcconfig; path = config/release.xcconfig; sourceTree = "<group>"; };
 		CFD79A8621F65B4E0043A26D /* InternalViewerViewPreviewMode.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = InternalViewerViewPreviewMode.mm; path = source/InternalViewerViewPreviewMode.mm; sourceTree = "<group>"; };
 		CFD79A8821F65B4F0043A26D /* Theme.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = Theme.mm; path = source/Theme.mm; sourceTree = "<group>"; };
 		CFD79A8921F65B4F0043A26D /* ViewerView.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = ViewerView.mm; path = source/ViewerView.mm; sourceTree = "<group>"; };
@@ -131,15 +208,9 @@
 		CFD79B0421FE4CCC0043A26D /* ViewerViewController.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = ViewerViewController.mm; path = source/ViewerViewController.mm; sourceTree = "<group>"; };
 		CFD79B0621FE4D400043A26D /* CUI.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = CUI.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		CFD79B0921FE4F430043A26D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = resources/Base.lproj/InternalViewerController.xib; sourceTree = "<group>"; };
-		CFD79B0E21FE4F560043A26D /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = resources/ru.lproj/InternalViewerController.strings; sourceTree = "<group>"; };
 		CFD79B0F2205B82F0043A26D /* ViewerSheet.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ViewerSheet.h; path = include/Viewer/ViewerSheet.h; sourceTree = "<group>"; };
 		CFD79B112205B8360043A26D /* ViewerSheet.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = ViewerSheet.mm; path = source/ViewerSheet.mm; sourceTree = "<group>"; };
 		CFD79B142205B8450043A26D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = resources/Base.lproj/NCViewerSheet.xib; sourceTree = "<group>"; };
-		CFD79B162205B84E0043A26D /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = resources/ru.lproj/NCViewerSheet.strings; sourceTree = "<group>"; };
-		CFD79B172205DE3D0043A26D /* InternalViewerToolbarProtocol.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = InternalViewerToolbarProtocol.h; path = include/Viewer/InternalViewerToolbarProtocol.h; sourceTree = "<group>"; };
-		CFD79B192205DE480043A26D /* InternalViewerToolbarProtocol.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = InternalViewerToolbarProtocol.mm; path = source/InternalViewerToolbarProtocol.mm; sourceTree = "<group>"; };
-		CFD79B1C2205DE520043A26D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = resources/Base.lproj/InternalViewerToolbar.xib; sourceTree = "<group>"; };
-		CFD79B1E2205DE610043A26D /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = resources/ru.lproj/InternalViewerToolbar.strings; sourceTree = "<group>"; };
 		CFD79B1F2205DE9C0043A26D /* InternalViewerWindowController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = InternalViewerWindowController.h; path = include/Viewer/InternalViewerWindowController.h; sourceTree = "<group>"; };
 		CFD79B212205DEA40043A26D /* InternalViewerWindowController.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = InternalViewerWindowController.mm; path = source/InternalViewerWindowController.mm; sourceTree = "<group>"; };
 		CFD79B232205DEB30043A26D /* InternalViewerWindowController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; name = InternalViewerWindowController.xib; path = resources/InternalViewerWindowController.xib; sourceTree = "<group>"; };
@@ -154,10 +225,22 @@
 		CFD79B702210B6DB0043A26D /* TextModeWorkingSet.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TextModeWorkingSet.cpp; path = source/TextModeWorkingSet.cpp; sourceTree = "<group>"; };
 		CFD79B802214C46C0043A26D /* TextModeWorkingSet.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = TextModeWorkingSet.h; path = include/Viewer/TextModeWorkingSet.h; sourceTree = "<group>"; };
 		CFD79B8222198DA80043A26D /* TextModeWorkingSet_UT.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TextModeWorkingSet_UT.cpp; path = tests/TextModeWorkingSet_UT.cpp; sourceTree = "<group>"; };
+		CFE5AF8D2C5812B40035CCFA /* ViewerFooter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ViewerFooter.h; path = include/Viewer/ViewerFooter.h; sourceTree = "<group>"; };
+		CFE5AF8E2C5812C30035CCFA /* ViewerFooter.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = ViewerFooter.mm; path = source/ViewerFooter.mm; sourceTree = "<group>"; };
+		CFE5AF902C62C0940035CCFA /* Media.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Media.xcassets; path = resources/Media.xcassets; sourceTree = "<group>"; };
+		CFE5AFBA2C6956C70035CCFA /* ViewerSearchView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ViewerSearchView.h; path = include/Viewer/ViewerSearchView.h; sourceTree = "<group>"; };
+		CFE5AFBB2C6956CE0035CCFA /* ViewerSearchView.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = ViewerSearchView.mm; path = source/ViewerSearchView.mm; sourceTree = "<group>"; };
 		CFF54448261670F100A6C49C /* libHabanero.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libHabanero.a; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		CF5BF79E2BFD483D0057C92E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CF5C1D1A255ED68200ADE703 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -183,6 +266,35 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		CF5BF7812BF90FDE0057C92E /* Highlighting */ = {
+			isa = PBXGroup;
+			children = (
+				CF5BF7B72BFE8B3B0057C92E /* Client.h */,
+				CF5BF7822BF90FF20057C92E /* Document.h */,
+				CF2677892C1E03FD00EE8F06 /* FileSettingsStorage.h */,
+				CF5BF7952BFBD9480057C92E /* Highlighter.h */,
+				CF5BF7932BFBCA030057C92E /* LexerSettings.h */,
+				CF5BF7C72C0B89B40057C92E /* SettingsStorage.h */,
+				CF5BF78A2BFA12F70057C92E /* Style.h */,
+			);
+			name = Highlighting;
+			sourceTree = "<group>";
+		};
+		CF5BF7842BF90FFA0057C92E /* Highlighting */ = {
+			isa = PBXGroup;
+			children = (
+				CF5BF7B82BFE8B540057C92E /* Client.cpp */,
+				CF5BF7852BF910100057C92E /* Document.cpp */,
+				CF26778B2C1E041400EE8F06 /* FileSettingsStorage.cpp */,
+				CF5BF7972BFBD9510057C92E /* Highlighter.cpp */,
+				CF5BF7912BFBC9F90057C92E /* LexerSettings.cpp */,
+				CF5BF7AA2BFD48950057C92E /* Service.cpp */,
+				CF5BF7C92C0B89C90057C92E /* SettingsStorage.cpp */,
+				CF5BF78C2BFA13A80057C92E /* Style.cpp */,
+			);
+			name = Highlighting;
+			sourceTree = "<group>";
+		};
 		CFD79A5821F65A000043A26D = {
 			isa = PBXGroup;
 			children = (
@@ -202,6 +314,7 @@
 				CFD79B5022106E010043A26D /* ViewerUT */,
 				CF5C1D1D255ED68200ADE703 /* ViewerResources.bundle */,
 				CF5C1D70255EEA5200ADE703 /* libViewer.a */,
+				CF5BF7A12BFD483D0057C92E /* Highlighter.xpc */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -209,13 +322,13 @@
 		CFD79A7921F65A710043A26D /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				CF739C3F29564D72004758C5 /* Localizable.strings */,
+				CF5BF7AC2BFE6B160057C92E /* Highlighter.plist */,
 				CFD79B0821FE4F430043A26D /* InternalViewerController.xib */,
-				CFD79B1B2205DE520043A26D /* InternalViewerToolbar.xib */,
 				CFD79B232205DEB30043A26D /* InternalViewerWindowController.xib */,
-				CF2343F022CDDFC600F516CB /* Localizable.strings */,
+				CFC762C52D3D2841000498AA /* Localizable.xcstrings */,
 				CFD79B132205B8450043A26D /* NCViewerSheet.xib */,
 				CF5C1D2C255ED7D300ADE703 /* ViewerResources.plist */,
+				CFE5AF902C62C0940035CCFA /* Media.xcassets */,
 			);
 			name = Resources;
 			sourceTree = "<group>";
@@ -223,9 +336,7 @@
 		CFD79A7A21F65A8D0043A26D /* Config */ = {
 			isa = PBXGroup;
 			children = (
-				CFD79A7D21F65A980043A26D /* debug.xcconfig */,
 				CFD79A7B21F65A980043A26D /* default.xcconfig */,
-				CFD79A7E21F65A980043A26D /* release.xcconfig */,
 				CFD79A7C21F65A980043A26D /* tests.xcconfig */,
 			);
 			name = Config;
@@ -241,8 +352,8 @@
 				CF9BF8FF2269E4CD00AD36D9 /* HexModeProcessing.h */,
 				CF9BF912226DD3C800AD36D9 /* HexModeView.h */,
 				CF9BF91B22724A3D00AD36D9 /* HexModeViewDelegate.h */,
+				CF5BF7812BF90FDE0057C92E /* Highlighting */,
 				CFD79AB321FCA4E50043A26D /* History.h */,
-				CFD79B172205DE3D0043A26D /* InternalViewerToolbarProtocol.h */,
 				CFD79A9521F65B570043A26D /* InternalViewerViewPreviewMode.h */,
 				CFD79B1F2205DE9C0043A26D /* InternalViewerWindowController.h */,
 				CFA9998B26468A3900F72E93 /* Log.h */,
@@ -253,9 +364,12 @@
 				CF132565222AB80B0097F9A1 /* TextModeView.h */,
 				CF132569222ACF640097F9A1 /* TextModeViewDelegate.h */,
 				CFD79B802214C46C0043A26D /* TextModeWorkingSet.h */,
+				CF5BF7C32C0B41F80057C92E /* TextModeWorkingSetHighlighting.h */,
 				CFD79B3D221045210043A26D /* TextProcessing.h */,
 				CFD79A9321F65B570043A26D /* Theme.h */,
+				CFE5AF8D2C5812B40035CCFA /* ViewerFooter.h */,
 				CFD79A9221F65B570043A26D /* ViewerImplementationProtocol.h */,
+				CFE5AFBA2C6956C70035CCFA /* ViewerSearchView.h */,
 				CFD79B0F2205B82F0043A26D /* ViewerSheet.h */,
 				CFD79A9721F65B570043A26D /* ViewerView.h */,
 				CFD79B0221FE4CC40043A26D /* ViewerViewController.h */,
@@ -271,10 +385,10 @@
 				CF9BF91C2275FD9500AD36D9 /* HexModeLayout.cpp */,
 				CF9BF9012269E4D800AD36D9 /* HexModeProcessing.cpp */,
 				CF9BF913226DD3D300AD36D9 /* HexModeView.mm */,
+				CF5BF7842BF90FFA0057C92E /* Highlighting */,
 				CFD79AB521FCA4F30043A26D /* History.cpp */,
 				CF46FEFE255EF4480095FC73 /* Internal.h */,
 				CF2343F422CDE0F000F516CB /* Internal.mm */,
-				CFD79B192205DE480043A26D /* InternalViewerToolbarProtocol.mm */,
 				CFD79A8621F65B4E0043A26D /* InternalViewerViewPreviewMode.mm */,
 				CFD79B212205DEA40043A26D /* InternalViewerWindowController.mm */,
 				CFA9998C26468A4300F72E93 /* Log.cpp */,
@@ -284,8 +398,11 @@
 				CFD79B6E221097B30043A26D /* TextModeIndexedTextLine.cpp */,
 				CF132567222AB8170097F9A1 /* TextModeView.mm */,
 				CFD79B702210B6DB0043A26D /* TextModeWorkingSet.cpp */,
+				CF5BF7C52C0B42260057C92E /* TextModeWorkingSetHighlighting.cpp */,
 				CFD79B3F2210452C0043A26D /* TextProcessing.cpp */,
 				CFD79A8821F65B4F0043A26D /* Theme.mm */,
+				CFE5AF8E2C5812C30035CCFA /* ViewerFooter.mm */,
+				CFE5AFBB2C6956CE0035CCFA /* ViewerSearchView.mm */,
 				CFD79B112205B8360043A26D /* ViewerSheet.mm */,
 				CFD79A8921F65B4F0043A26D /* ViewerView.mm */,
 				CFD79B0421FE4CCC0043A26D /* ViewerViewController.mm */,
@@ -299,6 +416,13 @@
 				CF9BF90C226CF99000AD36D9 /* HexModeFrame_UT.cpp */,
 				CF24E1D1227F0B2400C166FA /* HexModeLayout_UT.cpp */,
 				CF9BF9052269FD7000AD36D9 /* HexModeProcessing_UT.cpp */,
+				CF5BF7C12BFFDD240057C92E /* hlClient_UT.cpp */,
+				CF5BF7872BF9209E0057C92E /* hlDocument_UT.cpp */,
+				CF26778D2C1E0A0E00EE8F06 /* hlFileSettingsStorage_UT.cpp */,
+				CF5BF7992BFBDF1F0057C92E /* hlHighlighter_UT.cpp */,
+				CF5BF79B2BFD39A60057C92E /* hlLexerSettings_UT.cpp */,
+				CF5BF78E2BFA19F50057C92E /* hlStyle_UT.cpp */,
+				CF5BF7AF2BFE855E0057C92E /* Info.plist */,
 				CFD79B5822106E3C0043A26D /* Tests.cpp */,
 				CFD79B5722106E3B0043A26D /* Tests.h */,
 				CF13255E2225FB610097F9A1 /* TextModeFrame_UT.cpp */,
@@ -334,13 +458,38 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CF5BF78B2BFA12F70057C92E /* Style.h in Headers */,
+				CF26778A2C1E03FD00EE8F06 /* FileSettingsStorage.h in Headers */,
+				CF5BF7962BFBD9480057C92E /* Highlighter.h in Headers */,
+				CF5BF7C82C0B89B40057C92E /* SettingsStorage.h in Headers */,
+				CF5BF7C42C0B41F90057C92E /* TextModeWorkingSetHighlighting.h in Headers */,
 				CF46FEFF255EF4480095FC73 /* Internal.h in Headers */,
+				CF5BF7942BFBCA030057C92E /* LexerSettings.h in Headers */,
+				CF5BF7832BF90FF20057C92E /* Document.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
+		CF5BF7A02BFD483D0057C92E /* Highlighter */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CF5BF7A92BFD483D0057C92E /* Build configuration list for PBXNativeTarget "Highlighter" */;
+			buildPhases = (
+				CF5BF79D2BFD483D0057C92E /* Sources */,
+				CF5BF79E2BFD483D0057C92E /* Frameworks */,
+				CF5BF79F2BFD483D0057C92E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CF5BF7BB2BFFD6C90057C92E /* PBXTargetDependency */,
+			);
+			name = Highlighter;
+			productName = Highlighter;
+			productReference = CF5BF7A12BFD483D0057C92E /* Highlighter.xpc */;
+			productType = "com.apple.product-type.xpc-service";
+		};
 		CF5C1D1C255ED68200ADE703 /* ViewerResources */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CF5C1D22255ED68300ADE703 /* Build configuration list for PBXNativeTarget "ViewerResources" */;
@@ -384,10 +533,12 @@
 				CFD79B4C22106E010043A26D /* Sources */,
 				CFD79B4D22106E010043A26D /* Frameworks */,
 				CFD79B4E22106E010043A26D /* CopyFiles */,
+				CF5BF7B52BFE8A630057C92E /* CopyFiles */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				CF5BF7B22BFE8A100057C92E /* PBXTargetDependency */,
 			);
 			name = ViewerUT;
 			productName = ViewerUT;
@@ -403,6 +554,9 @@
 				LastUpgradeCheck = 1220;
 				ORGANIZATIONNAME = "Michael G. Kazakov";
 				TargetAttributes = {
+					CF5BF7A02BFD483D0057C92E = {
+						CreatedOnToolsVersion = 15.1;
+					};
 					CF5C1D1C255ED68200ADE703 = {
 						CreatedOnToolsVersion = 12.0;
 					};
@@ -431,19 +585,27 @@
 				CF5C1D6F255EEA5200ADE703 /* Viewer */,
 				CFD79B4F22106E010043A26D /* ViewerUT */,
 				CF5C1D1C255ED68200ADE703 /* ViewerResources */,
+				CF5BF7A02BFD483D0057C92E /* Highlighter */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		CF5BF79F2BFD483D0057C92E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CF5C1D1B255ED68200ADE703 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CF5C1D3A255EE63C00ADE703 /* InternalViewerToolbar.xib in Resources */,
-				CF5C1D42255EE64200ADE703 /* Localizable.strings in Resources */,
 				CF5C1D46255EE64500ADE703 /* NCViewerSheet.xib in Resources */,
+				CFC762C62D3D2841000498AA /* Localizable.xcstrings in Resources */,
 				CF5C1D36255EE63000ADE703 /* InternalViewerController.xib in Resources */,
+				CFE5AF912C62C0940035CCFA /* Media.xcassets in Resources */,
 				CF5C1D3E255EE63F00ADE703 /* InternalViewerWindowController.xib in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -452,13 +614,24 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CF739C4129564D72004758C5 /* Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		CF5BF79D2BFD483D0057C92E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CF5BF7BD2BFFD71B0057C92E /* Document.cpp in Sources */,
+				CF5BF7BE2BFFD7220057C92E /* Highlighter.cpp in Sources */,
+				CF5BF7C02BFFD72D0057C92E /* Style.cpp in Sources */,
+				CF5BF7AB2BFD48950057C92E /* Service.cpp in Sources */,
+				CF5BF7BF2BFFD7280057C92E /* LexerSettings.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CF5C1D19255ED68200ADE703 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -470,26 +643,35 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CF5BF7C62C0B42260057C92E /* TextModeWorkingSetHighlighting.cpp in Sources */,
+				CF5BF78D2BFA13A80057C92E /* Style.cpp in Sources */,
+				CF5BF7862BF910100057C92E /* Document.cpp in Sources */,
 				CF5C1D8B255EEA6A00ADE703 /* History.cpp in Sources */,
 				CF5C1D85255EEA6A00ADE703 /* Internal.mm in Sources */,
+				CF5BF7B92BFE8B540057C92E /* Client.cpp in Sources */,
 				CF5C1D7D255EEA6A00ADE703 /* ViewerViewController.mm in Sources */,
+				CFE5AFBC2C6956CE0035CCFA /* ViewerSearchView.mm in Sources */,
 				CF5C1D8F255EEA6A00ADE703 /* TextModeFrame.cpp in Sources */,
+				CFE5AF8F2C5812C30035CCFA /* ViewerFooter.mm in Sources */,
 				CF5C1D87255EEA6A00ADE703 /* TextModeWorkingSet.cpp in Sources */,
 				CF5C1D7C255EEA6A00ADE703 /* Theme.mm in Sources */,
 				CF5C1D84255EEA6A00ADE703 /* ViewerView.mm in Sources */,
 				CF5C1D7B255EEA6A00ADE703 /* HexModeFrame.cpp in Sources */,
 				CF5C1D7E255EEA6A00ADE703 /* DataBackend.cpp in Sources */,
-				CF5C1D8C255EEA6A00ADE703 /* InternalViewerToolbarProtocol.mm in Sources */,
 				CF5C1D81255EEA6A00ADE703 /* TextModeIndexedTextLine.cpp in Sources */,
 				CF5C1D8E255EEA6A00ADE703 /* InternalViewerWindowController.mm in Sources */,
 				CF5C1D83255EEA6A00ADE703 /* TextProcessing.cpp in Sources */,
 				CF5C1D8A255EEA6A00ADE703 /* HexModeLayout.cpp in Sources */,
+				CF5BF7CA2C0B89C90057C92E /* SettingsStorage.cpp in Sources */,
 				CF5C1D82255EEA6A00ADE703 /* ViewerSheet.mm in Sources */,
 				CF5C1D90255EEA6A00ADE703 /* TextModeFrame.mm in Sources */,
 				CF5C1D80255EEA6A00ADE703 /* HexModeProcessing.cpp in Sources */,
+				CF5BF7922BFBC9F90057C92E /* LexerSettings.cpp in Sources */,
 				CF5C1D7A255EEA6A00ADE703 /* TextModeView.mm in Sources */,
 				CFA9998D26468A4300F72E93 /* Log.cpp in Sources */,
+				CF5BF7982BFBD9510057C92E /* Highlighter.cpp in Sources */,
 				CF5C1D86255EEA6A00ADE703 /* PreviewModeView.mm in Sources */,
+				CF26778C2C1E041400EE8F06 /* FileSettingsStorage.cpp in Sources */,
 				CF5C1D7F255EEA6A00ADE703 /* HexModeView.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -498,13 +680,19 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CF5BF79A2BFBDF1F0057C92E /* hlHighlighter_UT.cpp in Sources */,
+				CF26778E2C1E0A0E00EE8F06 /* hlFileSettingsStorage_UT.cpp in Sources */,
 				CF9BF90D226CF99000AD36D9 /* HexModeFrame_UT.cpp in Sources */,
 				CF61F2FC263D610A009FF900 /* TextMoveView_UT.mm in Sources */,
 				CF9BF9062269FD7000AD36D9 /* HexModeProcessing_UT.cpp in Sources */,
+				CF5BF79C2BFD39A60057C92E /* hlLexerSettings_UT.cpp in Sources */,
 				CFD79B6A22106F080043A26D /* TextProcessing_UT.cpp in Sources */,
+				CF5BF78F2BFA19F50057C92E /* hlStyle_UT.cpp in Sources */,
 				CFD79B5B22106E5F0043A26D /* Tests.cpp in Sources */,
+				CF5BF7C22BFFDD240057C92E /* hlClient_UT.cpp in Sources */,
 				CF1325622225FD630097F9A1 /* TextModeFrame_UT.cpp in Sources */,
 				CFD79B8422198DB50043A26D /* TextModeWorkingSet_UT.cpp in Sources */,
+				CF5BF7892BF922DE0057C92E /* hlDocument_UT.cpp in Sources */,
 				CF24E1D3227F0B2A00C166FA /* HexModeLayout_UT.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -517,31 +705,24 @@
 			target = CF5C1D1C255ED68200ADE703 /* ViewerResources */;
 			targetProxy = CF2F110025680BCB00622405 /* PBXContainerItemProxy */;
 		};
+		CF5BF7B22BFE8A100057C92E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CF5BF7A02BFD483D0057C92E /* Highlighter */;
+			targetProxy = CF5BF7B12BFE8A100057C92E /* PBXContainerItemProxy */;
+		};
+		CF5BF7BB2BFFD6C90057C92E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CF5C1D6F255EEA5200ADE703 /* Viewer */;
+			targetProxy = CF5BF7BA2BFFD6C90057C92E /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
-		CF2343F022CDDFC600F516CB /* Localizable.strings */ = {
-			isa = PBXVariantGroup;
-			children = (
-				CF2343F122CDDFC600F516CB /* Base */,
-				CF2343F322CDDFCF00F516CB /* ru */,
-			);
-			name = Localizable.strings;
-			sourceTree = "<group>";
-		};
-		CF739C3F29564D72004758C5 /* Localizable.strings */ = {
-			isa = PBXVariantGroup;
-			children = (
-				CF739C4029564D72004758C5 /* ru */,
-			);
-			name = Localizable.strings;
-			sourceTree = "<group>";
-		};
 		CFD79B0821FE4F430043A26D /* InternalViewerController.xib */ = {
 			isa = PBXVariantGroup;
 			children = (
 				CFD79B0921FE4F430043A26D /* Base */,
-				CFD79B0E21FE4F560043A26D /* ru */,
+				CFC762C82D3D2841000498AA /* mul */,
 			);
 			name = InternalViewerController.xib;
 			sourceTree = "<group>";
@@ -550,23 +731,48 @@
 			isa = PBXVariantGroup;
 			children = (
 				CFD79B142205B8450043A26D /* Base */,
-				CFD79B162205B84E0043A26D /* ru */,
+				CFC762C72D3D2841000498AA /* mul */,
 			);
 			name = NCViewerSheet.xib;
-			sourceTree = "<group>";
-		};
-		CFD79B1B2205DE520043A26D /* InternalViewerToolbar.xib */ = {
-			isa = PBXVariantGroup;
-			children = (
-				CFD79B1C2205DE520043A26D /* Base */,
-				CFD79B1E2205DE610043A26D /* ru */,
-			);
-			name = InternalViewerToolbar.xib;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		CF5BF7A72BFD483D0057C92E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = resources/Highlighter.entitlements;
+				CODE_SIGN_IDENTITY = "";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = resources/Highlighter.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Highlighter;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2024 Michael G. Kazakov. All rights reserved.";
+				PRODUCT_BUNDLE_IDENTIFIER = com.magnumbytes.NimbleCommander.Highlighter;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		CF5BF7A82BFD483D0057C92E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = resources/Highlighter.entitlements;
+				CODE_SIGN_IDENTITY = "";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = resources/Highlighter.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Highlighter;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2024 Michael G. Kazakov. All rights reserved.";
+				PRODUCT_BUNDLE_IDENTIFIER = com.magnumbytes.NimbleCommander.Highlighter;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
 		CF5C1D20255ED68300ADE703 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -619,7 +825,7 @@
 		};
 		CFD79A6821F65A010043A26D /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = CFD79A7D21F65A980043A26D /* debug.xcconfig */;
+			baseConfigurationReference = CFD79A7B21F65A980043A26D /* default.xcconfig */;
 			buildSettings = {
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -628,7 +834,7 @@
 		};
 		CFD79A6921F65A010043A26D /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = CFD79A7E21F65A980043A26D /* release.xcconfig */;
+			baseConfigurationReference = CFD79A7B21F65A980043A26D /* default.xcconfig */;
 			buildSettings = {
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -654,6 +860,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		CF5BF7A92BFD483D0057C92E /* Build configuration list for PBXNativeTarget "Highlighter" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CF5BF7A72BFD483D0057C92E /* Debug */,
+				CF5BF7A82BFD483D0057C92E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		CF5C1D22255ED68300ADE703 /* Build configuration list for PBXNativeTarget "ViewerResources" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

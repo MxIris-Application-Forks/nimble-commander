@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <Base/CommonPaths.h>
 #include <Utility/PathManip.h>
 #include <Utility/NSView+Sugar.h>
@@ -12,13 +12,12 @@
 #include <NimbleCommander/Core/ActionsShortcutsManager.h>
 #include <NimbleCommander/Core/SandboxManager.h>
 #include <NimbleCommander/Core/Theming/Theme.h>
-#include <NimbleCommander/Core/FeedbackManager.h>
+#include <NimbleCommander/Core/Theming/ThemesManager.h>
 #include <NimbleCommander/States/MainWindowController.h>
 #include "MainWindowFilePanelState.h"
 #include "PanelController.h"
 #include "PanelController+DataAccess.h"
 #include "MainWindowFilePanelsStateToolbarDelegate.h"
-#include "AskingForRatingOverlayView.h"
 #include "Favorites.h"
 #include "Views/QuickLookOverlay.h"
 #include "Views/FilePanelMainSplitView.h"
@@ -42,6 +41,7 @@
 #include <Base/dispatch_cpp.h>
 #include <Base/debug.h>
 
+using namespace nc;
 using namespace nc::panel;
 using namespace std::literals;
 
@@ -49,8 +49,7 @@ static const auto g_ConfigGoToActivation = "filePanel.general.goToButtonForcesPa
 static const auto g_ConfigInitialLeftPath = "filePanel.general.initialLeftPanelPath";
 static const auto g_ConfigInitialRightPath = "filePanel.general.initialRightPanelPath";
 static const auto g_ConfigGeneralShowTabs = "general.showTabs";
-static const auto g_ConfigRouteKeyboardInputIntoTerminal =
-    "filePanel.general.routeKeyboardInputIntoTerminal";
+static const auto g_ConfigRouteKeyboardInputIntoTerminal = "filePanel.general.routeKeyboardInputIntoTerminal";
 static const auto g_ResorationPanelsKey = "panels_v1";
 static const auto g_ResorationUIKey = "uiState";
 static const auto g_ResorationUISelectedLeftTab = "selectedLeftTab";
@@ -59,44 +58,6 @@ static const auto g_ResorationUIFocusedSide = "focusedSide";
 static const auto g_InitialStatePath = "filePanel.initialState";
 static const auto g_InitialStateLeftDefaults = "left";
 static const auto g_InitialStateRightDefaults = "right";
-
-static void SetupRatingOverlay(NSView *_background_view, nc::FeedbackManager &_feedback_manager)
-{
-    AskingForRatingOverlayView *v =
-        [[AskingForRatingOverlayView alloc] initWithFrame:_background_view.bounds
-                                          feedbackManager:_feedback_manager];
-    v.translatesAutoresizingMaskIntoConstraints = false;
-    [_background_view addSubview:v];
-    [_background_view addConstraint:[NSLayoutConstraint constraintWithItem:v
-                                                                 attribute:NSLayoutAttributeCenterX
-                                                                 relatedBy:NSLayoutRelationEqual
-                                                                    toItem:_background_view
-                                                                 attribute:NSLayoutAttributeCenterX
-                                                                multiplier:1.0
-                                                                  constant:0]];
-    [_background_view addConstraint:[NSLayoutConstraint constraintWithItem:v
-                                                                 attribute:NSLayoutAttributeCenterY
-                                                                 relatedBy:NSLayoutRelationEqual
-                                                                    toItem:_background_view
-                                                                 attribute:NSLayoutAttributeCenterY
-                                                                multiplier:1.0
-                                                                  constant:0]];
-    [_background_view addConstraint:[NSLayoutConstraint constraintWithItem:v
-                                                                 attribute:NSLayoutAttributeWidth
-                                                                 relatedBy:NSLayoutRelationEqual
-                                                                    toItem:_background_view
-                                                                 attribute:NSLayoutAttributeWidth
-                                                                multiplier:1.0
-                                                                  constant:0]];
-    [_background_view addConstraint:[NSLayoutConstraint constraintWithItem:v
-                                                                 attribute:NSLayoutAttributeHeight
-                                                                 relatedBy:NSLayoutRelationEqual
-                                                                    toItem:_background_view
-                                                                 attribute:NSLayoutAttributeHeight
-                                                                multiplier:1.0
-                                                                  constant:0]];
-    [_background_view layoutSubtreeIfNeeded];
-}
 
 static bool GoToForcesPanelActivation()
 {
@@ -117,23 +78,22 @@ static NSString *TitleForData(const data::Model *_data);
 @synthesize splitView = m_SplitView;
 @synthesize closedPanelsHistory = m_ClosedPanelsHistory;
 @synthesize favoriteLocationsStorage = m_FavoriteLocationsStorage;
+@synthesize filePanelsToolsbar;
 
 - (instancetype)initBaseWithFrame:(NSRect)frameRect
                           andPool:(nc::ops::Pool &)_pool
                      panelFactory:(std::function<PanelController *()>)_panel_factory
        controllerStateJSONDecoder:(ControllerStateJSONDecoder &)_controller_json_decoder
                    QLPanelAdaptor:(NCPanelQLPanelAdaptor *)_ql_panel_adaptor
-                  feedbackManager:(nc::FeedbackManager &)_feedback_manager
 {
     assert(_panel_factory);
-    if( self = [super initWithFrame:frameRect] ) {
+    self = [super initWithFrame:frameRect];
+    if( self ) {
         m_PanelFactory = std::move(_panel_factory);
-        m_FeedbackManager = &_feedback_manager;
         m_ControllerStateJSONDecoder = &_controller_json_decoder;
         m_ClosedPanelsHistory = nullptr;
         m_OperationsPool = _pool.shared_from_this();
-        m_OverlappedTerminal =
-            std::make_unique<MainWindowFilePanelState_OverlappedTerminalSupport>();
+        m_OverlappedTerminal = std::make_unique<MainWindowFilePanelState_OverlappedTerminalSupport>();
         m_ShowTabs = GlobalConfig().GetBool(g_ConfigGeneralShowTabs);
         m_QLPanelAdaptor = _ql_panel_adaptor;
 
@@ -159,14 +119,12 @@ static NSString *TitleForData(const data::Model *_data);
                   panelFactory:(std::function<PanelController *()>)_panel_factory
     controllerStateJSONDecoder:(ControllerStateJSONDecoder &)_controller_json_decoder
                 QLPanelAdaptor:(NCPanelQLPanelAdaptor *)_ql_panel_adaptor
-               feedbackManager:(nc::FeedbackManager &)_feedback_manager
 {
     self = [self initBaseWithFrame:frameRect
                            andPool:_pool
                       panelFactory:std::move(_panel_factory)
         controllerStateJSONDecoder:_controller_json_decoder
-                    QLPanelAdaptor:_ql_panel_adaptor
-                   feedbackManager:_feedback_manager];
+                    QLPanelAdaptor:_ql_panel_adaptor];
     if( self ) {
         if( _load_content ) {
             [self restoreDefaultPanelOptions];
@@ -193,8 +151,10 @@ static NSString *TitleForData(const data::Model *_data);
 
 - (void)setupNotificationsCallbacks
 {
-    m_ConfigTickets.emplace_back(GlobalConfig().Observe(
-        g_ConfigGeneralShowTabs, nc::objc_callback(self, @selector(onShowTabsSettingChanged))));
+    m_ConfigTickets.emplace_back(
+        GlobalConfig().Observe(g_ConfigGeneralShowTabs, nc::objc_callback(self, @selector(onShowTabsSettingChanged))));
+    m_ThemesObservationTicket = NCAppDelegate.me.themesManager.ObserveChanges(
+        nc::ThemesManager::Notifications::FilePanelsGeneral, nc::objc_callback(self, @selector(onThemeChanged)));
 }
 
 - (void)dealloc
@@ -264,7 +224,8 @@ static NSString *TitleForData(const data::Model *_data);
     using nc::utility::PathManip;
     auto left_controller = m_LeftPanelControllers.front();
     auto right_controller = m_RightPanelControllers.front();
-    std::vector<std::string> left_panel_desired_paths, right_panel_desired_paths;
+    std::vector<std::string> left_panel_desired_paths;
+    std::vector<std::string> right_panel_desired_paths;
 
     // 1st attempt - load editable default path from config
     left_panel_desired_paths.emplace_back(EnsureTrailingSlash(
@@ -286,15 +247,14 @@ static NSString *TitleForData(const data::Model *_data);
     left_panel_desired_paths.emplace_back(nc::base::CommonPaths::StartupCWD());
     right_panel_desired_paths.emplace_back(nc::base::CommonPaths::StartupCWD());
 
-    const auto try_to_load = [&](const std::vector<std::string> &_paths_to_try,
-                                 PanelController *_panel) {
+    const auto try_to_load = [&](const std::vector<std::string> &_paths_to_try, PanelController *_panel) {
         for( auto &p : _paths_to_try ) {
             auto request = std::make_shared<DirectoryChangeRequest>();
             request->RequestedDirectory = p;
             request->VFS = nc::bootstrap::NativeVFSHostInstance().SharedPtr();
             request->PerformAsynchronous = false;
-            const auto result = [_panel GoToDirWithContext:request];
-            if( result == VFSError::Ok )
+            const std::expected<void, Error> result = [_panel GoToDirWithContext:request];
+            if( result )
                 break;
         }
     };
@@ -305,7 +265,8 @@ static NSString *TitleForData(const data::Model *_data);
 
 - (void)CreateControls
 {
-    m_SplitView = [[FilePanelMainSplitView alloc] initWithFrame:NSRect()];
+    m_SplitView = [[FilePanelMainSplitView alloc] initWithFrame:NSRect()
+                                        actionsShortcutsManager:NCAppDelegate.me.actionsShortcutsManager];
     m_SplitView.translatesAutoresizingMaskIntoConstraints = NO;
     [m_SplitView.leftTabbedHolder addPanel:m_LeftPanelControllers.front().view];
     [m_SplitView.rightTabbedHolder addPanel:m_RightPanelControllers.front().view];
@@ -319,7 +280,9 @@ static NSString *TitleForData(const data::Model *_data);
     [self addSubview:m_SeparatorLine];
 
     m_ToolbarDelegate =
-        [[MainWindowFilePanelsStateToolbarDelegate alloc] initWithFilePanelsState:self];
+        [[MainWindowFilePanelsStateToolbarDelegate alloc] initWithToolsStorage:NCAppDelegate.me.externalTools
+                                                       actionsShortcutsManager:NCAppDelegate.me.actionsShortcutsManager
+                                                             andOperationsPool:self.operationsPool];
 
     auto views = NSDictionaryOfVariableBindings(m_SeparatorLine, m_SplitView);
     auto contraints = {@"V:|-(==0@250)-[m_SeparatorLine(==1)]-(==0)-[m_SplitView(>=150@500)]",
@@ -340,24 +303,22 @@ static NSString *TitleForData(const data::Model *_data);
     m_MainSplitViewBottomConstraint.priority = NSLayoutPriorityDragThatCannotResizeWindow;
     [self addConstraint:m_MainSplitViewBottomConstraint];
 
-    if( nc::base::AmISandboxed() == false ) {
-        m_OverlappedTerminal->terminal =
-            [[FilePanelOverlappedTerminal alloc] initWithFrame:self.bounds];
+    if( !nc::base::AmISandboxed() ) {
+        m_OverlappedTerminal->terminal = [[FilePanelOverlappedTerminal alloc] initWithFrame:self.bounds];
         m_OverlappedTerminal->terminal.translatesAutoresizingMaskIntoConstraints = false;
         [self addSubview:m_OverlappedTerminal->terminal positioned:NSWindowBelow relativeTo:nil];
 
         auto terminal = m_OverlappedTerminal->terminal;
         views = NSDictionaryOfVariableBindings(terminal, m_SeparatorLine);
-        [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-                                                     @"V:[m_SeparatorLine]-(0)-[terminal]-(==0)-|"
-                                                                     options:0
-                                                                     metrics:nil
-                                                                       views:views]];
         [self
-            addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"|-(0)-[terminal]-(0)-|"
+            addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:[m_SeparatorLine]-(0)-[terminal]-(==0)-|"
                                                                    options:0
                                                                    metrics:nil
                                                                      views:views]];
+        [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"|-(0)-[terminal]-(0)-|"
+                                                                     options:0
+                                                                     metrics:nil
+                                                                       views:views]];
     }
     else {
         /* Fixing bugs in NSISEngine, kinda */
@@ -365,21 +326,15 @@ static NSString *TitleForData(const data::Model *_data);
         dummy.translatesAutoresizingMaskIntoConstraints = false;
         [self addSubview:dummy positioned:NSWindowBelow relativeTo:nil];
         views = NSDictionaryOfVariableBindings(dummy);
-        [self addConstraints:[NSLayoutConstraint
-                                 constraintsWithVisualFormat:@"V:|-(==1)-[dummy(>=100)]-(==0)-|"
-                                                     options:0
-                                                     metrics:nil
-                                                       views:views]];
-        [self addConstraints:[NSLayoutConstraint
-                                 constraintsWithVisualFormat:@"|-(0)-[dummy(>=100)]-(0)-|"
-                                                     options:0
-                                                     metrics:nil
-                                                       views:views]];
+        [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|-(==1)-[dummy(>=100)]-(==0)-|"
+                                                                     options:0
+                                                                     metrics:nil
+                                                                       views:views]];
+        [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"|-(0)-[dummy(>=100)]-(0)-|"
+                                                                     options:0
+                                                                     metrics:nil
+                                                                       views:views]];
     }
-
-    if( m_FeedbackManager->ShouldShowRatingOverlayView() )
-        SetupRatingOverlay(m_ToolbarDelegate.operationsPoolViewController.idleView,
-                           *m_FeedbackManager);
 }
 
 - (void)windowStateDidBecomeAssigned
@@ -404,7 +359,6 @@ static NSString *TitleForData(const data::Model *_data);
     }
 
     [self updateTitle];
-
 }
 
 - (void)layout
@@ -499,12 +453,12 @@ static NSString *TitleForData(const data::Model *_data);
     return m_RightPanelControllers;
 }
 
-static bool Has(const std::vector<PanelController *> &_c, PanelController *_p) noexcept
+static bool Has(std::span<PanelController *> _c, PanelController *_p) noexcept
 {
     // this is called very often, so in order to help optimizer I manually removed all
     // Objective-C / ARC related semantics by casting everything to raw void*.
     // the difference between assembly outputs is huge.
-    const void *const *first = reinterpret_cast<const void *const*>(static_cast<const void *>(_c.data()));
+    const void *const *first = std::bit_cast<const void *const *>(_c.data());
     const void *const *last = first + _c.size();
     const void *value = (__bridge const void *)_p;
     return std::find(first, last, value) != last;
@@ -583,15 +537,14 @@ static nc::config::Value EncodePanelsStates(const std::vector<PanelController *>
     nc::config::Value right{kArrayType};
 
     const auto encoding_opts = ControllerStateEncoding::EncodeEverything;
+    PanelDataPersistency persistency(*NCAppDelegate.me.networkConnectionsManager); // TODO: evil, fix
 
     for( auto pc : _left )
-        if( auto v = ControllerStateJSONEncoder{pc}.Encode(encoding_opts);
-            v.GetType() != kNullType )
+        if( auto v = ControllerStateJSONEncoder{pc, persistency}.Encode(encoding_opts); v.GetType() != kNullType )
             left.PushBack(std::move(v), nc::config::g_CrtAllocator);
 
     for( auto pc : _right )
-        if( auto v = ControllerStateJSONEncoder{pc}.Encode(encoding_opts);
-            v.GetType() != kNullType )
+        if( auto v = ControllerStateJSONEncoder{pc, persistency}.Encode(encoding_opts); v.GetType() != kNullType )
             right.PushBack(std::move(v), nc::config::g_CrtAllocator);
 
     json.PushBack(std::move(left), nc::config::g_CrtAllocator);
@@ -630,9 +583,8 @@ static nc::config::Value EncodeUIState(MainWindowFilePanelState *_state)
     json.AddMember(nc::config::MakeStandaloneString(g_ResorationPanelsKey),
                    EncodePanelsStates(m_LeftPanelControllers, m_RightPanelControllers),
                    nc::config::g_CrtAllocator);
-    json.AddMember(nc::config::MakeStandaloneString(g_ResorationUIKey),
-                   EncodeUIState(self),
-                   nc::config::g_CrtAllocator);
+    json.AddMember(
+        nc::config::MakeStandaloneString(g_ResorationUIKey), EncodeUIState(self), nc::config::g_CrtAllocator);
 
     return json;
 }
@@ -724,26 +676,24 @@ static nc::config::Value EncodeUIState(MainWindowFilePanelState *_state)
     if( !right_panel )
         return;
 
-    const auto to_encode = static_cast<ControllerStateEncoding::Options>(
-        ControllerStateEncoding::EncodeDataOptions | ControllerStateEncoding::EncodeViewOptions);
+    const auto to_encode = static_cast<ControllerStateEncoding::Options>(ControllerStateEncoding::EncodeDataOptions |
+                                                                         ControllerStateEncoding::EncodeViewOptions);
 
-    auto left_panel_options = ControllerStateJSONEncoder{left_panel}.Encode(to_encode);
+    PanelDataPersistency persistency(*NCAppDelegate.me.networkConnectionsManager); // TODO: evil, fix
+
+    auto left_panel_options = ControllerStateJSONEncoder{left_panel, persistency}.Encode(to_encode);
     if( left_panel_options.GetType() == rapidjson::kNullType )
         return;
 
-    auto right_panel_options = ControllerStateJSONEncoder{right_panel}.Encode(to_encode);
+    auto right_panel_options = ControllerStateJSONEncoder{right_panel, persistency}.Encode(to_encode);
     if( right_panel_options.GetType() == rapidjson::kNullType )
         return;
 
     using namespace rapidjson;
     using namespace nc::config;
     nc::config::Value json{kObjectType};
-    json.AddMember(MakeStandaloneString(g_InitialStateLeftDefaults),
-                   std::move(left_panel_options),
-                   g_CrtAllocator);
-    json.AddMember(MakeStandaloneString(g_InitialStateRightDefaults),
-                   std::move(right_panel_options),
-                   g_CrtAllocator);
+    json.AddMember(MakeStandaloneString(g_InitialStateLeftDefaults), std::move(left_panel_options), g_CrtAllocator);
+    json.AddMember(MakeStandaloneString(g_InitialStateRightDefaults), std::move(right_panel_options), g_CrtAllocator);
 
     StateConfig().Set(g_InitialStatePath, json);
 }
@@ -762,8 +712,7 @@ static nc::config::Value EncodeUIState(MainWindowFilePanelState *_state)
 
     if( _panel.isUniform ) {
         if( m_FavoriteLocationsStorage )
-            m_FavoriteLocationsStorage->ReportLocationVisit(*_panel.vfs,
-                                                            _panel.currentDirectoryPath);
+            m_FavoriteLocationsStorage->ReportLocationVisit(*_panel.vfs, _panel.currentDirectoryPath);
     }
 }
 
@@ -776,9 +725,7 @@ static nc::config::Value EncodeUIState(MainWindowFilePanelState *_state)
                                                  object:self.window];
     }
     else {
-        [NSNotificationCenter.defaultCenter removeObserver:self
-                                                      name:NSWindowDidResizeNotification
-                                                    object:nil];
+        [NSNotificationCenter.defaultCenter removeObserver:self name:NSWindowDidResizeNotification object:nil];
     }
 }
 
@@ -797,18 +744,16 @@ static nc::config::Value EncodeUIState(MainWindowFilePanelState *_state)
         [self panelWillBeClosed:pc];
 }
 
-static void AskAboutStoppingRunningOperations(NSWindow *_window,
-                                              std::function<void(NSModalResponse)> _handler)
+static void AskAboutStoppingRunningOperations(NSWindow *_window, std::function<void(NSModalResponse)> _handler)
 {
     assert(_window && _handler);
-    Alert *dialog = [[Alert alloc] init];
-    [dialog addButtonWithTitle:NSLocalizedString(
-                                   @"Stop and Close",
-                                   "User action to stop running actions and close window")];
+    Alert *const dialog = [[Alert alloc] init];
+    [dialog addButtonWithTitle:NSLocalizedString(@"Stop and Close",
+                                                 "User action to stop running actions and close window")];
     [dialog addButtonWithTitle:NSLocalizedString(@"Cancel", "")];
-    dialog.messageText = NSLocalizedString(
-        @"The window has running operations. Do you want to stop them and close the window?",
-        "Asking user to close window with some operations running");
+    dialog.messageText =
+        NSLocalizedString(@"The window has running operations. Do you want to stop them and close the window?",
+                          "Asking user to close window with some operations running");
     [dialog beginSheetModalForWindow:_window
                    completionHandler:^(NSModalResponse result) {
                      _handler(result);
@@ -852,8 +797,7 @@ static void AskAboutStoppingRunningOperations(NSWindow *_window,
         if( !_panel.isActive )
             return nil;
 
-        if( QLPreviewPanel.sharedPreviewPanelExists &&
-            QLPreviewPanel.sharedPreviewPanel.isVisible ) {
+        if( QLPreviewPanel.sharedPreviewPanelExists && QLPreviewPanel.sharedPreviewPanel.isVisible ) {
             if( m_QLPanelAdaptor.owner == self )
                 return m_QLPanelAdaptor;
         }
@@ -896,8 +840,7 @@ static void AskAboutStoppingRunningOperations(NSWindow *_window,
     }
 }
 
-- (BriefSystemOverview *)briefSystemOverviewForPanel:(PanelController *)_panel
-                                                make:(bool)_make_if_absent
+- (BriefSystemOverview *)briefSystemOverviewForPanel:(PanelController *)_panel make:(bool)_make_if_absent
 {
     if( [self isLeftController:_panel] )
         if( const auto bso = nc::objc_cast<BriefSystemOverview>(m_SplitView.rightOverlay) )
@@ -948,12 +891,18 @@ static void AskAboutStoppingRunningOperations(NSWindow *_window,
         });
 }
 
+- (void)onThemeChanged
+{
+    m_SeparatorLine.borderColor = nc::CurrentTheme().FilePanelsGeneralTopSeparatorColor();
+    [self setNeedsDisplay:true];
+}
+
 - (void)updateBottomConstraint
 {
     if( m_OverlappedTerminal->terminal == nullptr )
         return;
 
-    auto gap = [m_OverlappedTerminal->terminal bottomGapForLines:m_OverlappedTerminal->bottom_gap];
+    const double gap = [m_OverlappedTerminal->terminal bottomGapForLines:m_OverlappedTerminal->bottom_gap];
     m_MainSplitViewBottomConstraint.constant = -gap;
 
     [self updateOverlappedTerminalVisibility];
@@ -994,26 +943,19 @@ static void AskAboutStoppingRunningOperations(NSWindow *_window,
     [m_SplitView.rightTabbedHolder addPanel:_pc.view];
 }
 
-- (ExternalToolsStorage &)externalToolsStorage
-{
-    return NCAppDelegate.me.externalTools;
-}
-
 - (void)revealPanel:(PanelController *)panel
 {
     if( [self isRightController:panel] ) {
         if( m_SplitView.isRightCollapsed )
             [m_SplitView expandRightView];
-        m_SplitView.rightOverlay =
-            nil; // may cause bad situations with weak pointers inside panel controller here
+        m_SplitView.rightOverlay = nil; // may cause bad situations with weak pointers inside panel controller here
     }
     else if( [self isLeftController:panel] ) {
 
         if( m_SplitView.isLeftCollapsed )
             [m_SplitView expandLeftView];
 
-        m_SplitView.leftOverlay =
-            nil; // may cause bad situations with weak pointers inside panel controller here
+        m_SplitView.leftOverlay = nil; // may cause bad situations with weak pointers inside panel controller here
     }
 }
 
@@ -1071,21 +1013,19 @@ static void AskAboutStoppingRunningOperations(NSWindow *_window,
 - (void)attachPanel:(PanelController *)_pc
 {
     _pc.state = self;
-    [_pc.view addKeystrokeSink:self withBasePriority:nc::panel::view::BiddingPriority::Default];
+    [_pc.view addKeystrokeSink:self];
 }
 
 static bool RouteKeyboardInputIntoTerminal()
 {
     static bool route = GlobalConfig().GetBool(g_ConfigRouteKeyboardInputIntoTerminal);
     [[clang::no_destroy]] static auto observe_ticket =
-        GlobalConfig().Observe(g_ConfigRouteKeyboardInputIntoTerminal, [] {
-            route = GlobalConfig().GetBool(g_ConfigRouteKeyboardInputIntoTerminal);
-        });
+        GlobalConfig().Observe(g_ConfigRouteKeyboardInputIntoTerminal,
+                               [] { route = GlobalConfig().GetBool(g_ConfigRouteKeyboardInputIntoTerminal); });
     return route;
 }
 
-- (int)bidForHandlingKeyDown:(NSEvent *)_event
-                forPanelView:(PanelView *) [[maybe_unused]] _panel_view
+- (int)bidForHandlingKeyDown:(NSEvent *)_event forPanelView:(PanelView *) [[maybe_unused]] _panel_view
 {
     const auto character = _event.charactersIgnoringModifiers;
     if( character.length == 0 )
@@ -1093,7 +1033,7 @@ static bool RouteKeyboardInputIntoTerminal()
     const auto unicode = [character characterAtIndex:0];
 
     if( unicode == NSTabCharacter ) {
-        return nc::panel::view::BiddingPriority::Default;
+        return nc::panel::view::BiddingPriority::High;
     }
 
     if( RouteKeyboardInputIntoTerminal() ) {
@@ -1140,9 +1080,8 @@ static NSString *TrimmedTitleForWindow(NSString *_title, NSWindow *_window)
     const auto left = NSMaxX([_window standardWindowButton:NSWindowZoomButton].frame);
     const auto right = _window.frame.size.width;
     const auto padding = 8.;
-    const auto width = right - left - 2 * padding;
-    return StringByTruncatingToWidth(
-        _title, static_cast<float>(width), kTruncateAtStart, attributes);
+    const auto width = right - left - (2 * padding);
+    return StringByTruncatingToWidth(_title, static_cast<float>(width), kTruncateAtStart, attributes);
 }
 
 static NSString *TitleForData(const data::Model *_data)

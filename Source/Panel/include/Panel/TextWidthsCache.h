@@ -1,13 +1,13 @@
-// Copyright (C) 2017-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <Cocoa/Cocoa.h>
 #include <Base/CFPtr.h>
-#include <Base/RobinHoodUtil.h>
+#include <Base/UnorderedUtil.h>
 #include <string>
 #include <mutex>
-#include <robin_hood.h>
 #include <span>
+#include <atomic>
 
 namespace nc::panel {
 
@@ -35,19 +35,19 @@ private:
         bool operator()(CFStringRef _lhs, CFStringRef _rhs) const noexcept;
     };
     struct Cache {
-        using WidthsT = robin_hood::
-            unordered_flat_map<base::CFPtr<CFStringRef>, unsigned short, CFStringHashEqual, CFStringHashEqual>;
+        using WidthsT = ankerl::unordered_dense::
+            map<base::CFPtr<CFStringRef>, unsigned short, CFStringHashEqual, CFStringHashEqual>;
         WidthsT widths;
         std::mutex lock;
         std::atomic_bool purge_scheduled{false};
     };
     using CachesPerFontT =
-        robin_hood::unordered_node_map<std::string, Cache, RHTransparentStringHashEqual, RHTransparentStringHashEqual>;
+        ankerl::unordered_dense::segmented_map<std::string, Cache, UnorderedStringHashEqual, UnorderedStringHashEqual>;
 
     TextWidthsCache();
     ~TextWidthsCache();
     Cache &ForFont(NSFont *_font);
-    void PurgeIfNeeded(Cache &_cache);
+    static void PurgeIfNeeded(Cache &_cache);
     static void Purge(Cache &_cache);
 
     CachesPerFontT m_CachesPerFont;

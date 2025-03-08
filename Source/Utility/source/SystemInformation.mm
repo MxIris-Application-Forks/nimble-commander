@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <Cocoa/Cocoa.h>
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <IOKit/IOKitLib.h>
@@ -42,16 +42,15 @@ int GetBSDProcessList(kinfo_proc **procList, size_t *procCount)
     // the amount of data returned, not the amount of data that
     // could have been returned.
 
-    result = NULL;
+    result = nullptr;
     done = false;
     do {
-        assert(result == NULL);
+        assert(result == nullptr);
 
         // Call sysctl with a NULL buffer.
 
         length = 0;
-        err = sysctl(
-            const_cast<int *>(name), (sizeof(name) / sizeof(*name)) - 1, NULL, &length, NULL, 0);
+        err = sysctl(const_cast<int *>(name), (sizeof(name) / sizeof(*name)) - 1, nullptr, &length, nullptr, 0);
         if( err == -1 ) {
             err = errno;
         }
@@ -61,7 +60,7 @@ int GetBSDProcessList(kinfo_proc **procList, size_t *procCount)
 
         if( err == 0 ) {
             result = static_cast<kinfo_proc *>(malloc(length));
-            if( result == NULL ) {
+            if( result == nullptr ) {
                 err = ENOMEM;
             }
         }
@@ -70,12 +69,7 @@ int GetBSDProcessList(kinfo_proc **procList, size_t *procCount)
         // error, toss away our buffer and start again.
 
         if( err == 0 ) {
-            err = sysctl(const_cast<int *>(name),
-                         (sizeof(name) / sizeof(*name)) - 1,
-                         result,
-                         &length,
-                         NULL,
-                         0);
+            err = sysctl(const_cast<int *>(name), (sizeof(name) / sizeof(*name)) - 1, result, &length, nullptr, 0);
             if( err == -1 ) {
                 err = errno;
             }
@@ -83,9 +77,9 @@ int GetBSDProcessList(kinfo_proc **procList, size_t *procCount)
                 done = true;
             }
             else if( err == ENOMEM ) {
-                assert(result != NULL);
+                assert(result != nullptr);
                 free(result);
-                result = NULL;
+                result = nullptr;
                 err = 0;
             }
         }
@@ -93,16 +87,16 @@ int GetBSDProcessList(kinfo_proc **procList, size_t *procCount)
 
     // Clean up and establish post conditions.
 
-    if( err != 0 && result != NULL ) {
+    if( err != 0 && result != nullptr ) {
         free(result);
-        result = NULL;
+        result = nullptr;
     }
     *procList = result;
     if( err == 0 ) {
         *procCount = length / sizeof(kinfo_proc);
     }
 
-    assert((err == 0) == (*procList != NULL));
+    assert((err == 0) == (*procList != nullptr));
 
     return err;
 }
@@ -117,18 +111,17 @@ std::optional<MemoryInfo> GetMemoryInfo() noexcept
     call_once(once, [] {
         int psmib[2] = {CTL_HW, HW_PAGESIZE};
         size_t length = sizeof(pagesize);
-        sysctl(psmib, 2, &pagesize, &length, NULL, 0);
+        sysctl(psmib, 2, &pagesize, &length, nullptr, 0);
 
         int memsizemib[2] = {CTL_HW, HW_MEMSIZE};
         length = sizeof(memsize);
-        sysctl(memsizemib, 2, &memsize, &length, NULL, 0);
+        sysctl(memsizemib, 2, &memsize, &length, nullptr, 0);
     });
 
     // get general memory info
     mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
     vm_statistics64 vmstat;
-    if( host_statistics64(
-            mach_host_self(), HOST_VM_INFO64, reinterpret_cast<host_info_t>(&vmstat), &count) !=
+    if( host_statistics64(mach_host_self(), HOST_VM_INFO64, reinterpret_cast<host_info_t>(&vmstat), &count) !=
         KERN_SUCCESS )
         return {};
 
@@ -138,18 +131,15 @@ std::optional<MemoryInfo> GetMemoryInfo() noexcept
     const uint64_t free_memory = static_cast<uint64_t>(vmstat.free_count) * pagesize;
     const uint64_t file_cache_memory =
         static_cast<uint64_t>(vmstat.external_page_count + vmstat.purgeable_count) * pagesize;
-    const uint64_t app_memory =
-        static_cast<uint64_t>(vmstat.internal_page_count - vmstat.purgeable_count) * pagesize;
+    const uint64_t app_memory = static_cast<uint64_t>(vmstat.internal_page_count - vmstat.purgeable_count) * pagesize;
     const uint64_t compressed = static_cast<uint64_t>(vmstat.compressor_page_count) * pagesize;
     const uint64_t total_memory = wired_memory + active_memory + inactive_memory + free_memory;
     // Activity monitor shows higher values for "used memory", no idea how these numbers are
     // calculated
     const uint64_t used_memory =
         (static_cast<uint64_t>(vmstat.active_count) + static_cast<uint64_t>(vmstat.inactive_count) +
-         static_cast<uint64_t>(vmstat.speculative_count) +
-         static_cast<uint64_t>(vmstat.wire_count) +
-         static_cast<uint64_t>(vmstat.compressor_page_count) -
-         static_cast<uint64_t>(vmstat.purgeable_count) -
+         static_cast<uint64_t>(vmstat.speculative_count) + static_cast<uint64_t>(vmstat.wire_count) +
+         static_cast<uint64_t>(vmstat.compressor_page_count) - static_cast<uint64_t>(vmstat.purgeable_count) -
          static_cast<uint64_t>(vmstat.external_page_count)) *
         pagesize;
 
@@ -168,7 +158,7 @@ std::optional<MemoryInfo> GetMemoryInfo() noexcept
     int swapmib[2] = {CTL_VM, VM_SWAPUSAGE};
     struct xsw_usage swap_info;
     size_t length = sizeof(swap_info);
-    if( sysctl(swapmib, 2, &swap_info, &length, NULL, 0) < 0 )
+    if( sysctl(swapmib, 2, &swap_info, &length, nullptr, 0) < 0 )
         return {};
     mem.swap = swap_info.xsu_used;
 
@@ -182,11 +172,11 @@ std::optional<CPULoad> GetCPULoad() noexcept
     unsigned int *cpuInfo;
     mach_msg_type_number_t numCpuInfo;
     natural_t numCPUs = 0;
-    kern_return_t err = host_processor_info(mach_host_self(),
-                                            PROCESSOR_CPU_LOAD_INFO,
-                                            &numCPUs,
-                                            reinterpret_cast<processor_info_array_t *>(&cpuInfo),
-                                            &numCpuInfo);
+    const kern_return_t err = host_processor_info(mach_host_self(),
+                                                  PROCESSOR_CPU_LOAD_INFO,
+                                                  &numCPUs,
+                                                  reinterpret_cast<processor_info_array_t *>(&cpuInfo),
+                                                  &numCpuInfo);
     if( err != KERN_SUCCESS )
         return {};
 
@@ -194,9 +184,8 @@ std::optional<CPULoad> GetCPULoad() noexcept
     double user = 0.;
     double idle = 0.;
 
-    static unsigned int *prior =
-        static_cast<unsigned int *>(calloc(CPU_STATE_MAX * numCPUs, sizeof(unsigned int)));
-    static const unsigned int alloc_cpus = numCPUs;
+    static unsigned int *prior = static_cast<unsigned int *>(calloc(CPU_STATE_MAX * numCPUs, sizeof(unsigned int)));
+    [[maybe_unused]] static const unsigned int alloc_cpus = numCPUs;
     assert(alloc_cpus == numCPUs);
 
     for( unsigned i = 0; i < numCPUs; ++i ) {
@@ -212,9 +201,7 @@ std::optional<CPULoad> GetCPULoad() noexcept
     }
 
     memcpy(prior, cpuInfo, sizeof(integer_t) * numCpuInfo);
-    vm_deallocate(mach_task_self(),
-                  reinterpret_cast<vm_address_t>(cpuInfo),
-                  sizeof(unsigned int) * numCpuInfo);
+    vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(cpuInfo), sizeof(unsigned int) * numCpuInfo);
 
     const double total = system + user + idle;
     system /= total;
@@ -227,7 +214,7 @@ std::optional<CPULoad> GetCPULoad() noexcept
     mib[1] = VM_LOADAVG;
     loadavg history = {};
     size_t len = sizeof(history);
-    if( sysctl(mib, 2, &history, &len, NULL, 0) != 0 )
+    if( sysctl(mib, 2, &history, &len, nullptr, 0) != 0 )
         return {};
     assert(history.fscale != 0);
 
@@ -239,11 +226,8 @@ std::optional<CPULoad> GetCPULoad() noexcept
     }();
     struct processor_set_load_info ps_load_info = {};
     mach_msg_type_number_t count = PROCESSOR_SET_LOAD_INFO_COUNT;
-    const kern_return_t ss_err =
-        processor_set_statistics(processors_set,
-                                 PROCESSOR_SET_LOAD_INFO,
-                                 reinterpret_cast<processor_set_info_t>(&ps_load_info),
-                                 &count);
+    const kern_return_t ss_err = processor_set_statistics(
+        processors_set, PROCESSOR_SET_LOAD_INFO, reinterpret_cast<processor_set_info_t>(&ps_load_info), &count);
     if( ss_err != KERN_SUCCESS )
         return {};
 
@@ -251,9 +235,9 @@ std::optional<CPULoad> GetCPULoad() noexcept
     load.system = system;
     load.user = user;
     load.idle = idle;
-    load.history[0] = static_cast<double>(history.ldavg[0]) / history.fscale;
-    load.history[1] = static_cast<double>(history.ldavg[1]) / history.fscale;
-    load.history[2] = static_cast<double>(history.ldavg[2]) / history.fscale;
+    load.history[0] = static_cast<double>(history.ldavg[0]) / static_cast<double>(history.fscale);
+    load.history[1] = static_cast<double>(history.ldavg[1]) / static_cast<double>(history.fscale);
+    load.history[2] = static_cast<double>(history.ldavg[2]) / static_cast<double>(history.fscale);
     load.processes = ps_load_info.task_count;
     load.threads = ps_load_info.thread_count;
 
@@ -270,31 +254,9 @@ std::chrono::seconds GetUptime() noexcept
     if( sysctl(mib, 2, &boottime_raw, &len, nullptr, 0) != 0 )
         return {};
     const auto boottime = std::chrono::system_clock::time_point(
-        std::chrono::microseconds(boottime_raw.tv_usec + boottime_raw.tv_sec * 1000000));
+        std::chrono::microseconds(boottime_raw.tv_usec + (boottime_raw.tv_sec * 1000000)));
     const auto uptime = std::chrono::system_clock::now() - boottime;
     return std::chrono::duration_cast<std::chrono::seconds>(uptime);
-}
-
-static const OSXVersion g_Version = [] {
-    const auto sys_ver = NSProcessInfo.processInfo.operatingSystemVersion;
-    if( sys_ver.majorVersion == 13 )
-        return OSXVersion::macOS_13;
-    if( sys_ver.majorVersion == 12 )
-        return OSXVersion::macOS_12;
-    if( sys_ver.majorVersion == 11 )
-        return OSXVersion::macOS_11;
-    if( sys_ver.majorVersion == 10 )
-        switch( sys_ver.minorVersion ) {
-            case 15:
-                return OSXVersion::OSX_15;
-            // MacOSX older that 10.15 are unsupported
-        }
-    return OSXVersion::OSX_Unknown;
-}();
-
-OSXVersion GetOSXVersion() noexcept
-{
-    return g_Version;
 }
 
 static std::string ExtractReadableModelNameFromFrameworks(std::string_view _coded_name)
@@ -302,8 +264,7 @@ static std::string ExtractReadableModelNameFromFrameworks(std::string_view _code
     NSDictionary *dict;
 
     // 1st attempt: ServerInformation.framework
-    const auto server_information_framework =
-        @"/System/Library/PrivateFrameworks/ServerInformation.framework";
+    const auto server_information_framework = @"/System/Library/PrivateFrameworks/ServerInformation.framework";
     if( auto bundle = [NSBundle bundleWithPath:server_information_framework] )
         if( auto path = [bundle pathForResource:@"SIMachineAttributes" ofType:@"plist"] )
             dict = [NSDictionary dictionaryWithContentsOfFile:path];
@@ -348,9 +309,7 @@ static std::string ExtractReadableModelNameFromFrameworks(std::string_view _code
 static std::string ExtractReadableModelNameFromSystemProfiler()
 {
     const auto path = base::CommonPaths::Library() + "Preferences/com.apple.SystemProfiler.plist";
-    const auto url = [NSURL fileURLWithFileSystemRepresentation:path.c_str()
-                                                    isDirectory:false
-                                                  relativeToURL:nil];
+    const auto url = [NSURL fileURLWithFileSystemRepresentation:path.c_str() isDirectory:false relativeToURL:nil];
     if( url == nil )
         return {};
 
@@ -394,14 +353,14 @@ bool GetSystemOverview(SystemOverview &_overview)
     call_once(once, [] {
         char hw_model[256];
         size_t len = 256;
-        if( sysctlbyname("hw.model", hw_model, &len, NULL, 0) != 0 )
+        if( sysctlbyname("hw.model", hw_model, &len, nullptr, 0) != 0 )
             return;
         coded_model = hw_model;
 
-        if( auto name1 = ExtractReadableModelNameFromFrameworks(coded_model); name1 != "" ) {
+        if( auto name1 = ExtractReadableModelNameFromFrameworks(coded_model); !name1.empty() ) {
             human_model = name1;
         }
-        else if( auto name2 = ExtractReadableModelNameFromSystemProfiler(); name2 != "" ) {
+        else if( auto name2 = ExtractReadableModelNameFromSystemProfiler(); !name2.empty() ) {
             human_model = name2;
         }
     });
@@ -429,4 +388,4 @@ const std::string &GetBundleID() noexcept
     return bundle_id;
 }
 
-}
+} // namespace nc::utility

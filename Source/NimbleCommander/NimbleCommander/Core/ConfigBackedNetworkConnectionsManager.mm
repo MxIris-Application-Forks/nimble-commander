@@ -1,4 +1,4 @@
-// Copyright (C) 2015-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2015-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ConfigBackedNetworkConnectionsManager.h"
 #include <dirent.h>
 #include <NetFS/NetFS.h>
@@ -17,8 +17,11 @@
 #include <Base/spinlock.h>
 #include <Base/dispatch_cpp.h>
 
+#include <algorithm>
+
 using namespace nc;
 using namespace std::literals;
+using nc::panel::NetworkConnectionsManager;
 
 static const auto g_ConnectionsKey = "connections";
 static const auto g_MRUKey = "mostRecentlyUsed";
@@ -27,11 +30,11 @@ static void SortByMRU(std::vector<NetworkConnectionsManager::Connection> &_value
 {
     std::vector<std::pair<NetworkConnectionsManager::Connection, decltype(begin(_mru))>> v;
     for( auto &i : _values ) {
-        auto it = find(begin(_mru), end(_mru), i.Uuid());
+        auto it = std::ranges::find(_mru, i.Uuid());
         v.emplace_back(std::move(i), it);
     }
 
-    std::sort(std::begin(v), std::end(v), [](auto &_1st, auto &_2nd) { return _1st.second < _2nd.second; });
+    std::ranges::sort(v, [](auto &_1st, auto &_2nd) { return _1st.second < _2nd.second; });
 
     for( size_t i = 0, e = v.size(); i != e; ++i )
         _values[i] = std::move(v[i].first);
@@ -133,7 +136,7 @@ static std::optional<NetworkConnectionsManager::Connection> JSONObjectToConnecti
     if( !uuid )
         return std::nullopt;
 
-    std::string type = _object["type"].GetString();
+    const std::string type = _object["type"].GetString();
     if( type == "ftp" ) {
         if( !has_string("user") || !has_string("host") || !has_string("path") || !has_number("port") )
             return std::nullopt;
@@ -212,7 +215,10 @@ static std::optional<NetworkConnectionsManager::Connection> JSONObjectToConnecti
 
 static const std::string &PrefixForShareProtocol(NetworkConnectionsManager::LANShare::Protocol p)
 {
-    [[clang::no_destroy]] static const auto smb = "smb"s, afp = "afp"s, nfs = "nfs"s, unknown = ""s;
+    [[clang::no_destroy]] static const auto smb = "smb"s;
+    [[clang::no_destroy]] static const auto afp = "afp"s;
+    [[clang::no_destroy]] static const auto nfs = "nfs"s;
+    [[clang::no_destroy]] static const auto unknown = ""s;
     if( p == NetworkConnectionsManager::LANShare::Protocol::SMB )
         return smb;
     if( p == NetworkConnectionsManager::LANShare::Protocol::AFP )
@@ -264,51 +270,48 @@ ConfigBackedNetworkConnectionsManager::ConfigBackedNetworkConnectionsManager(
     // Wire up on-the-fly loading of externally changed config
     m_Config.ObserveMany(
         m_ConfigObservations,
-        [=] {
+        [this] {
             if( !m_IsWritingConfig )
                 Load();
         },
         std::initializer_list<const char *>{g_ConnectionsKey, g_MRUKey});
 }
 
-ConfigBackedNetworkConnectionsManager::~ConfigBackedNetworkConnectionsManager()
-{
-}
+ConfigBackedNetworkConnectionsManager::~ConfigBackedNetworkConnectionsManager() = default;
 
 void ConfigBackedNetworkConnectionsManager::InsertConnection(const NetworkConnectionsManager::Connection &_conn)
 {
     {
         auto lock = std::lock_guard{m_Lock};
-        auto t = find_if(begin(m_Connections), end(m_Connections), [&](auto &_c) { return _c.Uuid() == _conn.Uuid(); });
+        auto t = std::ranges::find_if(m_Connections, [&](auto &_c) { return _c.Uuid() == _conn.Uuid(); });
         if( t != end(m_Connections) )
             *t = _conn;
         else
             m_Connections.emplace_back(_conn);
     }
-    dispatch_to_background([=] { Save(); });
+    dispatch_to_background([this] { Save(); });
 }
 
 void ConfigBackedNetworkConnectionsManager::RemoveConnection(const Connection &_connection)
 {
     {
         auto lock = std::lock_guard{m_Lock};
-        auto t = find_if(
-            begin(m_Connections), end(m_Connections), [&](auto &_c) { return _c.Uuid() == _connection.Uuid(); });
+        auto t = std::ranges::find_if(m_Connections, [&](auto &_c) { return _c.Uuid() == _connection.Uuid(); });
         if( t != end(m_Connections) )
             m_Connections.erase(t);
 
-        auto i = find_if(begin(m_MRU), end(m_MRU), [&](auto &_c) { return _c == _connection.Uuid(); });
+        auto i = std::ranges::find_if(m_MRU, [&](auto &_c) { return _c == _connection.Uuid(); });
         if( i != end(m_MRU) )
             m_MRU.erase(i);
     }
-    dispatch_to_background([=] { Save(); });
+    dispatch_to_background([this] { Save(); });
 }
 
 std::optional<NetworkConnectionsManager::Connection>
 ConfigBackedNetworkConnectionsManager::ConnectionByUUID(const base::UUID &_uuid) const
 {
-    std::lock_guard<std::mutex> lock(m_Lock);
-    auto t = find_if(begin(m_Connections), end(m_Connections), [&](auto &_c) { return _c.Uuid() == _uuid; });
+    const std::lock_guard<std::mutex> lock(m_Lock);
+    auto t = std::ranges::find_if(m_Connections, [&](auto &_c) { return _c.Uuid() == _uuid; });
     if( t != end(m_Connections) )
         return *t;
     return std::nullopt;
@@ -362,13 +365,13 @@ void ConfigBackedNetworkConnectionsManager::ReportUsage(const Connection &_conne
 {
     {
         auto lock = std::lock_guard{m_Lock};
-        auto it = find_if(begin(m_MRU), end(m_MRU), [&](auto &i) { return i == _connection.Uuid(); });
+        auto it = std::ranges::find_if(m_MRU, [&](auto &i) { return i == _connection.Uuid(); });
         if( it != end(m_MRU) )
             rotate(begin(m_MRU), it, it + 1);
         else
             m_MRU.insert(begin(m_MRU), _connection.Uuid());
     }
-    dispatch_to_background([=] { Save(); });
+    dispatch_to_background([this] { Save(); });
 }
 
 std::vector<NetworkConnectionsManager::Connection> ConfigBackedNetworkConnectionsManager::FTPConnectionsByMRU() const
@@ -420,13 +423,13 @@ std::vector<NetworkConnectionsManager::Connection> ConfigBackedNetworkConnection
 
 bool ConfigBackedNetworkConnectionsManager::SetPassword(const Connection &_conn, const std::string &_password)
 {
-    return KeychainServices::Instance().SetPassword(
+    return KeychainServices::SetPassword(
         KeychainWhereFromConnection(_conn), KeychainAccountFromConnection(_conn), _password);
 }
 
 bool ConfigBackedNetworkConnectionsManager::GetPassword(const Connection &_conn, std::string &_password)
 {
-    return KeychainServices::Instance().GetPassword(
+    return KeychainServices::GetPassword(
         KeychainWhereFromConnection(_conn), KeychainAccountFromConnection(_conn), _password);
 }
 
@@ -471,7 +474,7 @@ ConfigBackedNetworkConnectionsManager::ConnectionForVFS(const VFSHost &_vfs) con
         return std::nullopt;
 
     auto lock = std::lock_guard{m_Lock};
-    const auto it = find_if(begin(m_Connections), end(m_Connections), pred);
+    const auto it = std::ranges::find_if(m_Connections, pred);
     if( it != end(m_Connections) )
         return *it;
 
@@ -516,14 +519,14 @@ VFSHostPtr ConfigBackedNetworkConnectionsManager::SpawnHostFromConnection(const 
 static std::string NetFSErrorString(int _code)
 {
     if( _code > 0 ) {
-        NSError *err = [NSError errorWithDomain:NSPOSIXErrorDomain code:_code userInfo:nil];
+        NSError *const err = [NSError errorWithDomain:NSPOSIXErrorDomain code:_code userInfo:nil];
         if( err && err.localizedFailureReason.UTF8String )
             return err.localizedFailureReason.UTF8String;
         else
             return "Unknown error";
     }
     else if( _code < 0 ) {
-        NSError *err = [NSError errorWithDomain:NSOSStatusErrorDomain code:_code userInfo:nil];
+        NSError *const err = [NSError errorWithDomain:NSOSStatusErrorDomain code:_code userInfo:nil];
         if( err && err.localizedFailureReason.UTF8String )
             return err.localizedFailureReason.UTF8String;
         else
@@ -537,9 +540,7 @@ void ConfigBackedNetworkConnectionsManager::NetFSCallback(int _status, void *_re
     std::function<void(const std::string &_mounted_path, const std::string &_error)> cb;
     {
         auto lock = std::lock_guard{m_PendingMountRequestsLock};
-        auto i = std::find_if(begin(m_PendingMountRequests), end(m_PendingMountRequests), [=](auto &_v) {
-            return _v.first == _requestID;
-        });
+        auto i = std::ranges::find_if(m_PendingMountRequests, [=](auto &_v) { return _v.first == _requestID; });
         if( i != std::end(m_PendingMountRequests) ) {
             cb = std::move(i->second);
             m_PendingMountRequests.erase(i);
@@ -550,7 +551,7 @@ void ConfigBackedNetworkConnectionsManager::NetFSCallback(int _status, void *_re
         // _mountpoints can contain a valid mounted path even if _status is not equal to zero
         if( _mountpoints != nullptr && CFArrayGetCount(_mountpoints) != 0 )
             if( auto str = objc_cast<NSString>(((__bridge NSArray *)_mountpoints).firstObject) ) {
-                std::string path = str.fileSystemRepresentationSafe;
+                const std::string path = str.fileSystemRepresentationSafe;
                 if( !path.empty() ) {
                     cb(path, "");
                     return;
@@ -605,7 +606,7 @@ TearDownSMBOrAFPMountName(const std::string &_name, std::string &_user, std::str
     if( !url_string )
         return false;
 
-    NSURL *url = [NSURL URLWithString:url_string];
+    NSURL *const url = [NSURL URLWithString:url_string];
     if( !url )
         return false;
 
@@ -629,7 +630,7 @@ static bool TearDownNFSMountName(const std::string &_name, std::string &_host, s
 {
     [[clang::no_destroy]] static const auto delimiter = ":/"s;
     auto pos = _name.find(delimiter);
-    if( pos == _name.npos )
+    if( pos == std::string::npos )
         return false;
     _host = _name.substr(0, pos);
     _share = _name.substr(pos + delimiter.size());
@@ -639,7 +640,9 @@ static bool TearDownNFSMountName(const std::string &_name, std::string &_host, s
 static std::vector<std::shared_ptr<const nc::utility::NativeFileSystemInfo>>
 GetMountedRemoteFilesystems(nc::utility::NativeFSManager &_native_fs_man)
 {
-    [[clang::no_destroy]] static const auto smb = "smbfs"s, afp = "afpfs"s, nfs = "nfs"s;
+    [[clang::no_destroy]] static const auto smb = "smbfs"s;
+    [[clang::no_destroy]] static const auto afp = "afpfs"s;
+    [[clang::no_destroy]] static const auto nfs = "nfs"s;
     std::vector<std::shared_ptr<const nc::utility::NativeFileSystemInfo>> remotes;
 
     for( const auto &v : _native_fs_man.Volumes() ) {
@@ -661,11 +664,15 @@ GetMountedRemoteFilesystems(nc::utility::NativeFSManager &_native_fs_man)
 static bool MatchVolumeWithShare(const nc::utility::NativeFileSystemInfo &_volume,
                                  const NetworkConnectionsManager::LANShare &_share)
 {
-    [[clang::no_destroy]] static const auto smb = "smbfs"s, afp = "afpfs"s, nfs = "nfs"s;
+    [[clang::no_destroy]] static const auto smb = "smbfs"s;
+    [[clang::no_destroy]] static const auto afp = "afpfs"s;
+    [[clang::no_destroy]] static const auto nfs = "nfs"s;
     using protocols = NetworkConnectionsManager::LANShare::Protocol;
     if( (_share.proto == protocols::SMB && _volume.fs_type_name == smb) ||
         (_share.proto == protocols::AFP && _volume.fs_type_name == afp) ) {
-        std::string user, host, share;
+        std::string user;
+        std::string host;
+        std::string share;
         if( TearDownSMBOrAFPMountName(_volume.mounted_from_name, user, host, share) ) {
             auto same_host = strcasecmp(host.c_str(), _share.host.c_str()) == 0;
             auto same_share = strcasecmp(share.c_str(), _share.share.c_str()) == 0;
@@ -675,7 +682,8 @@ static bool MatchVolumeWithShare(const nc::utility::NativeFileSystemInfo &_volum
         }
     }
     else if( _share.proto == protocols::NFS && _volume.fs_type_name == nfs ) {
-        std::string host, share;
+        std::string host;
+        std::string share;
         if( TearDownNFSMountName(_volume.mounted_from_name, host, share) ) {
             auto same_host = strcasecmp(host.c_str(), _share.host.c_str()) == 0;
             auto same_share = strcasecmp(share.c_str(), _share.share.c_str()) == 0;
@@ -703,7 +711,7 @@ bool ConfigBackedNetworkConnectionsManager::MountShareAsync(
     if( !_conn.IsType<LANShare>() )
         return false;
 
-    const auto conn = _conn;
+    const auto &conn = _conn;
     const auto &share = conn.Get<LANShare>();
 
     if( const auto v = FindExistingMountedShare(share, m_NativeFSManager) ) {
@@ -728,15 +736,15 @@ bool ConfigBackedNetworkConnectionsManager::MountShareAsync(
     };
 
     AsyncRequestID request_id;
-    int result = NetFSMountURLAsync((__bridge CFURLRef)url,
-                                    (__bridge CFURLRef)mountpoint,
-                                    (__bridge CFStringRef)username,
-                                    (__bridge CFStringRef)passwd,
-                                    (__bridge CFMutableDictionaryRef)open_options,
-                                    (__bridge CFMutableDictionaryRef)mount_options,
-                                    &request_id,
-                                    dispatch_get_main_queue(),
-                                    callback);
+    const int result = NetFSMountURLAsync((__bridge CFURLRef)url,
+                                          (__bridge CFURLRef)mountpoint,
+                                          (__bridge CFStringRef)username,
+                                          (__bridge CFStringRef)passwd,
+                                          (__bridge CFMutableDictionaryRef)open_options,
+                                          (__bridge CFMutableDictionaryRef)mount_options,
+                                          &request_id,
+                                          dispatch_get_main_queue(),
+                                          callback);
 
     if( result != 0 ) {
         auto error = NetFSErrorString(result);

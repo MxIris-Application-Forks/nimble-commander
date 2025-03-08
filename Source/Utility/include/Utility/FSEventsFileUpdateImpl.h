@@ -1,8 +1,8 @@
-// Copyright (C) 2021-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2021-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 #include "FSEventsFileUpdate.h"
 #include <CoreServices/CoreServices.h>
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 #include <vector>
 #include <optional>
 #include <mutex>
@@ -18,8 +18,7 @@ public:
     ~FSEventsFileUpdateImpl();
     void operator=(const FSEventsFileUpdateImpl &) = delete;
 
-    uint64_t AddWatchPath(const std::filesystem::path &_path,
-                          std::function<void()> _handler) override;
+    uint64_t AddWatchPath(const std::filesystem::path &_path, std::function<void()> _handler) override;
 
     void RemoveWatchPathWithToken(uint64_t _token) override;
 
@@ -30,7 +29,7 @@ private:
         FSEventStreamRef stream;
         std::optional<struct stat> stat;
         std::chrono::nanoseconds snapshot_time;
-        robin_hood::unordered_flat_map<uint64_t, std::function<void()>> handlers;
+        ankerl::unordered_dense::map<uint64_t, std::function<void()>> handlers;
     };
     struct AsyncContext {
         FSEventsFileUpdateImpl *me = nullptr;
@@ -42,8 +41,7 @@ private:
     };
     struct PathEqual {
         using is_transparent = void;
-        bool operator()(const std::filesystem::path &_lhs,
-                        const std::filesystem::path &_rhs) const noexcept;
+        bool operator()(const std::filesystem::path &_lhs, const std::filesystem::path &_rhs) const noexcept;
         bool operator()(std::string_view _lhs, const std::filesystem::path &_rhs) const noexcept;
     };
 
@@ -53,8 +51,7 @@ private:
                             const std::vector<std::optional<struct stat>> &_stats);
     static void BackgroundScanner(std::vector<std::filesystem::path> _paths,
                                   std::weak_ptr<AsyncContext> _context) noexcept;
-    static bool DidChange(const std::optional<struct stat> &_was,
-                          const std::optional<struct stat> &_now) noexcept;
+    static bool DidChange(const std::optional<struct stat> &_was, const std::optional<struct stat> &_now) noexcept;
 
     FSEventStreamRef CreateEventStream(const std::filesystem::path &_path) const;
     static void DeleteEventStream(FSEventStreamRef _stream);
@@ -70,7 +67,7 @@ private:
                             const FSEventStreamEventFlags _flags[],
                             const FSEventStreamEventId _ids[]);
 
-    robin_hood::unordered_map<std::filesystem::path, Watch, PathHash, PathEqual> m_Watches;
+    ankerl::unordered_dense::map<std::filesystem::path, Watch, PathHash, PathEqual> m_Watches;
     mutable std::mutex m_Lock;
     dispatch_queue_t m_KickstartQueue;
     uint64_t m_NextTicket = 1;

@@ -1,15 +1,14 @@
 // Copyright (C) 2020-2023 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
-#include <catch2/catch.hpp>
+#include <catch2/catch_all.hpp>
 #include <filesystem>
 #include <Utility/FSEventsFileUpdate.h>
 #include <Utility/NativeFSManager.h>
 #include <VFS/Native.h>
 #include <memory>
 
-struct TempTestDir
-{
+struct TempTestDir {
     TempTestDir();
     ~TempTestDir();
     std::filesystem::path directory;
@@ -21,4 +20,4 @@ struct TestEnvironment {
     std::shared_ptr<nc::vfs::NativeHost> vfs_native;
 };
 
-const TestEnvironment& TestEnv() noexcept;
+const TestEnvironment &TestEnv() noexcept;

@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2020 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Tests.h"
 #include "TestEnv.h"
 #include "../source/Linkage/Linkage.h"
@@ -12,7 +12,7 @@ using namespace std::literals;
 
 TEST_CASE(PREFIX "symlink creation")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = std::shared_ptr<nc::vfs::Host>(TestEnv().vfs_native);
     const auto path = (std::filesystem::path(dir.directory) / "symlink").native();
     const auto value = "pointing_somewhere"s;
@@ -21,22 +21,18 @@ TEST_CASE(PREFIX "symlink creation")
     operation.Wait();
     REQUIRE(operation.State() == OperationState::Completed);
 
-    VFSStat st;
-    const auto st_rc = host->Stat(path.c_str(), st, VFSFlags::F_NoFollow);
-    REQUIRE(st_rc == VFSError::Ok);
+    const VFSStat st = host->Stat(path, VFSFlags::F_NoFollow).value();
     REQUIRE((st.mode & S_IFMT) == S_IFLNK);
 
-    char buf[MAXPATHLEN];
-    REQUIRE(host->ReadSymlink(path.c_str(), buf, sizeof(buf)) == VFSError::Ok);
+    std::expected<std::string, nc::Error> buf = host->ReadSymlink(path);
     REQUIRE(buf == value);
 }
 
 TEST_CASE(PREFIX "symlink creation on invalid path")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = std::shared_ptr<nc::vfs::Host>(TestEnv().vfs_native);
-    const auto path =
-        (std::filesystem::path(dir.directory) / "not_existing_directory/symlink").native();
+    const auto path = (std::filesystem::path(dir.directory) / "not_existing_directory/symlink").native();
     const auto value = "pointing_somewhere"s;
     Linkage operation{path, value, host, LinkageType::CreateSymlink};
     operation.Start();
@@ -46,7 +42,7 @@ TEST_CASE(PREFIX "symlink creation on invalid path")
 
 TEST_CASE(PREFIX "symlink alteration")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = std::shared_ptr<nc::vfs::Host>(TestEnv().vfs_native);
     const auto path = (std::filesystem::path(dir.directory) / "symlink").native();
     const auto value = "pointing_somewhere"s;
@@ -57,19 +53,16 @@ TEST_CASE(PREFIX "symlink alteration")
     operation.Wait();
     REQUIRE(operation.State() == OperationState::Completed);
 
-    VFSStat st;
-    const auto st_rc = host->Stat(path.c_str(), st, VFSFlags::F_NoFollow);
-    REQUIRE(st_rc == VFSError::Ok);
+    const VFSStat st = host->Stat(path, VFSFlags::F_NoFollow).value();
     REQUIRE((st.mode & S_IFMT) == S_IFLNK);
 
-    char buf[MAXPATHLEN];
-    REQUIRE(host->ReadSymlink(path.c_str(), buf, sizeof(buf)) == VFSError::Ok);
+    std::expected<std::string, nc::Error> buf = host->ReadSymlink(path);
     REQUIRE(buf == value);
 }
 
 TEST_CASE(PREFIX "hardlink creation")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = std::shared_ptr<nc::vfs::Host>(TestEnv().vfs_native);
     const auto path = (std::filesystem::path(dir.directory) / "node1").native();
     const auto value = (std::filesystem::path(dir.directory) / "node2").native();
@@ -80,8 +73,7 @@ TEST_CASE(PREFIX "hardlink creation")
     operation.Wait();
     REQUIRE(operation.State() == OperationState::Completed);
 
-    VFSStat st1, st2;
-    REQUIRE(host->Stat(path.c_str(), st1, 0) == VFSError::Ok);
-    REQUIRE(host->Stat(value.c_str(), st2, 0) == VFSError::Ok);
+    const VFSStat st1 = host->Stat(path, 0).value();
+    const VFSStat st2 = host->Stat(value, 0).value();
     REQUIRE(st1.inode == st2.inode);
 }

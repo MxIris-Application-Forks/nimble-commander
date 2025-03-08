@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2020 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #import "HaltReasonDialog.h"
 #include <VFS/VFS.h>
 #include "Internal.h"
@@ -6,24 +6,26 @@
 using namespace nc::ops;
 
 @interface NCOpsHaltReasonDialog ()
-@property (strong, nonatomic) IBOutlet NSTextField *pathLabel;
-@property (strong, nonatomic) IBOutlet NSTextField *errorLabel;
-@property (strong, nonatomic) IBOutlet NSTextField *messageLabel;
-@property (strong, nonatomic) IBOutlet NSImageView *appIcon;
+@property(strong, nonatomic) IBOutlet NSTextField *pathLabel;
+@property(strong, nonatomic) IBOutlet NSTextField *errorLabel;
+@property(strong, nonatomic) IBOutlet NSTextField *messageLabel;
+@property(strong, nonatomic) IBOutlet NSImageView *appIcon;
 
 @end
 
-@implementation NCOpsHaltReasonDialog
-{
-    NSString* m_Message;
-    NSString* m_Path;
-    NSString* m_Error;
+@implementation NCOpsHaltReasonDialog {
+    NSString *m_Message;
+    NSString *m_Path;
+    NSString *m_Error;
     int m_ErrorNo;
 }
 
 @synthesize message = m_Message;
 @synthesize path = m_Path;
-@synthesize error = m_Error;
+@synthesize pathLabel;
+@synthesize errorLabel;
+@synthesize messageLabel;
+@synthesize appIcon;
 
 - (instancetype)init
 {
@@ -31,7 +33,6 @@ using namespace nc::ops;
     self = [super initWithWindowNibPath:nib_path owner:self];
     if( self ) {
         m_ErrorNo = VFSError::Ok;
-    
     }
     return self;
 }
@@ -46,17 +47,22 @@ using namespace nc::ops;
     NSBeep();
 }
 
-- (IBAction)onClose:(id)[[maybe_unused]]_sender
+- (IBAction)onClose:(id) [[maybe_unused]] _sender
 {
     [self.window.sheetParent endSheet:self.window returnCode:NSModalResponseCancel];
 }
 
-- (void) setErrorNo:(int)errorNo
+- (void)setErrorNo:(int)errorNo
 {
-    self.error = VFSError::ToNSError(errorNo).localizedDescription;
+    m_Error = VFSError::ToNSError(errorNo).localizedDescription;
 }
 
-- (int) errorNo
+- (void)setError:(nc::Error)_error
+{
+    m_Error = [NSString stringWithUTF8String:_error.LocalizedFailureReason().c_str()];
+}
+
+- (int)errorNo
 {
     return m_ErrorNo;
 }
@@ -67,9 +73,8 @@ using namespace nc::ops;
 @end
 
 @implementation NCOpsHaltReasonDialogWindow
-- (void)cancelOperation:(id)[[maybe_unused]]_sender
+- (void)cancelOperation:(id) [[maybe_unused]] _sender
 {
     [self.sheetParent endSheet:self returnCode:NSModalResponseCancel];
 }
 @end
-

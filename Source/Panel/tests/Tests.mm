@@ -1,6 +1,6 @@
 // Copyright (C) 2020-2023 Michael Kazakov. Subject to GNU General Public License version 3.
-#define CATCH_CONFIG_RUNNER
-#include <catch2/catch.hpp>
+#define CATCH_CONFIG_ENABLE_BENCHMARKING
+#include <catch2/catch_all.hpp>
 #include <Base/CommonPaths.h>
 #include <Utility/FSEventsFileUpdateImpl.h>
 #include <Utility/NativeFSManagerImpl.h>
@@ -15,7 +15,7 @@ static auto g_TestDirPrefix = "_nc__panel__test_";
 
 int main(int argc, char *argv[])
 {
-    int result = Catch::Session().run(argc, argv);
+    const int result = Catch::Session().run(argc, argv);
     return result;
 }
 
@@ -61,8 +61,7 @@ const TestEnvironment &TestEnv() noexcept
         auto e = std::make_unique<TestEnvironment>();
         e->fsevents_file_update = std::make_shared<nc::utility::FSEventsFileUpdateImpl>();
         e->native_fs_man = std::make_shared<nc::utility::NativeFSManagerImpl>();
-        e->vfs_native =
-            std::make_shared<nc::vfs::NativeHost>(*e->native_fs_man, *e->fsevents_file_update);
+        e->vfs_native = std::make_shared<nc::vfs::NativeHost>(*e->native_fs_man, *e->fsevents_file_update);
         return e;
     }();
     return *env;

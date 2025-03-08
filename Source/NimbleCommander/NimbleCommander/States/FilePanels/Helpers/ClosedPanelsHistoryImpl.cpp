@@ -1,17 +1,18 @@
-// Copyright (C) 2018-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ClosedPanelsHistoryImpl.h"
+
+#include <algorithm>
 
 namespace nc::panel {
 
-ClosedPanelsHistoryImpl::ClosedPanelsHistoryImpl(size_t _max_capacity)
-    : m_MaxCapacity(_max_capacity)
+ClosedPanelsHistoryImpl::ClosedPanelsHistoryImpl(size_t _max_capacity) : m_MaxCapacity(_max_capacity)
 {
     assert(_max_capacity > 0);
 }
 
 void ClosedPanelsHistoryImpl::AddListing(ListingPromise _listing)
 {
-    const auto it = std::find(std::begin(m_Entries), std::end(m_Entries), _listing);
+    const auto it = std::ranges::find(m_Entries, _listing);
     if( it != std::end(m_Entries) ) {
         std::rotate(std::begin(m_Entries), it, next(it));
     }
@@ -24,7 +25,7 @@ void ClosedPanelsHistoryImpl::AddListing(ListingPromise _listing)
 
 void ClosedPanelsHistoryImpl::RemoveListing(ListingPromise _listing)
 {
-    const auto it = std::find(std::begin(m_Entries), std::end(m_Entries), _listing);
+    const auto it = std::ranges::find(m_Entries, _listing);
     if( it != std::end(m_Entries) )
         m_Entries.erase(it);
 }

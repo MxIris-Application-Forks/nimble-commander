@@ -1,23 +1,31 @@
-// Copyright (C) 2013-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ViewerView.h"
+#include "Highlighting/SettingsStorage.h"
 #include <Utility/HexadecimalColor.h>
 #include <Utility/NSView+Sugar.h>
 #include <Utility/DataBlockAnalysis.h>
 #include <Utility/TemporaryFileStorage.h>
+#include <Utility/ObjCpp.h>
 #include <Config/Config.h>
 #include "DataBackend.h"
 #include <Base/dispatch_cpp.h>
 #include <VFS/VFS.h>
-#include "Theme.h"
-#include "TextModeView.h"
+
 #include "HexModeView.h"
 #include "PreviewModeView.h"
+#include "TextModeView.h"
+#include "Theme.h"
+#include "ViewerFooter.h"
+#include "ViewerSearchView.h"
+#include <algorithm>
 
 static const auto g_ConfigDefaultEncoding = "viewer.defaultEncoding";
 static const auto g_ConfigAutoDetectEncoding = "viewer.autoDetectEncoding";
 static const auto g_ConfigStickToBottomOnRefresh = "viewer.stickToBottomOnRefresh";
+static const auto g_ConfigEnableSyntaxHighlighting = "viewer.enableHighlighting";
 
 using nc::vfs::easy::CopyFileToTempStorage;
+using namespace nc;
 using namespace nc::viewer;
 
 @implementation NCViewerView {
@@ -30,32 +38,41 @@ using namespace nc::viewer;
     bool m_WrapWords;
 
     NSView<NCViewerImplementationProtocol> *m_View;
+    NCViewerFooter *m_Footer;
+    NCViewerSearchView *m_SearchView;
 
     uint64_t m_VerticalPositionInBytes;
     double m_VerticalPositionPercentage;
 
-    CFRange m_SelectionInFile;   // in bytes, raw position within whole file
-    CFRange m_SelectionInWindow; // in bytes, whithin current window positio
-                                 // updated when windows moves, regarding current selection in bytes
+    CFRange m_SelectionInFile;           // in bytes, raw position within whole file
+    CFRange m_SelectionInWindow;         // in bytes, whithin current window positio
+                                         // updated when windows moves, regarding current selection in bytes
     CFRange m_SelectionInWindowUnichars; // in UniChars, whithin current window position,
                                          // updated when windows moves, regarding current selection
                                          // in bytes
+    std::string m_HighlightingLanguage;
     nc::utility::TemporaryFileStorage *m_TempFileStorage;
-    const nc::config::Config *m_Config;
+    nc::config::Config *m_Config;
+    nc::viewer::hl::SettingsStorage *m_HighlightingSettings;
     std::unique_ptr<nc::viewer::Theme> m_Theme;
+    std::array<nc::config::Token, 1> m_ConfigObservers;
 }
 
 @synthesize verticalPositionPercentage = m_VerticalPositionPercentage;
+@synthesize hotkeyDelegate;
 
 - (id)initWithFrame:(NSRect)frame
-        tempStorage:(nc::utility::TemporaryFileStorage &)_temp_storage
-             config:(const nc::config::Config &)_config
-              theme:(std::unique_ptr<nc::viewer::Theme>)_theme
+             tempStorage:(nc::utility::TemporaryFileStorage &)_temp_storage
+                  config:(nc::config::Config &)_config
+                   theme:(std::unique_ptr<nc::viewer::Theme>)_theme
+    highlightingSettings:(nc::viewer::hl::SettingsStorage &)_hl_settings
 {
-    if( self = [super initWithFrame:frame] ) {
+    self = [super initWithFrame:frame];
+    if( self ) {
 
         m_TempFileStorage = &_temp_storage;
         m_Config = &_config;
+        m_HighlightingSettings = &_hl_settings;
         m_Theme = std::move(_theme);
         [self commonInit];
     }
@@ -84,12 +101,50 @@ using namespace nc::viewer;
         if( auto strong_self = weak_self )
             [strong_self reloadAppearance];
     });
+
+    m_ConfigObservers[0] =
+        m_Config->Observe(g_ConfigEnableSyntaxHighlighting,
+                          nc::objc_callback_to_main_queue(self, @selector(configEnableSyntaxHighlightingChanged)));
+
+    m_Footer = [[NCViewerFooter alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)
+                        andHighlightingSyntaxStorage:*m_HighlightingSettings];
+    m_Footer.translatesAutoresizingMaskIntoConstraints = false;
+    [self addSubview:m_Footer];
+
+    m_SearchView = [[NCViewerSearchView alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
+    m_SearchView.translatesAutoresizingMaskIntoConstraints = false;
+    m_SearchView.hidden = true;
+    [self addSubview:m_SearchView positioned:NSWindowAbove relativeTo:nil];
+
+    const auto views = NSDictionaryOfVariableBindings(m_Footer, m_SearchView);
+    [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"|-(==0)-[m_Footer]-(==0)-|"
+                                                                 options:0
+                                                                 metrics:nil
+                                                                   views:views]];
+    [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:[m_Footer(==20)]-(==0)-|"
+                                                                 options:0
+                                                                 metrics:nil
+                                                                   views:views]];
+    [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"|-(>=20)-[m_SearchView]-(==34)-|"
+                                                                 options:0
+                                                                 metrics:nil
+                                                                   views:views]];
+    [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|-(==12)-[m_SearchView]"
+                                                                 options:0
+                                                                 metrics:nil
+                                                                   views:views]];
 }
 
 - (void)reloadAppearance
 {
     if( [m_View respondsToSelector:@selector(themeHasChanged)] )
         [m_View themeHasChanged];
+}
+
+- (void)configEnableSyntaxHighlightingChanged
+{
+    if( [m_View respondsToSelector:@selector(syntaxHighlightingEnabled:)] )
+        [m_View syntaxHighlightingEnabled:m_Config->GetBool(g_ConfigEnableSyntaxHighlighting)];
 }
 
 - (BOOL)isOpaque
@@ -109,40 +164,41 @@ using namespace nc::viewer;
 
 - (void)resetCursorRects
 {
-    [self addCursorRect:self.frame cursor:NSCursor.IBeamCursor];
+    if( m_View ) {
+        [self addCursorRect:m_View.frame cursor:NSCursor.IBeamCursor];
+    }
 }
 
 - (void)setFile:(std::shared_ptr<nc::vfs::FileWindow>)_file
 {
-    int encoding =
-        encodings::EncodingFromName(m_Config->GetString(g_ConfigDefaultEncoding).c_str());
-    if( encoding == encodings::ENCODING_INVALID )
-        encoding =
-            encodings::ENCODING_MACOS_ROMAN_WESTERN; // this should not happen, but just to be sure
+    utility::Encoding encoding = utility::EncodingFromName(m_Config->GetString(g_ConfigDefaultEncoding).c_str());
+    if( encoding == utility::Encoding::ENCODING_INVALID )
+        encoding = utility::Encoding::ENCODING_MACOS_ROMAN_WESTERN; // this should not happen, but just to be sure
 
     StaticDataBlockAnalysis stat;
     DoStaticDataBlockAnalysis(_file->Window(), _file->WindowSize(), &stat);
     if( m_Config->GetBool(g_ConfigAutoDetectEncoding) ) {
         if( stat.likely_utf16_le )
-            encoding = encodings::ENCODING_UTF16LE;
+            encoding = utility::Encoding::ENCODING_UTF16LE;
         else if( stat.likely_utf16_be )
-            encoding = encodings::ENCODING_UTF16BE;
+            encoding = utility::Encoding::ENCODING_UTF16BE;
         else if( stat.can_be_utf8 )
-            encoding = encodings::ENCODING_UTF8;
+            encoding = utility::Encoding::ENCODING_UTF8;
         else
-            encoding = encodings::ENCODING_MACOS_ROMAN_WESTERN;
+            encoding = utility::Encoding::ENCODING_MACOS_ROMAN_WESTERN;
     }
 
     ViewMode mode = stat.is_binary ? ViewMode::Hex : ViewMode::Text;
 
-    [self setKnownFile:_file encoding:encoding mode:mode];
+    [self setKnownFile:_file encoding:encoding mode:mode language:std::nullopt];
 }
 
 - (void)setKnownFile:(std::shared_ptr<nc::vfs::FileWindow>)_file
-            encoding:(int)_encoding
+            encoding:(utility::Encoding)_encoding
                 mode:(ViewMode)_mode
+            language:(const std::optional<std::string> &)_language
 {
-    assert(_encoding != encodings::ENCODING_INVALID);
+    assert(_encoding != utility::Encoding::ENCODING_INVALID);
 
     m_File = _file;
     m_Data = std::make_shared<DataBackend>(m_File, _encoding);
@@ -150,9 +206,15 @@ using namespace nc::viewer;
     self.mode = _mode;
     self.verticalPositionInBytes = 0;
     self.selectionInFile = CFRangeMake(-1, 0);
+    self.language =
+        _language ? _language.value() : m_HighlightingSettings->Language(m_Data->FileName().native()).value_or("");
 
     [self willChangeValueForKey:@"encoding"];
     [self didChangeValueForKey:@"encoding"];
+
+    m_Footer.fileSize = m_File->FileSize();
+    m_Footer.encoding = m_Data->Encoding();
+    m_Footer.wrapLines = m_WrapWords;
 }
 
 - (void)detachFromFile
@@ -169,12 +231,12 @@ using namespace nc::viewer;
 {
     const uint64_t current_position = self.verticalPositionInBytes;
     const bool attach_to_bottom = m_Config->GetBool(g_ConfigStickToBottomOnRefresh) &&
-                                  [m_View respondsToSelector:@selector(isAtTheEnd)] &&
-                                  [m_View isAtTheEnd];
+                                  [m_View respondsToSelector:@selector(isAtTheEnd)] && [m_View isAtTheEnd];
 
     m_File = _file;
     m_Data = std::make_shared<DataBackend>(m_File, m_Data->Encoding());
     m_NativeStoredFile = std::nullopt;
+    m_Footer.fileSize = m_File->FileSize();
     if( [m_View respondsToSelector:@selector(attachToNewBackend:)] ) {
         [m_View attachToNewBackend:m_Data];
 
@@ -189,14 +251,14 @@ using namespace nc::viewer;
     }
 }
 
-- (int)encoding
+- (utility::Encoding)encoding
 {
     if( m_Data )
         return m_Data->Encoding();
-    return encodings::ENCODING_UTF8; // ??
+    return utility::Encoding::ENCODING_UTF8; // ??
 }
 
-- (void)setEncoding:(int)_encoding
+- (void)setEncoding:(utility::Encoding)_encoding
 {
     if( !m_Data || m_Data->Encoding() == _encoding )
         return; // nothing to do
@@ -207,11 +269,14 @@ using namespace nc::viewer;
 
     if( [m_View respondsToSelector:@selector(backendContentHasChanged)] )
         [m_View backendContentHasChanged];
+
+    m_Footer.encoding = m_Data->Encoding();
 }
 
 - (void)RequestWindowMovementAt:(uint64_t)_pos
 {
-    m_Data->MoveWindowSync(_pos);
+    // TODO: what to do if this fails?
+    std::ignore = m_Data->MoveWindowSync(_pos);
 }
 
 - (bool)wordWrap
@@ -230,6 +295,8 @@ using namespace nc::viewer;
         [m_View lineWrappingHasChanged];
     }
     [self didChangeValueForKey:@"wordWrap"];
+
+    m_Footer.wrapLines = m_WrapWords;
 }
 
 - (ViewMode)mode
@@ -263,7 +330,9 @@ using namespace nc::viewer;
     if( _mode == ViewMode::Text ) {
         auto view = [[NCViewerTextModeView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)
                                                         backend:m_Data
-                                                          theme:*m_Theme];
+                                                          theme:*m_Theme
+                                           highlightingSettings:*m_HighlightingSettings
+                                             enableHighlighting:m_Config->GetBool(g_ConfigEnableSyntaxHighlighting)];
         view.delegate = self;
         [self addFillingSubview:view];
         m_View = view;
@@ -287,27 +356,31 @@ using namespace nc::viewer;
     if( [m_View respondsToSelector:@selector(scrollToGlobalBytesOffset:)] )
         [m_View scrollToGlobalBytesOffset:static_cast<int64_t>(m_VerticalPositionInBytes)];
 
+    if( [m_View respondsToSelector:@selector(setHighlightingLanguage:)] )
+        [m_View setHighlightingLanguage:m_HighlightingLanguage];
+
     [self didChangeValueForKey:@"mode"];
 
     if( is_first_responder )
         [self.window makeFirstResponder:m_View];
 
     [m_View setFocusRingType:self.focusRingType];
+    m_Footer.mode = _mode;
 }
 
 - (void)addFillingSubview:(NSView *)_view
 {
-    [self addSubview:_view];
-    NSDictionary *views = NSDictionaryOfVariableBindings(_view);
+    [self addSubview:_view positioned:NSWindowBelow relativeTo:nil];
+
+    NSDictionary *views = NSDictionaryOfVariableBindings(_view, m_Footer);
     [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"|-(==0)-[_view]-(==0)-|"
                                                                  options:0
                                                                  metrics:nil
                                                                    views:views]];
-    [self
-        addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|-(==0)-[_view]-(==0)-|"
-                                                               options:0
-                                                               metrics:nil
-                                                                 views:views]];
+    [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|-(==0)-[_view]-(==0)-[m_Footer]"
+                                                                 options:0
+                                                                 metrics:nil
+                                                                   views:views]];
 }
 
 - (std::filesystem::path)previewPath
@@ -317,8 +390,8 @@ using namespace nc::viewer;
     }
     else {
         if( !m_NativeStoredFile )
-            m_NativeStoredFile = CopyFileToTempStorage(
-                m_File->File()->Path(), *m_File->File()->Host(), *m_TempFileStorage);
+            m_NativeStoredFile =
+                CopyFileToTempStorage(m_File->File()->Path(), *m_File->File()->Host(), *m_TempFileStorage);
         if( m_NativeStoredFile )
             return *m_NativeStoredFile;
         return {};
@@ -385,10 +458,8 @@ using namespace nc::viewer;
     uint64_t start = m_SelectionInFile.location;
     uint64_t end = start + m_SelectionInFile.length;
 
-    if( end > window_pos + window_size )
-        end = window_pos + window_size;
-    if( start < window_pos )
-        start = window_pos;
+    end = std::min(end, window_pos + window_size);
+    start = std::max(start, window_pos);
 
     if( start >= end ) {
         m_SelectionInWindow = CFRangeMake(-1, 0);
@@ -396,15 +467,12 @@ using namespace nc::viewer;
         return;
     }
 
-    const uint32_t *offset =
-        std::lower_bound(m_Data->UniCharToByteIndeces(),
-                         m_Data->UniCharToByteIndeces() + m_Data->UniCharsSize(),
-                         start - window_pos);
+    const uint32_t *offset = std::lower_bound(
+        m_Data->UniCharToByteIndeces(), m_Data->UniCharToByteIndeces() + m_Data->UniCharsSize(), start - window_pos);
     assert(offset < m_Data->UniCharToByteIndeces() + m_Data->UniCharsSize());
 
-    const uint32_t *tail = std::lower_bound(m_Data->UniCharToByteIndeces(),
-                                            m_Data->UniCharToByteIndeces() + m_Data->UniCharsSize(),
-                                            end - window_pos);
+    const uint32_t *tail = std::lower_bound(
+        m_Data->UniCharToByteIndeces(), m_Data->UniCharToByteIndeces() + m_Data->UniCharsSize(), end - window_pos);
     assert(tail <= m_Data->UniCharToByteIndeces() + m_Data->UniCharsSize());
 
     int startindex = int(offset - m_Data->UniCharToByteIndeces());
@@ -441,8 +509,7 @@ using namespace nc::viewer;
     if( !m_Data )
         return;
 
-    if( _selection.location == m_SelectionInFile.location &&
-        _selection.length == m_SelectionInFile.length )
+    if( _selection.location == m_SelectionInFile.location && _selection.length == m_SelectionInFile.length )
         return;
 
     if( _selection.location < 0 ) {
@@ -479,9 +546,8 @@ using namespace nc::viewer;
         return;
 
     if( m_SelectionInWindow.location >= 0 && m_SelectionInWindow.length > 0 ) {
-        NSString *str = [[NSString alloc]
-            initWithCharacters:m_Data->UniChars() + m_SelectionInWindowUnichars.location
-                        length:m_SelectionInWindowUnichars.length];
+        NSString *str = [[NSString alloc] initWithCharacters:m_Data->UniChars() + m_SelectionInWindowUnichars.location
+                                                      length:m_SelectionInWindowUnichars.length];
         NSPasteboard *pasteBoard = NSPasteboard.generalPasteboard;
         [pasteBoard clearContents];
         [pasteBoard declareTypes:@[NSPasteboardTypeString] owner:nil];
@@ -520,22 +586,22 @@ using namespace nc::viewer;
     }
 }
 
-- (int)textModeView:(NCViewerTextModeView *) [[maybe_unused]] _view
-    requestsSyncBackendWindowMovementAt:(int64_t)_position
+- (std::expected<void, nc::Error>)textModeView:(NCViewerTextModeView *) [[maybe_unused]] _view
+           requestsSyncBackendWindowMovementAt:(int64_t)_position
 {
     return [self moveBackendWindowSyncAt:_position notifyView:false];
 }
 
-- (int)hexModeView:(NCViewerHexModeView *) [[maybe_unused]] _view
-    requestsSyncBackendWindowMovementAt:(int64_t)_position
+- (std::expected<void, nc::Error>)hexModeView:(NCViewerHexModeView *) [[maybe_unused]] _view
+          requestsSyncBackendWindowMovementAt:(int64_t)_position
 {
     return [self moveBackendWindowSyncAt:_position notifyView:false];
 }
 
-- (int)moveBackendWindowSyncAt:(int64_t)_position notifyView:(bool)_notify_view
+- (std::expected<void, Error>)moveBackendWindowSyncAt:(int64_t)_position notifyView:(bool)_notify_view
 {
     const auto rc = m_Data->MoveWindowSync(_position);
-    if( rc == VFSError::Ok ) {
+    if( rc ) {
         // ... callout
         if( _notify_view ) {
             if( [m_View respondsToSelector:@selector(backendContentHasChanged)] )
@@ -571,8 +637,7 @@ using namespace nc::viewer;
     return [self selectionInFile];
 }
 
-- (void)textModeView:(NCViewerTextModeView *) [[maybe_unused]] _view
-        setSelection:(CFRange)_selection
+- (void)textModeView:(NCViewerTextModeView *) [[maybe_unused]] _view setSelection:(CFRange)_selection
 {
     self.selectionInFile = _selection;
 }
@@ -599,6 +664,34 @@ using namespace nc::viewer;
             return true;
     }
     return [super performKeyEquivalent:_event];
+}
+
+- (NCViewerFooter *)footer
+{
+    return m_Footer;
+}
+
+- (NCViewerSearchView *)searchView
+{
+    return m_SearchView;
+}
+
+- (std::string)language
+{
+    return m_HighlightingLanguage;
+}
+
+- (void)setLanguage:(std::string)_language
+{
+    if( m_HighlightingLanguage == _language ) {
+        return;
+    }
+    m_HighlightingLanguage = _language;
+
+    if( m_View && [m_View respondsToSelector:@selector(setHighlightingLanguage:)] ) {
+        [m_View setHighlightingLanguage:m_HighlightingLanguage];
+    }
+    m_Footer.highlightingLanguage = m_HighlightingLanguage;
 }
 
 @end

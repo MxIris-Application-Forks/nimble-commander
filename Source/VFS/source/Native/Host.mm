@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Host.h"
 #include <OpenDirectory/OpenDirectory.h>
 #include <sys/attr.h>
@@ -14,12 +14,17 @@
 #include "DisplayNamesCache.h"
 #include "File.h"
 #include <VFS/VFSError.h>
+#include <VFS/Log.h>
 #include "../ListingInput.h"
 #include "Fetching.h"
 #include <Base/DispatchGroup.h>
+#include <Base/StackAllocator.h>
 #include <Utility/ObjCpp.h>
 #include <Utility/Tags.h>
 #include <sys/mount.h>
+
+#include <fmt/ranges.h>
+#include <algorithm>
 
 // hack to access function from libc implementation directly.
 // this func does readdir but without mutex locking
@@ -36,11 +41,11 @@ const char *NativeHost::UniqueTag = "native";
 class VFSNativeHostConfiguration
 {
 public:
-    const char *Tag() const { return VFSNativeHost::UniqueTag; }
+    [[nodiscard]] static const char *Tag() { return VFSNativeHost::UniqueTag; }
 
-    const char *Junction() const { return ""; }
+    [[nodiscard]] static const char *Junction() { return ""; }
 
-    bool operator==(const VFSNativeHostConfiguration &) const { return true; }
+    bool operator==(const VFSNativeHostConfiguration & /*unused*/) const { return true; }
 };
 
 VFSMeta NativeHost::Meta()
@@ -58,7 +63,7 @@ VFSMeta NativeHost::Meta()
 
 NativeHost::NativeHost(nc::utility::NativeFSManager &_native_fs_man,
                        nc::utility::FSEventsFileUpdate &_fsevents_file_update)
-    : Host("", 0, UniqueTag), m_NativeFSManager(_native_fs_man), m_FSEventsFileUpdate(_fsevents_file_update)
+    : Host("", nullptr, UniqueTag), m_NativeFSManager(_native_fs_man), m_FSEventsFileUpdate(_fsevents_file_update)
 {
     AddFeatures(HostFeatures::FetchUsers | HostFeatures::FetchGroups | HostFeatures::SetOwnership |
                 HostFeatures::SetFlags | HostFeatures::SetPermissions | HostFeatures::SetTimes);
@@ -69,26 +74,28 @@ bool NativeHost::ShouldProduceThumbnails() const
     return true;
 }
 
-int NativeHost::FetchDirectoryListing(const char *_path,
-                                      VFSListingPtr &_target,
-                                      const unsigned long _flags,
-                                      const VFSCancelChecker &_cancel_checker)
+std::expected<VFSListingPtr, Error> NativeHost::FetchDirectoryListing(std::string_view _path,
+                                                                      const unsigned long _flags,
+                                                                      const VFSCancelChecker &_cancel_checker)
 {
-    if( !_path || _path[0] != '/' )
-        return VFSError::InvalidCall;
+    if( !_path.starts_with("/") )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
-    const auto need_to_add_dot_dot = !(_flags & VFSFlags::F_NoDotDot) && strcmp(_path, "/") != 0;
-    auto &io = routedio::RoutedIO::InterfaceForAccess(_path, R_OK);
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
+
+    const auto need_to_add_dot_dot = !(_flags & VFSFlags::F_NoDotDot) && _path != "/";
+    auto &io = routedio::RoutedIO::InterfaceForAccess(path.c_str(), R_OK);
     const bool is_native_io = !io.isrouted();
-    const int fd = io.open(_path, O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_CLOEXEC);
+    const int fd = io.open(path.c_str(), O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_CLOEXEC);
     if( fd < 0 )
-        return VFSError::FromErrno();
+        return std::unexpected(Error{Error::POSIX, errno});
     auto close_fd = at_scope_end([fd] { close(fd); });
 
     using nc::base::variable_container;
     ListingInput listing_source;
     listing_source.hosts[0] = shared_from_this();
-    listing_source.directories[0] = EnsureTrailingSlash(_path);
+    listing_source.directories[0] = EnsureTrailingSlash(std::string(_path));
     listing_source.inodes.reset(variable_container<>::type::dense);
     listing_source.atimes.reset(variable_container<>::type::dense);
     listing_source.mtimes.reset(variable_container<>::type::dense);
@@ -144,11 +151,11 @@ int NativeHost::FetchDirectoryListing(const char *_path,
 
         if( _flags & VFSFlags::F_LoadDisplayNames )
             if( S_ISDIR(listing_source.unix_modes[_n]) && !listing_source.filenames[_n].empty() &&
-                !strisdotdot(listing_source.filenames[_n]) ) {
+                listing_source.filenames[_n] != ".." ) {
                 static auto &dnc = DisplayNamesCache::Instance();
                 if( auto display_name = dnc.DisplayName(
                         _params.inode, _params.dev, listing_source.directories[0] + listing_source.filenames[_n]) )
-                    listing_source.display_filenames.insert(_n, display_name);
+                    listing_source.display_filenames.insert(_n, std::string(*display_name));
             }
 
         ext_flags[_n] = _params.ext_flags;
@@ -158,7 +165,7 @@ int NativeHost::FetchDirectoryListing(const char *_path,
     auto cb_param = [&](const Fetching::CallbackParams &_params) { fill(next_entry_index++, _params); };
 
     if( need_to_add_dot_dot ) {
-        Fetching::ReadSingleEntryAttributesByPath(io, _path, cb_param);
+        Fetching::ReadSingleEntryAttributesByPath(io, path, cb_param);
         listing_source.filenames[0] = "..";
     }
 
@@ -173,10 +180,10 @@ int NativeHost::FetchDirectoryListing(const char *_path,
         is_native_io ? Fetching::ReadDirAttributesBulk(fd, cb_fetch, cb_param)
                      : Fetching::ReadDirAttributesStat(fd, listing_source.directories[0].c_str(), cb_fetch, cb_param);
     if( ret != 0 )
-        return VFSError::FromErrno(ret);
+        return std::unexpected(Error{Error::POSIX, ret});
 
     if( _cancel_checker && _cancel_checker() )
-        return VFSError::Cancelled;
+        return std::unexpected(Error{Error::POSIX, ECANCELED});
 
     // check if final entries count is less than approximate
     if( next_entry_index < allocated_size )
@@ -221,40 +228,47 @@ int NativeHost::FetchDirectoryListing(const char *_path,
                           // there's no point trying
 
             // TODO: is it worth routing the I/O here? guess not atm
-            const int entry_fd = openat(fd, listing_source.filenames[n].c_str(), O_RDONLY | O_NONBLOCK);
+            const std::string &filename = listing_source.filenames[n];
+            const int entry_fd = openat(fd, filename.c_str(), O_RDONLY | O_NONBLOCK);
             if( entry_fd < 0 )
                 continue; // guess silenty skipping the errors is ok here...
             auto close_entry_fd = at_scope_end([entry_fd] { close(entry_fd); });
 
-            if( auto tags = utility::Tags::ReadTags(entry_fd); !tags.empty() )
+            if( auto tags = utility::Tags::ReadTags(entry_fd); !tags.empty() ) {
+                Log::Debug("Extracted the tags of the file '{}': {}", filename, fmt::join(tags, ", "));
                 listing_source.tags.emplace(n, std::move(tags));
+            }
         }
     }
 
-    _target = VFSListing::Build(std::move(listing_source));
-
-    return 0;
+    return VFSListing::Build(std::move(listing_source));
 }
 
-int NativeHost::FetchSingleItemListing(const char *_path,
-                                       VFSListingPtr &_target,
-                                       unsigned long _flags,
-                                       const VFSCancelChecker &_cancel_checker)
+std::expected<VFSListingPtr, Error> NativeHost::FetchSingleItemListing(std::string_view _path,
+                                                                       unsigned long _flags,
+                                                                       const VFSCancelChecker &_cancel_checker)
 {
-    if( !_path || _path[0] != '/' )
-        return VFSError::InvalidCall;
+    if( !_path.starts_with("/") )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
+
+    std::array<char, 512> mem_buffer;
+    std::pmr::monotonic_buffer_resource mem_resource(mem_buffer.data(), mem_buffer.size());
+    const std::pmr::string path(utility::PathManip::WithoutTrailingSlashes(_path), &mem_resource);
+    if( path.empty() )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
+
+    const std::string_view directory = utility::PathManip::Parent(path);
+    if( directory.empty() )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
+
+    const std::string_view filename = utility::PathManip::Filename(path);
+    if( filename.empty() )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
     if( _cancel_checker && _cancel_checker() )
-        return VFSError::Cancelled;
+        return std::unexpected(nc::Error{nc::Error::POSIX, ECANCELED});
 
-    char path[MAXPATHLEN], directory[MAXPATHLEN], filename[MAXPATHLEN];
-    strcpy(path, _path);
-
-    if( !EliminateTrailingSlashInPath(path) || !GetDirectoryContainingItemFromPath(path, directory) ||
-        !GetFilenameFromPath(path, filename) )
-        return VFSError::InvalidCall;
-
-    auto &io = routedio::RoutedIO::InterfaceForAccess(_path, R_OK);
+    auto &io = routedio::RoutedIO::InterfaceForAccess(path.c_str(), R_OK);
 
     using nc::base::variable_container;
     uint64_t ext_flags = 0;
@@ -295,24 +309,24 @@ int NativeHost::FetchSingleItemListing(const char *_path,
 
         if( _flags & VFSFlags::F_LoadDisplayNames )
             if( S_ISDIR(listing_source.unix_modes[0]) && !listing_source.filenames[0].empty() &&
-                !strisdotdot(listing_source.filenames[0]) ) {
+                listing_source.filenames[0] != ".." ) {
                 static auto &dnc = DisplayNamesCache::Instance();
-                if( auto display_name = dnc.DisplayName(_params.inode, _params.dev, path) )
-                    listing_source.display_filenames.insert(0, display_name);
+                if( std::optional<std::string_view> display_name = dnc.DisplayName(_params.inode, _params.dev, path) )
+                    listing_source.display_filenames.insert(0, std::string(*display_name));
             }
 
         ext_flags = _params.ext_flags;
     };
 
-    int ret = Fetching::ReadSingleEntryAttributesByPath(io, _path, cb_param);
+    const int ret = Fetching::ReadSingleEntryAttributesByPath(io, _path, cb_param);
     if( ret != 0 )
-        return VFSError::FromErrno(ret);
+        return std::unexpected(Error{Error::POSIX, ret});
 
     // a little more work with symlink, if any
     if( listing_source.unix_types[0] == DT_LNK ) {
         // read an actual link path
         char linkpath[MAXPATHLEN];
-        const ssize_t sz = io.readlink(path, linkpath, MAXPATHLEN);
+        const ssize_t sz = io.readlink(path.c_str(), linkpath, MAXPATHLEN);
         if( sz != -1 ) {
             linkpath[sz] = 0;
             listing_source.symlinks.insert(0, linkpath);
@@ -320,7 +334,7 @@ int NativeHost::FetchSingleItemListing(const char *_path,
 
         // stat the target file
         struct stat stat_buffer;
-        const auto stat_ret = io.stat(path, &stat_buffer);
+        const auto stat_ret = io.stat(path.c_str(), &stat_buffer);
         if( stat_ret == 0 ) {
             listing_source.unix_modes[0] = stat_buffer.st_mode;
             listing_source.unix_flags[0] = MergeUnixFlags(listing_source.unix_flags[0], stat_buffer.st_flags);
@@ -334,7 +348,7 @@ int NativeHost::FetchSingleItemListing(const char *_path,
     // syscalls).
     if( (_flags & Flags::F_LoadTags) && !(ext_flags & EF_NO_XATTRS) ) {
         // TODO: is it worth routing the I/O here? guess not atm
-        const int entry_fd = open(_path, O_RDONLY | O_NONBLOCK);
+        const int entry_fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);
         if( entry_fd >= 0 ) {
             auto close_entry_fd = at_scope_end([entry_fd] { close(entry_fd); });
             if( auto tags = utility::Tags::ReadTags(entry_fd); !tags.empty() )
@@ -342,47 +356,42 @@ int NativeHost::FetchSingleItemListing(const char *_path,
         }
     }
 
-    _target = VFSListing::Build(std::move(listing_source));
-
-    return 0;
+    return VFSListing::Build(std::move(listing_source));
 }
 
-int NativeHost::CreateFile(const char *_path,
-                           std::shared_ptr<VFSFile> &_target,
-                           const VFSCancelChecker &_cancel_checker)
+std::expected<std::shared_ptr<VFSFile>, Error> NativeHost::CreateFile(std::string_view _path,
+                                                                      const VFSCancelChecker &_cancel_checker)
 {
     auto file = std::make_shared<File>(_path, SharedPtr());
     if( _cancel_checker && _cancel_checker() )
-        return VFSError::Cancelled;
-    _target = file;
-    return VFSError::Ok;
+        return std::unexpected(Error{Error::POSIX, ECANCELED});
+    return file;
 }
 
-// return VFSError on error or cancellation
-static int CalculateDirectoriesSizesHelper(char *_path,
-                                           size_t _path_len,
-                                           std::atomic_bool &_iscancelling,
-                                           const VFSCancelChecker &_checker,
-                                           dispatch_queue &_stat_queue,
-                                           std::atomic_int64_t &_size_stock)
+static std::expected<void, Error> CalculateDirectoriesSizesHelper(char *_path,
+                                                                  size_t _path_len,
+                                                                  std::atomic_bool &_iscancelling,
+                                                                  const VFSCancelChecker &_checker,
+                                                                  dispatch_queue &_stat_queue,
+                                                                  std::atomic_uint64_t &_size_stock)
 {
     if( _checker && _checker() ) {
         _iscancelling = true;
-        return VFSError::Cancelled;
+        return std::unexpected(nc::Error{nc::Error::POSIX, ECANCELED});
     }
 
     auto &io = routedio::RoutedIO::InterfaceForAccess(_path, R_OK); // <-- sync IO operation
 
     const auto dirp = io.opendir(_path); // <-- sync IO operation
     if( dirp == nullptr )
-        return VFSError::FromErrno();
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
 
     _path[_path_len] = '/';
     _path[_path_len + 1] = 0;
     char *var = _path + _path_len + 1;
 
     dirent *entp = nullptr;
-    while( (entp = io.readdir(dirp)) != NULL ) { // <-- sync IO operation
+    while( (entp = io.readdir(dirp)) != nullptr ) { // <-- sync IO operation
         if( _checker && _checker() ) {
             _iscancelling = true;
             goto cleanup;
@@ -397,7 +406,7 @@ static int CalculateDirectoriesSizesHelper(char *_path,
 
         memcpy(var, entp->d_name, entp->d_namlen + 1);
         if( entp->d_type == DT_DIR ) {
-            CalculateDirectoriesSizesHelper(
+            std::ignore = CalculateDirectoriesSizesHelper(
                 _path, _path_len + entp->d_namlen + 1, _iscancelling, _checker, _stat_queue, _size_stock);
             if( _iscancelling )
                 goto cleanup;
@@ -414,12 +423,12 @@ static int CalculateDirectoriesSizesHelper(char *_path,
             });
         }
         else if( entp->d_type == DT_UNKNOWN ) {
-            // some filesystems (e.g. ftp) might provide DT_UNKNOWN via readdir, so need to check
-            // them via lstat() before doing further processing
+            // some filesystems (e.g. ftp) might provide DT_UNKNOWN via readdir, so
+            // need to check them via lstat() before doing further processing
             struct stat st;
             if( io.lstat(_path, &st) == 0 ) { // <-- sync IO operation
                 if( S_ISDIR(st.st_mode) ) {
-                    CalculateDirectoriesSizesHelper(
+                    std::ignore = CalculateDirectoriesSizesHelper(
                         _path, _path_len + entp->d_namlen + 1, _iscancelling, _checker, _stat_queue, _size_stock);
                     if( _iscancelling )
                         goto cleanup;
@@ -434,43 +443,51 @@ static int CalculateDirectoriesSizesHelper(char *_path,
 cleanup:
     io.closedir(dirp); // <-- sync IO operation
     _path[_path_len] = 0;
-    return VFSError::Ok;
+    return {};
 }
 
-ssize_t NativeHost::CalculateDirectorySize(const char *_path, const VFSCancelChecker &_cancel_checker)
+std::expected<uint64_t, Error> NativeHost::CalculateDirectorySize(std::string_view _path,
+                                                                  const VFSCancelChecker &_cancel_checker)
 {
     if( _cancel_checker && _cancel_checker() )
-        return VFSError::Cancelled;
+        return std::unexpected(nc::Error{nc::Error::POSIX, ECANCELED});
 
-    if( _path == 0 || _path[0] != '/' )
-        return VFSError::InvalidCall;
+    if( !_path.starts_with("/") )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
     std::atomic_bool iscancelling{false};
+
+    // TODO: rewrite without using C-style shenanigans
     char path[MAXPATHLEN];
-    strcpy(path, _path);
+    memcpy(path, _path.data(), _path.length());
+    path[_path.length()] = 0;
 
     dispatch_queue stat_queue("VFSNativeHost.CalculateDirectoriesSizes");
 
-    std::atomic_int64_t size{0};
-    int result = CalculateDirectoriesSizesHelper(path, strlen(path), iscancelling, _cancel_checker, stat_queue, size);
+    std::atomic_uint64_t size{0};
+    const std::expected<void, Error> result =
+        CalculateDirectoriesSizesHelper(path, strlen(path), iscancelling, _cancel_checker, stat_queue, size);
     stat_queue.sync([] {});
-    if( result >= 0 )
-        return size;
-    else
-        return result;
+    if( !result )
+        return std::unexpected(result.error());
+
+    return size.load();
 }
 
-bool NativeHost::IsDirChangeObservingAvailable(const char *_path)
+bool NativeHost::IsDirectoryChangeObservationAvailable(std::string_view _path)
 {
-    if( !_path )
+    if( _path.empty() )
         return false;
-    return access(_path, R_OK) == 0; // should use _not_ routed I/O here!
+
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
+    return access(path.c_str(), R_OK) == 0; // should use _not_ routed I/O here!
 }
 
-HostDirObservationTicket NativeHost::DirChangeObserve(const char *_path, std::function<void()> _handler)
+HostDirObservationTicket NativeHost::ObserveDirectoryChanges(std::string_view _path, std::function<void()> _handler)
 {
     auto &inst = nc::utility::FSEventsDirUpdate::Instance();
-    uint64_t t = inst.AddWatchPath(_path, std::move(_handler));
+    const uint64_t t = inst.AddWatchPath(_path, std::move(_handler));
     return t ? HostDirObservationTicket(t, shared_from_this()) : HostDirObservationTicket();
 }
 
@@ -480,11 +497,10 @@ void NativeHost::StopDirChangeObserving(unsigned long _ticket)
     inst.RemoveWatchPathWithTicket(_ticket);
 }
 
-FileObservationToken NativeHost::ObserveFileChanges(const char *_path, std::function<void()> _handler)
+FileObservationToken NativeHost::ObserveFileChanges(const std::string_view _path, std::function<void()> _handler)
 {
-    assert(_path != nullptr);
     const auto token = m_FSEventsFileUpdate.AddWatchPath(_path, std::move(_handler));
-    return FileObservationToken(token, SharedPtr());
+    return {token, SharedPtr()};
 }
 
 void NativeHost::StopObservingFileChanges(unsigned long _token)
@@ -493,39 +509,42 @@ void NativeHost::StopObservingFileChanges(unsigned long _token)
     m_FSEventsFileUpdate.RemoveWatchPathWithToken(_token);
 }
 
-int NativeHost::Stat(const char *_path,
-                     VFSStat &_st,
-                     unsigned long _flags,
-                     [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<VFSStat, Error>
+NativeHost::Stat(std::string_view _path, unsigned long _flags, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
-    auto &io = routedio::RoutedIO::InterfaceForAccess(_path, R_OK);
-    memset(&_st, 0, sizeof(_st));
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
+
+    auto &io = routedio::RoutedIO::InterfaceForAccess(path.c_str(), R_OK);
 
     struct stat st;
-
-    int ret = (_flags & VFSFlags::F_NoFollow) ? io.lstat(_path, &st) : io.stat(_path, &st);
-
-    if( ret == 0 ) {
-        VFSStat::FromSysStat(st, _st);
-        return VFSError::Ok;
+    const int ret = (_flags & VFSFlags::F_NoFollow) ? io.lstat(path.c_str(), &st) : io.stat(path.c_str(), &st);
+    if( ret != 0 ) {
+        return std::unexpected(Error{Error::POSIX, errno});
     }
 
-    return VFSError::FromErrno();
+    VFSStat vfs_stat;
+    VFSStat::FromSysStat(st, vfs_stat);
+    return vfs_stat;
 }
 
-int NativeHost::IterateDirectoryListing(const char *_path,
-                                        const std::function<bool(const VFSDirEnt &_dirent)> &_handler)
+std::expected<void, Error>
+NativeHost::IterateDirectoryListing(std::string_view _path,
+                                    const std::function<bool(const VFSDirEnt &_dirent)> &_handler)
 {
-    auto &io = routedio::RoutedIO::InterfaceForAccess(_path, R_OK);
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
 
-    DIR *dirp = io.opendir(_path);
-    if( dirp == 0 )
-        return VFSError::FromErrno();
+    auto &io = routedio::RoutedIO::InterfaceForAccess(path.c_str(), R_OK);
+
+    DIR *dirp = io.opendir(path.c_str());
+    if( dirp == nullptr )
+        return std::unexpected(Error{Error::POSIX, errno});
     const auto close_dirp = at_scope_end([&] { io.closedir(dirp); });
 
     dirent *entp;
     VFSDirEnt vfs_dirent;
-    while( (entp = io.readdir(dirp)) != NULL ) {
+    while( (entp = io.readdir(dirp)) != nullptr ) {
         if( (entp->d_namlen == 1 && entp->d_name[0] == '.') ||
             (entp->d_namlen == 2 && entp->d_name[0] == '.' && entp->d_name[1] == '.') )
             continue;
@@ -538,36 +557,44 @@ int NativeHost::IterateDirectoryListing(const char *_path,
             break;
     }
 
-    return VFSError::Ok;
+    return {};
 }
 
-int NativeHost::StatFS(const char *_path, VFSStatFS &_stat, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<VFSStatFS, Error> NativeHost::StatFS(std::string_view _path,
+                                                   [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
+
     struct statfs info;
-    if( statfs(_path, &info) < 0 )
-        return VFSError::FromErrno();
+    if( statfs(path.c_str(), &info) < 0 )
+        return std::unexpected(Error{Error::POSIX, errno});
 
     auto volume = m_NativeFSManager.VolumeFromMountPoint(info.f_mntonname);
     if( !volume )
-        return VFSError::GenericError;
+        return std::unexpected(Error{Error::POSIX, ENOENT});
 
     m_NativeFSManager.UpdateSpaceInformation(volume);
 
-    _stat.volume_name = volume->verbose.name.UTF8String;
-    _stat.total_bytes = volume->basic.total_bytes;
-    _stat.free_bytes = volume->basic.free_bytes;
-    _stat.avail_bytes = volume->basic.available_bytes;
-
-    return 0;
+    VFSStatFS stat;
+    stat.volume_name = volume->verbose.name.UTF8String;
+    stat.total_bytes = volume->basic.total_bytes;
+    stat.free_bytes = volume->basic.free_bytes;
+    stat.avail_bytes = volume->basic.available_bytes;
+    return stat;
 }
 
-int NativeHost::Unlink(const char *_path, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> NativeHost::Unlink(std::string_view _path,
+                                              [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
     auto &io = routedio::RoutedIO::Default;
-    int ret = io.unlink(_path);
-    if( ret == 0 )
-        return 0;
-    return VFSError::FromErrno();
+
+    if( io.unlink(path.c_str()) != 0 )
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
+
+    return {};
 }
 
 bool NativeHost::IsWritable() const
@@ -575,88 +602,109 @@ bool NativeHost::IsWritable() const
     return true; // dummy now
 }
 
-int NativeHost::CreateDirectory(const char *_path, int _mode, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error>
+NativeHost::CreateDirectory(std::string_view _path, int _mode, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
     auto &io = routedio::RoutedIO::Default;
-    int ret = io.mkdir(_path, mode_t(_mode));
+    const int ret = io.mkdir(path.c_str(), mode_t(_mode));
     if( ret == 0 )
-        return 0;
-    return VFSError::FromErrno();
+        return {};
+
+    return std::unexpected(nc::Error{nc::Error::POSIX, errno});
 }
 
-int NativeHost::RemoveDirectory(const char *_path, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> NativeHost::RemoveDirectory(std::string_view _path,
+                                                       [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
     auto &io = routedio::RoutedIO::Default;
-    int ret = io.rmdir(_path);
+    const int ret = io.rmdir(path.c_str());
     if( ret == 0 )
-        return 0;
-    return VFSError::FromErrno();
+        return {};
+
+    return std::unexpected(nc::Error{nc::Error::POSIX, errno});
 }
 
-int NativeHost::ReadSymlink(const char *_path,
-                            char *_buffer,
-                            size_t _buffer_size,
-                            [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<std::string, Error> NativeHost::ReadSymlink(std::string_view _path,
+                                                          [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
+
     auto &io = routedio::RoutedIO::Default;
-    ssize_t sz = io.readlink(_path, _buffer, _buffer_size);
+    char buffer[8192];
+    const ssize_t sz = io.readlink(path.c_str(), buffer, sizeof(buffer));
     if( sz < 0 )
-        return VFSError::FromErrno();
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
 
-    if( sz >= static_cast<long>(_buffer_size) )
-        return VFSError::SmallBuffer;
+    if( sz >= static_cast<long>(sizeof(buffer)) )
+        return std::unexpected(nc::Error{nc::Error::POSIX, ENOMEM});
 
-    _buffer[sz] = 0;
-    return 0;
+    return std::string(buffer, sz);
 }
 
-int NativeHost::CreateSymlink(const char *_symlink_path,
-                              const char *_symlink_value,
-                              [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> NativeHost::CreateSymlink(std::string_view _symlink_path,
+                                                     std::string_view _symlink_value,
+                                                     [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
+    StackAllocator alloc;
+    const std::pmr::string symlink_path(_symlink_path, &alloc);
+    const std::pmr::string symlink_value(_symlink_value, &alloc);
+
     auto &io = routedio::RoutedIO::Default;
-    int result = io.symlink(_symlink_value, _symlink_path);
-    if( result < 0 )
-        return VFSError::FromErrno();
+    const int result = io.symlink(symlink_value.c_str(), symlink_path.c_str());
+    if( result != 0 )
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
 
-    return 0;
+    return {};
 }
 
-int NativeHost::SetTimes(const char *_path,
-                         std::optional<time_t> _birth_time,
-                         std::optional<time_t> _mod_time,
-                         std::optional<time_t> _chg_time,
-                         std::optional<time_t> _acc_time,
-                         [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> NativeHost::SetTimes(const std::string_view _path,
+                                                const std::optional<time_t> _birth_time,
+                                                const std::optional<time_t> _mod_time,
+                                                const std::optional<time_t> _chg_time,
+                                                const std::optional<time_t> _acc_time,
+                                                [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
-    if( _path == nullptr )
-        return VFSError::InvalidCall;
+    if( _path.empty() )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
     if( !_birth_time && !_mod_time && !_chg_time && !_acc_time )
-        return VFSError::Ok;
+        return {};
+
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
 
     auto &io = routedio::RoutedIO::Default;
-    if( _birth_time && io.chbtime(_path, *_birth_time) != 0 )
-        return VFSError::FromErrno();
-    if( _mod_time && io.chmtime(_path, *_mod_time) != 0 )
-        return VFSError::FromErrno();
-    if( _chg_time && io.chctime(_path, *_chg_time) != 0 )
-        return VFSError::FromErrno();
-    if( _acc_time && io.chatime(_path, *_acc_time) != 0 )
-        return VFSError::FromErrno();
+    if( _birth_time && io.chbtime(path.c_str(), *_birth_time) != 0 )
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
+    if( _mod_time && io.chmtime(path.c_str(), *_mod_time) != 0 )
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
+    if( _chg_time && io.chctime(path.c_str(), *_chg_time) != 0 )
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
+    if( _acc_time && io.chatime(path.c_str(), *_acc_time) != 0 )
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
 
-    return VFSError::Ok;
+    return {};
 }
 
-int NativeHost::Rename(const char *_old_path,
-                       const char *_new_path,
-                       [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> NativeHost::Rename(std::string_view _old_path,
+                                              std::string_view _new_path,
+                                              [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
+    StackAllocator alloc;
+    const std::pmr::string old_path(_old_path, &alloc);
+    const std::pmr::string new_path(_new_path, &alloc);
+
     auto &io = routedio::RoutedIO::Default;
-    int ret = io.rename(_old_path, _new_path);
+    const int ret = io.rename(old_path.c_str(), new_path.c_str());
     if( ret == 0 )
-        return VFSError::Ok;
-    return VFSError::FromErrno();
+        return {};
+
+    return std::unexpected(nc::Error{nc::Error::POSIX, errno});
 }
 
 bool NativeHost::IsNativeFS() const noexcept
@@ -670,72 +718,88 @@ VFSConfiguration NativeHost::Configuration() const
     return aa;
 }
 
-int NativeHost::Trash(const char *_path, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, nc::Error> NativeHost::Trash(std::string_view _path,
+                                                 [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
-    if( _path == nullptr )
-        return VFSError::FromErrno(EINVAL);
+    if( _path.empty() )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
+
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
 
     auto &io = routedio::RoutedIO::Default;
-    const auto ret = io.trash(_path);
-    if( ret == 0 )
-        return VFSError::Ok;
-    return VFSError::FromErrno();
+    const auto ret = io.trash(path.c_str());
+    if( ret != 0 )
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
+
+    return {};
 }
 
-int NativeHost::SetPermissions(const char *_path,
-                               uint16_t _mode,
-                               [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> NativeHost::SetPermissions(std::string_view _path,
+                                                      uint16_t _mode,
+                                                      [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
-    if( _path == nullptr )
-        return VFSError::FromErrno(EINVAL);
+    if( _path.empty() )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
+
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
 
     auto &io = routedio::RoutedIO::Default;
-    const auto ret = io.chmod(_path, _mode);
-    if( ret == 0 )
-        return VFSError::Ok;
-    return VFSError::FromErrno();
+    const auto ret = io.chmod(path.c_str(), _mode);
+    if( ret != 0 )
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
+
+    return {};
 }
 
-int NativeHost::SetFlags(const char *_path,
-                         uint32_t _flags,
-                         uint64_t _vfs_options,
-                         [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> NativeHost::SetFlags(std::string_view _path,
+                                                uint32_t _flags,
+                                                uint64_t _vfs_options,
+                                                [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
-    if( _path == nullptr )
-        return VFSError::FromErrno(EINVAL);
+    if( _path.empty() )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
+
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
 
     auto &io = routedio::RoutedIO::Default;
     const bool no_follow = _vfs_options & Flags::F_NoFollow;
-    const auto ret = no_follow ? io.lchflags(_path, _flags) : io.chflags(_path, _flags);
-    if( ret == 0 )
-        return VFSError::Ok;
-    return VFSError::FromErrno();
+    const auto ret = no_follow ? io.lchflags(path.c_str(), _flags) : io.chflags(path.c_str(), _flags);
+    if( ret != 0 )
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
+
+    return {};
 }
 
-int NativeHost::SetOwnership(const char *_path,
-                             unsigned _uid,
-                             unsigned _gid,
-                             [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> NativeHost::SetOwnership(std::string_view _path,
+                                                    unsigned _uid,
+                                                    unsigned _gid,
+                                                    [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
-    if( _path == nullptr )
-        return VFSError::FromErrno(EINVAL);
+    if( _path.empty() )
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
+
+    StackAllocator alloc;
+    const std::pmr::string path(_path, &alloc);
 
     auto &io = routedio::RoutedIO::Default;
-    const auto ret = io.chown(_path, _uid, _gid);
-    if( ret == 0 )
-        return VFSError::Ok;
-    return VFSError::FromErrno();
+    const auto ret = io.chown(path.c_str(), _uid, _gid);
+    if( ret != 0 )
+        return std::unexpected(nc::Error{nc::Error::POSIX, errno});
+
+    return {};
 }
 
-int NativeHost::FetchUsers(std::vector<VFSUser> &_target, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<std::vector<VFSUser>, Error>
+NativeHost::FetchUsers([[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
-    _target.clear();
-
     NSError *error;
     const auto node_name = @"/Local/Default";
     const auto node = [ODNode nodeWithSession:ODSession.defaultSession name:node_name error:&error];
     if( !node )
-        return VFSError::FromNSError(error);
+        return std::unexpected(Error{error});
 
     const auto attributes = @[kODAttributeTypeUniqueID, kODAttributeTypeFullName];
     const auto query = [ODQuery queryWithNode:node
@@ -747,12 +811,13 @@ int NativeHost::FetchUsers(std::vector<VFSUser> &_target, [[maybe_unused]] const
                                maximumResults:0
                                         error:&error];
     if( !query )
-        return VFSError::FromNSError(error);
+        return std::unexpected(Error{error});
 
     const auto records = [query resultsAllowingPartial:false error:&error];
     if( !records )
-        return VFSError::FromNSError(error);
+        return std::unexpected(Error{error});
 
+    std::vector<VFSUser> users;
     for( ODRecord *record in records ) {
         const auto uid_values = [record valuesForAttribute:kODAttributeTypeUniqueID error:nil];
         if( uid_values == nil || uid_values.count == 0 )
@@ -767,29 +832,26 @@ int NativeHost::FetchUsers(std::vector<VFSUser> &_target, [[maybe_unused]] const
         user.uid = uid;
         user.name = record.recordName.UTF8String;
         user.gecos = gecos;
-        _target.emplace_back(std::move(user));
+        users.emplace_back(std::move(user));
     }
 
-    std::sort(std::begin(_target), std::end(_target), [](const auto &_1, const auto &_2) {
+    std::ranges::sort(users, [](const auto &_1, const auto &_2) {
         return static_cast<signed>(_1.uid) < static_cast<signed>(_2.uid);
     });
-    _target.erase(std::unique(std::begin(_target),
-                              std::end(_target),
-                              [](const auto &_1, const auto &_2) { return _1.uid == _2.uid; }),
-                  std::end(_target));
+    users.erase(std::ranges::unique(users, [](const auto &_1, const auto &_2) { return _1.uid == _2.uid; }).begin(),
+                users.end());
 
-    return VFSError::Ok;
+    return std::move(users);
 }
 
-int NativeHost::FetchGroups(std::vector<VFSGroup> &_target, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<std::vector<VFSGroup>, Error>
+NativeHost::FetchGroups([[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
-    _target.clear();
-
     NSError *error;
     const auto node_name = @"/Local/Default";
     const auto node = [ODNode nodeWithSession:ODSession.defaultSession name:node_name error:&error];
     if( !node )
-        return VFSError::FromNSError(error);
+        return std::unexpected(Error{error});
 
     const auto attributes = @[kODAttributeTypePrimaryGroupID, kODAttributeTypeFullName];
     const auto query = [ODQuery queryWithNode:node
@@ -801,12 +863,13 @@ int NativeHost::FetchGroups(std::vector<VFSGroup> &_target, [[maybe_unused]] con
                                maximumResults:0
                                         error:&error];
     if( !query )
-        return VFSError::FromNSError(error);
+        return std::unexpected(Error{error});
 
     const auto records = [query resultsAllowingPartial:false error:&error];
     if( !records )
-        return VFSError::FromNSError(error);
+        return std::unexpected(Error{error});
 
+    std::vector<VFSGroup> groups;
     for( ODRecord *record in records ) {
         const auto gid_values = [record valuesForAttribute:kODAttributeTypePrimaryGroupID error:nil];
         if( gid_values == nil || gid_values.count == 0 )
@@ -821,23 +884,21 @@ int NativeHost::FetchGroups(std::vector<VFSGroup> &_target, [[maybe_unused]] con
         group.gid = gid;
         group.name = record.recordName.UTF8String;
         group.gecos = gecos;
-        _target.emplace_back(std::move(group));
+        groups.emplace_back(std::move(group));
     }
 
-    std::sort(std::begin(_target), std::end(_target), [](const auto &_1, const auto &_2) {
+    std::ranges::sort(groups, [](const auto &_1, const auto &_2) {
         return static_cast<signed>(_1.gid) < static_cast<signed>(_2.gid);
     });
-    _target.erase(std::unique(std::begin(_target),
-                              std::end(_target),
-                              [](const auto &_1, const auto &_2) { return _1.gid == _2.gid; }),
-                  std::end(_target));
+    groups.erase(std::ranges::unique(groups, [](const auto &_1, const auto &_2) { return _1.gid == _2.gid; }).begin(),
+                 groups.end());
 
-    return VFSError::Ok;
+    return std::move(groups);
 }
 
-bool NativeHost::IsCaseSensitiveAtPath(const char *_dir) const
+bool NativeHost::IsCaseSensitiveAtPath(std::string_view _dir) const
 {
-    if( !_dir || _dir[0] != '/' )
+    if( _dir.empty() || _dir[0] != '/' )
         return true;
     if( const auto fs_info = m_NativeFSManager.VolumeFromPath(_dir) )
         return fs_info->format.case_sensitive;
@@ -855,4 +916,4 @@ static uint32_t MergeUnixFlags(uint32_t _symlink_flags, uint32_t _target_flags) 
     return _target_flags | hidden_flag;
 }
 
-}
+} // namespace nc::vfs

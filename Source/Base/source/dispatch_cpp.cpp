@@ -1,9 +1,9 @@
-// Copyright (C) 2014-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <Base/dispatch_cpp.h>
-#include <stdexcept>
+#include <cassert>
 #include <fmt/core.h>
-#include <assert.h>
 #include <pthread.h>
+#include <stdexcept>
 
 dispatch_queue::dispatch_queue(const char *label, bool concurrent)
     : m_queue(dispatch_queue_create(label, concurrent ? DISPATCH_QUEUE_CONCURRENT : DISPATCH_QUEUE_SERIAL))
@@ -20,7 +20,7 @@ dispatch_queue::dispatch_queue(const dispatch_queue &rhs) : m_queue(rhs.m_queue)
     dispatch_retain(m_queue);
 }
 
-const dispatch_queue &dispatch_queue::operator=(const dispatch_queue &rhs)
+dispatch_queue &dispatch_queue::operator=(const dispatch_queue &rhs)
 {
     dispatch_release(m_queue);
     m_queue = rhs.m_queue;

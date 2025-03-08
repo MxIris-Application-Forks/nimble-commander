@@ -1,21 +1,22 @@
-// Copyright (C) 2018-2020 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Tests.h"
 #include <NimbleCommander/States/FilePanels/Brief/PanelBriefViewFixedWidthLayoutEngine.h>
 
+using Catch::Approx;
 using nc::panel::view::brief::FixedWidthLayoutEngine;
 
 #define PREFIX "nc::panel::view::brief::FixedWidthLayoutEngine "
 
 TEST_CASE(PREFIX "empty by default")
 {
-    FixedWidthLayoutEngine engine;
+    const FixedWidthLayoutEngine engine;
 
     CHECK(engine.ItemsNumber() == 0);
     CHECK(engine.RowsNumber() == 0);
     CHECK(engine.ColumnsNumber() == 0);
     CHECK(NSEqualSizes(engine.ContentSize(), NSMakeSize(0.0, 0.0)));
-    CHECK(engine.ColumnsPositions().size() == 0);
-    CHECK(engine.ColumnsWidths().size() == 0);
+    CHECK(engine.ColumnsPositions().empty());
+    CHECK(engine.ColumnsWidths().empty());
 }
 
 TEST_CASE(PREFIX "rounds number of rows down")

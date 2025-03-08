@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <VFSIcon/WorkspaceExtensionIconsCacheImpl.h>
 #include <VFSIcon/Log.h>
 #include <Cocoa/Cocoa.h>
@@ -14,9 +14,7 @@ WorkspaceExtensionIconsCacheImpl::WorkspaceExtensionIconsCacheImpl(const nc::uti
     m_GenericFileIcon = [NSWorkspace.sharedWorkspace iconForFileType:NSFileTypeForHFSTypeCode(kGenericDocumentIcon)];
 }
 
-WorkspaceExtensionIconsCacheImpl::~WorkspaceExtensionIconsCacheImpl()
-{
-}
+WorkspaceExtensionIconsCacheImpl::~WorkspaceExtensionIconsCacheImpl() = default;
 
 NSImage *WorkspaceExtensionIconsCacheImpl::CachedIconForExtension(const std::string &_extension) const
 {
@@ -42,7 +40,7 @@ void WorkspaceExtensionIconsCacheImpl::Commit_Locked(const std::string &_extensi
 
 NSImage *WorkspaceExtensionIconsCacheImpl::IconForExtension(const std::string &_extension)
 {
-    Log::Trace(SPDLOC, "IconForExtension() called for '{}'", _extension);
+    Log::Trace("IconForExtension() called for '{}'", _extension);
 
     if( _extension.empty() )
         return nil;
@@ -50,30 +48,30 @@ NSImage *WorkspaceExtensionIconsCacheImpl::IconForExtension(const std::string &_
     {
         const auto lock = std::lock_guard{m_Lock};
         if( auto i = m_Icons.find(_extension); i != m_Icons.end() ) {
-            Log::Trace(SPDLOC, "IconForExtension() found a cached icon for '{}'", _extension);
+            Log::Trace("IconForExtension() found a cached icon for '{}'", _extension);
             return i->second;
         }
     }
 
     const auto uti = m_UTIDB.UTIForExtension(_extension);
-    Log::Info(SPDLOC, "IconForExtension() uti for '{}' is '{}'", _extension, uti);
+    Log::Info("IconForExtension() uti for '{}' is '{}'", _extension, uti);
     if( not m_UTIDB.IsDynamicUTI(uti) ) {
-        Log::Info(SPDLOC, "IconForExtension() getting an icon for filetype: '{}'", _extension);
+        Log::Info("IconForExtension() getting an icon for filetype: '{}'", _extension);
         NSImage *image = nil;
         if( @available(macOS 11.0, *) ) {
-            Log::Debug(SPDLOC, "IconForExtension() polling [NSWorkspace iconForContentType:'{}']", uti);
-            UTType *uttype = [UTType typeWithIdentifier:[NSString stringWithUTF8StdString:uti]];
+            Log::Debug("IconForExtension() polling [NSWorkspace iconForContentType:'{}']", uti);
+            UTType *const uttype = [UTType typeWithIdentifier:[NSString stringWithUTF8StdString:uti]];
             image = [NSWorkspace.sharedWorkspace iconForContentType:uttype];
         }
         else {
-            Log::Debug(SPDLOC, "IconForExtension() polling [NSWorkspace iconForFileType:'{}']", uti);
+            Log::Debug("IconForExtension() polling [NSWorkspace iconForFileType:'{}']", uti);
             image = [NSWorkspace.sharedWorkspace iconForFileType:[NSString stringWithUTF8StdString:uti]];
         }
         Commit_Locked(_extension, image);
         return image;
     }
     else {
-        Log::Info(SPDLOC, "IconForExtension() '{}' has dynamic uti, placing nil", _extension);
+        Log::Info("IconForExtension() '{}' has dynamic uti, placing nil", _extension);
         Commit_Locked(_extension, nil);
         return nil;
     }
@@ -81,14 +79,14 @@ NSImage *WorkspaceExtensionIconsCacheImpl::IconForExtension(const std::string &_
 
 NSImage *WorkspaceExtensionIconsCacheImpl::GenericFileIcon() const
 {
-    Log::Trace(SPDLOC, "GenericFileIcon() called");
+    Log::Trace("GenericFileIcon() called");
     return m_GenericFileIcon;
 }
 
 NSImage *WorkspaceExtensionIconsCacheImpl::GenericFolderIcon() const
 {
-    Log::Trace(SPDLOC, "GenericFolderIcon() called");
+    Log::Trace("GenericFolderIcon() called");
     return m_GenericFolderIcon;
 }
 
-}
+} // namespace nc::vfsicon

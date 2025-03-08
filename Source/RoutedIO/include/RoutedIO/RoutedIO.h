@@ -63,7 +63,7 @@ public:
 
     xpc_connection_t Connection();
     bool IsHelperAlive(); // blocking I/O
-    
+
     static void InstallViaRootCLI();
     static void UninstallViaRootCLI();
 
@@ -72,8 +72,8 @@ private:
     void operator=(RoutedIO &) = delete;
     bool Connect();
     bool AskToInstallHelper();
-    bool IsHelperInstalled();
-    bool IsHelperCurrent();
+    static bool IsHelperInstalled();
+    static bool IsHelperCurrent();
     bool ConnectionAvailable();
     bool AuthenticateAsAdmin();
     bool SayImAuthenticated(xpc_connection_t _connection) noexcept;

@@ -1,33 +1,34 @@
-// Copyright (C) 2020-2022 Michael Kazakov. Subject to GNU General Public License version 3.
-#include "Tests.h"
+// Copyright (C) 2020-2025 Michael Kazakov. Subject to GNU General Public License version 3.
+#include "../../source/Native/Fetching.h" // EVIL!
 #include "TestEnv.h"
+#include "Tests.h"
+#include <Base/UnorderedUtil.h>
 #include <Base/algo.h>
 #include <Base/dispatch_cpp.h>
-#include "../../source/Native/Fetching.h" // EVIL!
-#include <fmt/core.h>
-#include <unistd.h>
-#include <fstream>
-#include <Base/RobinHoodUtil.h>
+#include <algorithm>
 #include <boost/process.hpp>
+#include <fmt/core.h>
+#include <fstream>
+#include <unistd.h>
 
+using namespace nc;
 using namespace nc::vfs;
 using namespace nc::vfs::native;
 #define PREFIX "VFSNative "
 
 static int Execute(const std::string &_command);
 static int Execute(const std::string &_binary, const std::vector<std::string> &_args);
-static bool RunMainLoopUntilExpectationOrTimeout(std::chrono::nanoseconds _timeout,
-                                                 std::function<bool()> _expectation);
+static bool RunMainLoopUntilExpectationOrTimeout(std::chrono::nanoseconds _timeout, std::function<bool()> _expectation);
 static bool WaitUntilNativeFSManSeesVolumeAtPath(const std::filesystem::path &volume_path,
                                                  std::chrono::nanoseconds _time_limit);
 
 TEST_CASE(PREFIX "Reports case-insensitive on directory path")
 {
-    TestDir tmp_dir;
+    const TestDir tmp_dir;
     const auto dmg_path = tmp_dir.directory / "tmp_image.dmg";
-    const auto create_cmd =
-        "/usr/bin/hdiutil create -size 1m -fs HFS+ -volname SomethingWickedThisWayComes12345 " +
-        dmg_path.native();
+    const auto create_cmd = "/usr/bin/hdiutil create -size 1m -fs HFS+ -volname "
+                            "SomethingWickedThisWayComes12345 " +
+                            dmg_path.native();
     const auto mount_cmd = "/usr/bin/hdiutil attach " + dmg_path.native();
     const auto unmount_cmd = "/usr/bin/hdiutil detach /Volumes/SomethingWickedThisWayComes12345";
     const std::filesystem::path volume_path = "/Volumes/SomethingWickedThisWayComes12345";
@@ -48,7 +49,7 @@ TEST_CASE(PREFIX "Reports case-insensitive on directory path")
 
 TEST_CASE(PREFIX "Reports case-sensitive on directory path")
 {
-    TestDir tmp_dir;
+    const TestDir tmp_dir;
     const auto dmg_path = tmp_dir.directory / "tmp_image.dmg";
     const auto bin = "/usr/bin/hdiutil";
     const auto create_args = std::vector<std::string>{"create",
@@ -79,17 +80,23 @@ TEST_CASE(PREFIX "Reports case-sensitive on directory path")
 
 TEST_CASE(PREFIX "SetFlags")
 {
-    TestDir dir;
+    const TestDir dir;
     const auto host = TestEnv().vfs_native;
     struct ::stat st;
     SECTION("Regular file")
     {
         uint64_t vfs_flags = 0;
-        SECTION("Flags::None") { vfs_flags = Flags::None; }
-        SECTION("Flags::F_NoFollow") { vfs_flags = Flags::F_NoFollow; }
+        SECTION("Flags::None")
+        {
+            vfs_flags = Flags::None;
+        }
+        SECTION("Flags::F_NoFollow")
+        {
+            vfs_flags = Flags::F_NoFollow;
+        }
         const auto path = dir.directory / "regular_file";
         REQUIRE(close(creat(path.c_str(), 0755)) == 0);
-        REQUIRE(host->SetFlags(path.c_str(), UF_HIDDEN, vfs_flags, nullptr) == VFSError::Ok);
+        REQUIRE(host->SetFlags(path.c_str(), UF_HIDDEN, vfs_flags, nullptr));
         REQUIRE(::lstat(path.c_str(), &st) == 0);
         CHECK(st.st_flags & UF_HIDDEN);
     }
@@ -101,8 +108,7 @@ TEST_CASE(PREFIX "SetFlags")
         REQUIRE_NOTHROW(std::filesystem::create_symlink(path_reg, path_sym));
         SECTION("Flags::None")
         {
-            REQUIRE(host->SetFlags(path_sym.c_str(), UF_HIDDEN, Flags::None, nullptr) ==
-                    VFSError::Ok);
+            REQUIRE(host->SetFlags(path_sym.c_str(), UF_HIDDEN, Flags::None, nullptr));
             REQUIRE(::lstat(path_sym.c_str(), &st) == 0);
             CHECK_FALSE(st.st_flags & UF_HIDDEN);
             REQUIRE(::lstat(path_reg.c_str(), &st) == 0);
@@ -110,8 +116,7 @@ TEST_CASE(PREFIX "SetFlags")
         }
         SECTION("Flags::F_NoFollow")
         {
-            REQUIRE(host->SetFlags(path_sym.c_str(), UF_HIDDEN, Flags::F_NoFollow, nullptr) ==
-                    VFSError::Ok);
+            REQUIRE(host->SetFlags(path_sym.c_str(), UF_HIDDEN, Flags::F_NoFollow, nullptr));
             REQUIRE(::lstat(path_sym.c_str(), &st) == 0);
             CHECK(st.st_flags & UF_HIDDEN);
             REQUIRE(::lstat(path_reg.c_str(), &st) == 0);
@@ -121,17 +126,15 @@ TEST_CASE(PREFIX "SetFlags")
     SECTION("Non-existent")
     {
         const auto path = dir.directory / "blah";
-        CHECK(host->SetFlags(path.c_str(), UF_HIDDEN, Flags::None, nullptr) ==
-              VFSError::FromErrno(ENOENT));
+        CHECK(host->SetFlags(path.c_str(), UF_HIDDEN, Flags::None, nullptr).error() == Error{Error::POSIX, ENOENT});
     }
 }
 
 TEST_CASE(PREFIX "Fetching")
 {
-    TestDir test_dir_holder;
+    const TestDir test_dir_holder;
     std::filesystem::path test_dir = test_dir_holder.directory;
-    robin_hood::unordered_flat_set<std::string, nc::RHTransparentStringHashEqual, nc::RHTransparentStringHashEqual>
-        to_visit;
+    ankerl::unordered_dense::set<std::string, nc::UnorderedStringHashEqual, nc::UnorderedStringHashEqual> to_visit;
     const uid_t uid = geteuid();
     const uid_t gid = getgid();
     const time_t time = ::time(nullptr);
@@ -142,7 +145,8 @@ TEST_CASE(PREFIX "Fetching")
         return st.st_dev;
     }();
 
-    // spawn a bunch of regular files to ensure the batching mechanism can deal with the mass
+    // spawn a bunch of regular files to ensure the batching mechanism can deal
+    // with the mass
     for( size_t i = 0; i != 1000; ++i ) {
         auto filename = fmt::format("reg{}", i);
         REQUIRE(close(creat((test_dir / filename).c_str(), 0755)) == 0);
@@ -236,7 +240,10 @@ TEST_CASE(PREFIX "Fetching")
     {
         CHECK(Fetching::ReadDirAttributesStat(fd, test_dir.c_str(), fetch, param) == 0);
     }
-    SECTION("ReadDirAttributesBulk") { CHECK(Fetching::ReadDirAttributesBulk(fd, fetch, param) == 0); }
+    SECTION("ReadDirAttributesBulk")
+    {
+        CHECK(Fetching::ReadDirAttributesBulk(fd, fetch, param) == 0);
+    }
 
     CHECK(fetched_notification == total_items_number);
     CHECK(to_visit.empty());
@@ -266,8 +273,7 @@ static int Execute(const std::string &_binary, const std::vector<std::string> &_
     return c.exit_code();
 }
 
-static bool RunMainLoopUntilExpectationOrTimeout(std::chrono::nanoseconds _timeout,
-                                                 std::function<bool()> _expectation)
+static bool RunMainLoopUntilExpectationOrTimeout(std::chrono::nanoseconds _timeout, std::function<bool()> _expectation)
 {
     dispatch_assert_main_queue();
     assert(_timeout.count() > 0);
@@ -288,9 +294,8 @@ static bool WaitUntilNativeFSManSeesVolumeAtPath(const std::filesystem::path &vo
 {
     auto predicate = [volume_path] {
         auto volumes = TestEnv().native_fs_man->Volumes();
-        return std::any_of(volumes.begin(), volumes.end(), [volume_path](auto _fs_info) {
-            return _fs_info->mounted_at_path == volume_path;
-        });
+        return std::ranges::any_of(volumes,
+                                   [volume_path](auto _fs_info) { return _fs_info->mounted_at_path == volume_path; });
     };
     return RunMainLoopUntilExpectationOrTimeout(_time_limit, predicate);
 }

@@ -1,12 +1,11 @@
 // Copyright (C) 2013-2021 Michael Kazakov. Subject to GNU General Public License version 3.
-#include <stdlib.h>
-#include <memory.h>
 #include "../include/Utility/DataBlockAnalysis.h"
+#include <cstdlib>
+#include <memory.h>
 
 #ifndef Endian16_Swap
-#define Endian16_Swap(value)                                                                       \
-    (((static_cast<uint16_t>((value)&0x00FF)) << 8) |                                              \
-     ((static_cast<uint16_t>((value)&0xFF00)) >> 8))
+#define Endian16_Swap(value)                                                                                           \
+    (((static_cast<uint16_t>((value) & 0x00FF)) << 8) | ((static_cast<uint16_t>((value) & 0xFF00)) >> 8))
 #endif
 
 static int UTF8Errors(const unsigned char *_bytes, size_t _n)
@@ -15,7 +14,7 @@ static int UTF8Errors(const unsigned char *_bytes, size_t _n)
 
     for( size_t i = 0, e = _n, n = 0; i < e; ++i ) // check UTF-8 sequence
     {
-        unsigned char b = _bytes[i];
+        const unsigned char b = _bytes[i];
         if( n == 0 ) {
             if( (b & 0x80) == 0 ) {
                 continue;
@@ -55,20 +54,19 @@ static int UTF8Errors(const unsigned char *_bytes, size_t _n)
 static int UTF16LEErrors(const unsigned char *_bytes, size_t _n)
 {
     const uint16_t *cur = reinterpret_cast<const uint16_t *>(_bytes);
-    const uint16_t *end = cur + _n / sizeof(uint16_t);
+    const uint16_t *end = cur + (_n / sizeof(uint16_t));
 
     int errors = 0;
 
     while( cur < end ) {
-        uint16_t val = *cur;
+        const uint16_t val = *cur;
 
         if( val <= 0xD7FF || val >= 0xE000 ) { // BMP - ok
             cur++;
         }
-        else {                                     // need to check suggorate pair
-            if( val >= 0xD800 && val <= 0xDBFF ) { // leading surrogate
-                if( cur + 1 < end && *(cur + 1) >= 0xDC00 &&
-                    *(cur + 1) <= 0xDFFF ) { // ok, normal surrogate
+        else {                                                                        // need to check suggorate pair
+            if( val >= 0xD800 && val <= 0xDBFF ) {                                    // leading surrogate
+                if( cur + 1 < end && *(cur + 1) >= 0xDC00 && *(cur + 1) <= 0xDFFF ) { // ok, normal surrogate
                     cur += 2;
                 }
                 else { // corrupted surrogate
@@ -89,12 +87,12 @@ static int UTF16LEErrors(const unsigned char *_bytes, size_t _n)
 static int UTF16BEErrors(const unsigned char *_bytes, size_t _n)
 {
     const uint16_t *cur = reinterpret_cast<const uint16_t *>(_bytes);
-    const uint16_t *end = cur + _n / sizeof(uint16_t);
+    const uint16_t *end = cur + (_n / sizeof(uint16_t));
 
     int errors = 0;
 
     while( cur < end ) {
-        uint16_t val = static_cast<uint16_t>(Endian16_Swap(*cur));
+        const uint16_t val = static_cast<uint16_t>(Endian16_Swap(*cur));
 
         if( val <= 0xD7FF || val >= 0xE000 ) { // BMP - just ok
             cur++;
@@ -102,7 +100,7 @@ static int UTF16BEErrors(const unsigned char *_bytes, size_t _n)
         else {                                     // need to check suggorate pair
             if( val >= 0xD800 && val <= 0xDBFF ) { // leading surrogate
                 if( cur + 1 < end ) {
-                    uint16_t next = static_cast<uint16_t>(Endian16_Swap(*(cur + 1)));
+                    const uint16_t next = static_cast<uint16_t>(Endian16_Swap(*(cur + 1)));
                     if( next >= 0xDC00 && next <= 0xDFFF ) { // ok, normal surrogate
                         cur += 2;
                     }
@@ -164,9 +162,7 @@ static int WordZeros(const unsigned char *_bytes, size_t _n)
 // here we assume that _data is taken without odd dword offset (1, 2, 3 bytes offset)
 // TODO: check for UTF16 BOM. nobody use it, but we should
 // TODO: UTF-7 & UTF-32
-int DoStaticDataBlockAnalysis(const void *_data,
-                              size_t _bytes_amount,
-                              StaticDataBlockAnalysis *_output)
+int DoStaticDataBlockAnalysis(const void *_data, size_t _bytes_amount, StaticDataBlockAnalysis *_output)
 {
     if( _bytes_amount < 4 ) // we need some reasonable data amount to do any prediction
     {
@@ -177,14 +173,13 @@ int DoStaticDataBlockAnalysis(const void *_data,
 
     const unsigned char *bytes = reinterpret_cast<const unsigned char *>(_data);
 
-    int byte_zeros_count = ByteZeros(bytes, _bytes_amount); // zeros count in a file
-    int word_zeros_count = WordZeros(bytes, _bytes_amount); // zeros count in a file
-    int inv_utf8 = UTF8Errors(bytes, _bytes_amount);        // invalid utf-8 sequences appearances
-    int inv_utf16le =
-        UTF16LEErrors(bytes, _bytes_amount); // invalid utf-16 le sequences appearances
-    int inv_utf16be =
-        UTF16BEErrors(bytes, _bytes_amount); // invalid utf-16 be sequences appearances
-    int utf16le_spaces, utf16be_spaces;
+    const int byte_zeros_count = ByteZeros(bytes, _bytes_amount); // zeros count in a file
+    const int word_zeros_count = WordZeros(bytes, _bytes_amount); // zeros count in a file
+    const int inv_utf8 = UTF8Errors(bytes, _bytes_amount);        // invalid utf-8 sequences appearances
+    const int inv_utf16le = UTF16LEErrors(bytes, _bytes_amount);  // invalid utf-16 le sequences appearances
+    const int inv_utf16be = UTF16BEErrors(bytes, _bytes_amount);  // invalid utf-16 be sequences appearances
+    int utf16le_spaces;
+    int utf16be_spaces;
     SpacesForUTF16(bytes, _bytes_amount, &utf16le_spaces, &utf16be_spaces);
 
     _output->can_be_utf8 = inv_utf8 == 0;
@@ -193,9 +188,8 @@ int DoStaticDataBlockAnalysis(const void *_data,
     _output->can_be_utf16_be = inv_utf16be == 0;
     _output->likely_utf16_be = _output->can_be_utf16_be && utf16be_spaces > utf16le_spaces * 100;
 
-    _output->is_binary = (_output->likely_utf16_le || _output->likely_utf16_be)
-                             ? word_zeros_count != 0
-                             : byte_zeros_count != 0;
+    _output->is_binary =
+        (_output->likely_utf16_le || _output->likely_utf16_be) ? word_zeros_count != 0 : byte_zeros_count != 0;
 
     return 0;
 }

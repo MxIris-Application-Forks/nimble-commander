@@ -1,17 +1,26 @@
 // Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ContextMenu.h"
-#include "PanelController.h"
+#include "Actions/Compress.h"
 #include "Actions/CopyToPasteboard.h"
 #include "Actions/Delete.h"
 #include "Actions/Duplicate.h"
-#include "Actions/Compress.h"
 #include "Actions/OpenFile.h"
 #include "NCPanelOpenWithMenuDelegate.h"
-#include <VFS/VFS.h>
+#include "PanelController.h"
+#include <Panel/TagsStorage.h>
+#include <Panel/UI/TagsPresentation.h>
+#include <Utility/ObjCpp.h>
 #include <Utility/StringExtras.h>
+#include <VFS/VFS.h>
+#include <algorithm>
+#include <memory>
+#include <pstld/pstld.h>
+#include <ranges>
 
 // TODO: remove this global dependency
 #include <NimbleCommander/Bootstrap/AppDelegate.h>
+
+#include <NimbleCommander/Core/AnyHolder.h>
 
 using namespace nc::panel;
 
@@ -49,13 +58,13 @@ using namespace nc::panel;
         self.minimumWidth = 230; // hardcoding is bad!
         auto &global_config = NCAppDelegate.me.globalConfig;
 
-        m_CopyAction.reset(new actions::context::CopyToPasteboard{m_Items});
-        m_MoveToTrashAction.reset(new actions::context::MoveToTrash{m_Items});
-        m_DeletePermanentlyAction.reset(new actions::context::DeletePermanently{m_Items});
-        m_DuplicateAction.reset(new actions::context::Duplicate{global_config, m_Items});
-        m_CompressHereAction.reset(new actions::context::CompressHere{global_config, m_Items});
-        m_CompressToOppositeAction.reset(new actions::context::CompressToOpposite{global_config, m_Items});
-        m_OpenFileAction.reset(new actions::context::OpenFileWithDefaultHandler{m_Items, _file_opener});
+        m_CopyAction = std::make_unique<actions::context::CopyToPasteboard>(m_Items);
+        m_MoveToTrashAction = std::make_unique<actions::context::MoveToTrash>(m_Items);
+        m_DeletePermanentlyAction = std::make_unique<actions::context::DeletePermanently>(m_Items);
+        m_DuplicateAction = std::make_unique<actions::context::Duplicate>(global_config, m_Items);
+        m_CompressHereAction = std::make_unique<actions::context::CompressHere>(global_config, m_Items);
+        m_CompressToOppositeAction = std::make_unique<actions::context::CompressToOpposite>(global_config, m_Items);
+        m_OpenFileAction = std::make_unique<actions::context::OpenFileWithDefaultHandler>(m_Items, _file_opener);
         m_OpenWithDelegate = [[NCPanelOpenWithMenuDelegate alloc] initWithFileOpener:_file_opener utiDB:_uti_db];
         [m_OpenWithDelegate setContextSource:m_Items];
         m_OpenWithDelegate.target = m_Panel;
@@ -135,7 +144,7 @@ using namespace nc::panel;
                                    "Menu item title to delete file, for English is 'Delete Permanently'");
     delete_item.target = self;
     delete_item.action = @selector(OnDeletePermanently:);
-    delete_item.alternate = trash_item.hidden ? false : true;
+    delete_item.alternate = !trash_item.hidden;
     delete_item.keyEquivalent = @"";
     delete_item.keyEquivalentModifierMask = trash_item.hidden ? 0 : NSEventModifierFlagOption;
     [self addItem:delete_item];
@@ -174,8 +183,7 @@ using namespace nc::panel;
     // Share stuff
     {
         const auto share_submenu = [NSMenu new];
-        const auto eligible =
-            all_of(begin(m_Items), end(m_Items), [](const auto &_i) { return _i.Host()->IsNativeFS(); });
+        const auto eligible = std::ranges::all_of(m_Items, [](const auto &_i) { return _i.Host()->IsNativeFS(); });
         if( eligible ) {
             m_ShareItemsURLs = [NSMutableArray new];
             for( auto &i : m_Items )
@@ -203,6 +211,44 @@ using namespace nc::panel;
     }
 
     [self addItem:NSMenuItem.separatorItem];
+
+    //////////////////////////////////////////////////////////////////////
+    // Tags stuff
+    if( const auto eligible = std::ranges::all_of(m_Items, [](const auto &_i) { return _i.Host()->IsNativeFS(); });
+        eligible && NCAppDelegate.me.globalConfig.GetBool("filePanel.FinderTags.enable") ) {
+        const std::vector<nc::utility::Tags::Tag> all_tags = NCAppDelegate.me.tagsStorage.Get();
+        auto tag_state = [&](const nc::utility::Tags::Tag &_tag) -> NSControlStateValue {
+            const auto count = std::ranges::count_if(m_Items, [&](const VFSListingItem &_item) -> bool {
+                auto item_tags = _item.Tags();
+                return std::ranges::find(item_tags, _tag) != item_tags.end();
+            });
+            if( count == 0 )
+                return NSControlStateValueOff;
+            else if( static_cast<size_t>(count) == m_Items.size() )
+                return NSControlStateValueOn;
+            else
+                return NSControlStateValueMixed;
+        };
+        const auto tags_submenu = [NSMenu new];
+        // TODO: that's O(N*M) complexity, might backfire when there's many tags used
+        for( auto &tag : all_tags ) {
+            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:[NSString stringWithUTF8StdString:tag.Label()]
+                                                          action:@selector(onTagItem:)
+                                                   keyEquivalent:@""];
+            item.image = TagsMenuDisplay::Images().at(std::to_underlying(tag.Color()));
+            item.state = tag_state(tag);
+            item.representedObject = [[AnyHolder alloc] initWithAny:tag];
+            item.target = self;
+            [tags_submenu addItem:item];
+        }
+
+        const auto tags_menuitem = [NSMenuItem new];
+        tags_menuitem.title = NSLocalizedStringFromTable(@"Tags", @"FilePanelsContextMenu", "Tags submenu title");
+        tags_menuitem.submenu = tags_submenu;
+        tags_menuitem.enabled = tags_submenu.numberOfItems > 0;
+        [self addItem:tags_menuitem];
+        [self addItem:NSMenuItem.separatorItem];
+    }
 
     //////////////////////////////////////////////////////////////////////
     // Copy element for native FS. simply copies selected items' paths
@@ -281,15 +327,40 @@ using namespace nc::panel;
     m_DuplicateAction->Perform(m_Panel, sender);
 }
 
+- (void)onTagItem:(id)_sender
+{
+    // TODO: somehow move this action code into actual actions
+    NSMenuItem *it = nc::objc_cast<NSMenuItem>(_sender);
+    if( !it )
+        return;
+    const auto tag = std::any_cast<nc::utility::Tags::Tag>(nc::objc_cast<AnyHolder>(it.representedObject).any);
+    const auto state = it.state;
+    dispatch_to_background([tag, state, items = m_Items] {
+        pstld::for_each(items.begin(), items.end(), [&](const VFSListingItem &_item) {
+            if( state == NSControlStateValueOn )
+                nc::utility::Tags::RemoveTag(_item.Path(), tag.Label());
+            else
+                nc::utility::Tags::AddTag(_item.Path(), tag);
+        });
+    });
+}
+
+- (std::span<VFSListingItem>)items
+{
+    return m_Items;
+}
+
 @end
 
 @implementation NCPanelContextMenuSharingDelegate {
     NCPanelContextMenuSharingDelegate *m_Self;
 }
+@synthesize sourceWindow;
 
 - (instancetype)init
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         m_Self = self;
     }
     return self;

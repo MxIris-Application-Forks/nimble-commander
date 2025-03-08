@@ -1,36 +1,48 @@
-// Copyright (C) 2016-2020 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2016-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "AppDelegateCPP.h"
 #include <Utility/PathManip.h>
 #include <Utility/StringExtras.h>
-#include "../../3rd_Party/NSFileManagerDirectoryLocations/NSFileManager+DirectoryLocations.h"
 #include "AppDelegate.h"
+#include <fmt/format.h>
 
 namespace nc {
 
-const std::string &AppDelegate::ConfigDirectory()
+const std::filesystem::path &AppDelegate::ConfigDirectory()
 {
     return NCAppDelegate.me.configDirectory;
 }
 
-const std::string &AppDelegate::StateDirectory()
+const std::filesystem::path &AppDelegate::StateDirectory()
 {
     return NCAppDelegate.me.stateDirectory;
 }
 
-const std::string &AppDelegate::SupportDirectory()
+const std::filesystem::path &AppDelegate::SupportDirectory()
 {
-    // this is a duplicate of NCAppDelegate.supportDirectory,
-    // but it has to be here to break down an initialization dependency circle
-    [[clang::no_destroy]] static const std::string support_dir = []{
-        auto path = NSFileManager.defaultManager.applicationSupportDirectory;
-        return EnsureTrailingSlash( path.fileSystemRepresentationSafe );
+    [[clang::no_destroy]] static const std::filesystem::path support_dir = [] {
+        // Build the path to the support directory
+        NSString *const executableName = [NSBundle.mainBundle.infoDictionary objectForKey:@"CFBundleExecutable"];
+        NSArray *const paths =
+            NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, true);
+        if( paths.count == 0 ) {
+            fmt::println(stderr, "Unable to locate the Application Support directory");
+            exit(-1);
+        }
+        NSString *const ns_path = [paths objectAtIndex:0];
+        const std::filesystem::path path = std::filesystem::path(ns_path.fileSystemRepresentation) /
+                                           std::filesystem::path(executableName.fileSystemRepresentation);
+
+        // Create it if it's not there
+        std::filesystem::create_directories(path);
+
+        return EnsureTrailingSlash(path);
     }();
     return support_dir;
 }
 
-const std::shared_ptr<NetworkConnectionsManager> &AppDelegate::NetworkConnectionsManager()
+const std::shared_ptr<nc::panel::NetworkConnectionsManager> &AppDelegate::NetworkConnectionsManager()
 {
     return NCAppDelegate.me.networkConnectionsManager;
 }
 
-}
+} // namespace nc

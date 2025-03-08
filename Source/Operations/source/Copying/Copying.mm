@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Copying.h"
 #include "CopyingJob.h"
 #include "../AsyncDialogResponse.h"
@@ -7,6 +7,8 @@
 #include "FileAlreadyExistDialog.h"
 #include "CopyingTitleBuilder.h"
 #include <sys/stat.h>
+
+#include <memory>
 
 namespace nc::ops {
 
@@ -20,7 +22,7 @@ Copying::Copying(std::vector<VFSListingItem> _source_files,
     m_ExistBehavior = _options.exist_behavior;
     m_LockedBehaviour = _options.locked_items_behaviour;
 
-    m_Job.reset(new CopyingJob(_source_files, _destination_path, _destination_host, _options));
+    m_Job = std::make_unique<CopyingJob>(_source_files, _destination_path, _destination_host, _options);
     SetupCallbacks();
     OnStageChanged();
 }
@@ -41,43 +43,43 @@ void Copying::SetupCallbacks()
         [this](const struct stat &_src, const struct stat &_dst, const std::string &_path) {
             return OnRenameDestExists(_src, _dst, _path);
         };
-    j.m_OnCantAccessSourceItem = [this](int _1, const std::string &_2, VFSHost &_3) {
+    j.m_OnCantAccessSourceItem = [this](Error _1, const std::string &_2, VFSHost &_3) {
         return OnCantAccessSourceItem(_1, _2, _3);
     };
-    j.m_OnCantOpenDestinationFile = [this](int _1, const std::string &_2, VFSHost &_3) {
+    j.m_OnCantOpenDestinationFile = [this](Error _1, const std::string &_2, VFSHost &_3) {
         return OnCantOpenDestinationFile(_1, _2, _3);
     };
     j.m_OnSourceFileReadError = [this](int _1, const std::string &_2, VFSHost &_3) {
         return OnSourceFileReadError(_1, _2, _3);
     };
-    j.m_OnDestinationFileReadError = [this](int _1, const std::string &_2, VFSHost &_3) {
+    j.m_OnDestinationFileReadError = [this](Error _1, const std::string &_2, VFSHost &_3) {
         return OnDestinationFileReadError(_1, _2, _3);
     };
-    j.m_OnDestinationFileWriteError = [this](int _1, const std::string &_2, VFSHost &_3) {
+    j.m_OnDestinationFileWriteError = [this](Error _1, const std::string &_2, VFSHost &_3) {
         return OnDestinationFileWriteError(_1, _2, _3);
     };
-    j.m_OnCantCreateDestinationRootDir = [this](int _1, const std::string &_2, VFSHost &_3) {
+    j.m_OnCantCreateDestinationRootDir = [this](Error _1, const std::string &_2, VFSHost &_3) {
         return OnCantCreateDestinationRootDir(_1, _2, _3);
     };
-    j.m_OnCantCreateDestinationDir = [this](int _1, const std::string &_2, VFSHost &_3) {
+    j.m_OnCantCreateDestinationDir = [this](Error _1, const std::string &_2, VFSHost &_3) {
         return OnCantCreateDestinationDir(_1, _2, _3);
     };
-    j.m_OnCantDeleteDestinationFile = [this](int _1, const std::string &_2, VFSHost &_3) {
+    j.m_OnCantDeleteDestinationFile = [this](Error _1, const std::string &_2, VFSHost &_3) {
         return OnCantDeleteDestinationFile(_1, _2, _3);
     };
-    j.m_OnCantDeleteSourceItem = [this](int _1, const std::string &_2, VFSHost &_3) {
+    j.m_OnCantDeleteSourceItem = [this](Error _1, const std::string &_2, VFSHost &_3) {
         return OnCantDeleteSourceItem(_1, _2, _3);
     };
-    j.m_OnCantRenameLockedItem = [this](int _1, const std::string &_2, VFSHost &_3) {
+    j.m_OnCantRenameLockedItem = [this](Error _1, const std::string &_2, VFSHost &_3) {
         return OnLockedItemIssue(_1, _2, _3, LockedItemCause::Moving);
     };
-    j.m_OnCantDeleteLockedItem = [this](int _1, const std::string &_2, VFSHost &_3) {
+    j.m_OnCantDeleteLockedItem = [this](Error _1, const std::string &_2, VFSHost &_3) {
         return OnLockedItemIssue(_1, _2, _3, LockedItemCause::Deletion);
     };
     j.m_OnCantOpenLockedItem = [this](int _1, const std::string &_2, VFSHost &_3) {
-        return OnLockedItemIssue(_1, _2, _3, LockedItemCause::Opening);
+        return OnLockedItemIssue(VFSError::ToError(_1), _2, _3, LockedItemCause::Opening);
     };
-    j.m_OnUnlockError = [this](int _1, const std::string &_2, VFSHost &_3) { return OnUnlockError(_1, _2, _3); };
+    j.m_OnUnlockError = [this](Error _1, const std::string &_2, VFSHost &_3) { return OnUnlockError(_1, _2, _3); };
     j.m_OnNotADirectory = [this](const std::string &_1, VFSHost &_2) { return OnNotADirectory(_1, _2); };
     j.m_OnFileVerificationFailed = [this](const std::string &_1, VFSHost &_2) { OnFileVerificationFailed(_1, _2); };
     j.m_OnStageChanged = [this]() { OnStageChanged(); };
@@ -115,7 +117,7 @@ Copying::OnCopyDestExists(const struct stat &_src, const struct stat &_dst, cons
         return CB::CopyDestExistsResolution::Stop;
 
     const auto ctx = std::make_shared<AsyncDialogResponse>();
-    dispatch_to_main_queue([=] { OnCopyDestExistsUI(_src, _dst, _path, ctx); });
+    dispatch_to_main_queue([=, this] { OnCopyDestExistsUI(_src, _dst, _path, ctx); });
     WaitForDialogResponse(ctx);
 
     if( ctx->response == NSModalResponseSkip ) {
@@ -186,7 +188,7 @@ Copying::OnRenameDestExists(const struct stat &_src, const struct stat &_dst, co
         return CB::RenameDestExistsResolution::Stop;
 
     const auto ctx = std::make_shared<AsyncDialogResponse>();
-    dispatch_to_main_queue([=] { OnRenameDestExistsUI(_src, _dst, _path, ctx); });
+    dispatch_to_main_queue([=, this] { OnRenameDestExistsUI(_src, _dst, _path, ctx); });
     WaitForDialogResponse(ctx);
 
     if( ctx->response == NSModalResponseSkip ) {
@@ -227,10 +229,11 @@ void Copying::OnRenameDestExistsUI(const struct stat &_src,
     Show(sheet.window, _ctx);
 }
 
-CB::CantAccessSourceItemResolution Copying::OnCantAccessSourceItem(int _err, const std::string &_path, VFSHost &_vfs)
+CB::CantAccessSourceItemResolution
+Copying::OnCantAccessSourceItem(Error _error, const std::string &_path, VFSHost &_vfs)
 {
     if( m_CallbackHooks && m_CallbackHooks->m_OnCantAccessSourceItem )
-        return m_CallbackHooks->m_OnCantAccessSourceItem(_err, _path, _vfs);
+        return m_CallbackHooks->m_OnCantAccessSourceItem(_error, _path, _vfs);
 
     if( m_SkipAll )
         return CB::CantAccessSourceItemResolution::Skip;
@@ -240,7 +243,7 @@ CB::CantAccessSourceItemResolution Copying::OnCantAccessSourceItem(int _err, con
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(GenericDialog::AbortSkipSkipAllRetry,
                       NSLocalizedString(@"Failed to access a file", ""),
-                      _err,
+                      _error,
                       {_vfs, _path},
                       ctx);
     WaitForDialogResponse(ctx);
@@ -258,10 +261,10 @@ CB::CantAccessSourceItemResolution Copying::OnCantAccessSourceItem(int _err, con
 }
 
 CB::CantOpenDestinationFileResolution
-Copying::OnCantOpenDestinationFile(int _err, const std::string &_path, VFSHost &_vfs)
+Copying::OnCantOpenDestinationFile(Error _error, const std::string &_path, VFSHost &_vfs)
 {
     if( m_CallbackHooks && m_CallbackHooks->m_OnCantOpenDestinationFile )
-        return m_CallbackHooks->m_OnCantOpenDestinationFile(_err, _path, _vfs);
+        return m_CallbackHooks->m_OnCantOpenDestinationFile(_error, _path, _vfs);
 
     if( m_SkipAll )
         return CB::CantOpenDestinationFileResolution::Skip;
@@ -271,7 +274,7 @@ Copying::OnCantOpenDestinationFile(int _err, const std::string &_path, VFSHost &
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(GenericDialog::AbortSkipSkipAllRetry,
                       NSLocalizedString(@"Failed to open a destination file", ""),
-                      _err,
+                      _error,
                       {_vfs, _path},
                       ctx);
     WaitForDialogResponse(ctx);
@@ -288,10 +291,11 @@ Copying::OnCantOpenDestinationFile(int _err, const std::string &_path, VFSHost &
         return CB::CantOpenDestinationFileResolution::Stop;
 }
 
-CB::SourceFileReadErrorResolution Copying::OnSourceFileReadError(int _err, const std::string &_path, VFSHost &_vfs)
+CB::SourceFileReadErrorResolution
+Copying::OnSourceFileReadError(int _vfs_error, const std::string &_path, VFSHost &_vfs)
 {
     if( m_CallbackHooks && m_CallbackHooks->m_OnSourceFileReadError )
-        return m_CallbackHooks->m_OnSourceFileReadError(_err, _path, _vfs);
+        return m_CallbackHooks->m_OnSourceFileReadError(_vfs_error, _path, _vfs);
 
     if( m_SkipAll )
         return CB::SourceFileReadErrorResolution::Skip;
@@ -301,7 +305,7 @@ CB::SourceFileReadErrorResolution Copying::OnSourceFileReadError(int _err, const
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(GenericDialog::AbortSkipSkipAllRetry,
                       NSLocalizedString(@"Failed to read a source file", ""),
-                      _err,
+                      _vfs_error,
                       {_vfs, _path},
                       ctx);
     WaitForDialogResponse(ctx);
@@ -319,10 +323,10 @@ CB::SourceFileReadErrorResolution Copying::OnSourceFileReadError(int _err, const
 }
 
 CB::DestinationFileReadErrorResolution
-Copying::OnDestinationFileReadError(int _err, const std::string &_path, VFSHost &_vfs)
+Copying::OnDestinationFileReadError(Error _error, const std::string &_path, VFSHost &_vfs)
 {
     if( m_CallbackHooks && m_CallbackHooks->m_OnDestinationFileReadError )
-        return m_CallbackHooks->m_OnDestinationFileReadError(_err, _path, _vfs);
+        return m_CallbackHooks->m_OnDestinationFileReadError(_error, _path, _vfs);
 
     if( m_SkipAll )
         return CB::DestinationFileReadErrorResolution::Skip;
@@ -332,7 +336,7 @@ Copying::OnDestinationFileReadError(int _err, const std::string &_path, VFSHost 
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(GenericDialog::AbortSkipSkipAll,
                       NSLocalizedString(@"Failed to read a destination file", ""),
-                      _err,
+                      _error,
                       {_vfs, _path},
                       ctx);
     WaitForDialogResponse(ctx);
@@ -348,10 +352,10 @@ Copying::OnDestinationFileReadError(int _err, const std::string &_path, VFSHost 
 }
 
 CB::DestinationFileWriteErrorResolution
-Copying::OnDestinationFileWriteError(int _err, const std::string &_path, VFSHost &_vfs)
+Copying::OnDestinationFileWriteError(Error _error, const std::string &_path, VFSHost &_vfs)
 {
     if( m_CallbackHooks && m_CallbackHooks->m_OnDestinationFileWriteError )
-        return m_CallbackHooks->m_OnDestinationFileWriteError(_err, _path, _vfs);
+        return m_CallbackHooks->m_OnDestinationFileWriteError(_error, _path, _vfs);
 
     if( m_SkipAll )
         return CB::DestinationFileWriteErrorResolution::Skip;
@@ -361,7 +365,7 @@ Copying::OnDestinationFileWriteError(int _err, const std::string &_path, VFSHost
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(GenericDialog::AbortSkipSkipAllRetry,
                       NSLocalizedString(@"Failed to write a file", ""),
-                      _err,
+                      _error,
                       {_vfs, _path},
                       ctx);
     WaitForDialogResponse(ctx);
@@ -379,11 +383,11 @@ Copying::OnDestinationFileWriteError(int _err, const std::string &_path, VFSHost
 }
 
 CB::CantCreateDestinationRootDirResolution
-Copying::OnCantCreateDestinationRootDir(int _err, const std::string &_path, VFSHost &_vfs)
+Copying::OnCantCreateDestinationRootDir(Error _error, const std::string &_path, VFSHost &_vfs)
 {
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(
-        GenericDialog::AbortRetry, NSLocalizedString(@"Failed to create a directory", ""), _err, {_vfs, _path}, ctx);
+        GenericDialog::AbortRetry, NSLocalizedString(@"Failed to create a directory", ""), _error, {_vfs, _path}, ctx);
     WaitForDialogResponse(ctx);
 
     if( ctx->response == NSModalResponseRetry )
@@ -393,10 +397,10 @@ Copying::OnCantCreateDestinationRootDir(int _err, const std::string &_path, VFSH
 }
 
 CB::CantCreateDestinationDirResolution
-Copying::OnCantCreateDestinationDir(int _err, const std::string &_path, VFSHost &_vfs)
+Copying::OnCantCreateDestinationDir(Error _error, const std::string &_path, VFSHost &_vfs)
 {
     if( m_CallbackHooks && m_CallbackHooks->m_OnCantCreateDestinationDir )
-        return m_CallbackHooks->m_OnCantCreateDestinationDir(_err, _path, _vfs);
+        return m_CallbackHooks->m_OnCantCreateDestinationDir(_error, _path, _vfs);
 
     if( m_SkipAll )
         return CB::CantCreateDestinationDirResolution::Skip;
@@ -406,7 +410,7 @@ Copying::OnCantCreateDestinationDir(int _err, const std::string &_path, VFSHost 
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(GenericDialog::AbortSkipSkipAllRetry,
                       NSLocalizedString(@"Failed to create a directory", ""),
-                      _err,
+                      _error,
                       {_vfs, _path},
                       ctx);
     WaitForDialogResponse(ctx);
@@ -424,10 +428,10 @@ Copying::OnCantCreateDestinationDir(int _err, const std::string &_path, VFSHost 
 }
 
 CB::CantDeleteDestinationFileResolution
-Copying::OnCantDeleteDestinationFile(int _err, const std::string &_path, VFSHost &_vfs)
+Copying::OnCantDeleteDestinationFile(Error _error, const std::string &_path, VFSHost &_vfs)
 {
     if( m_CallbackHooks && m_CallbackHooks->m_OnCantDeleteDestinationFile )
-        return m_CallbackHooks->m_OnCantDeleteDestinationFile(_err, _path, _vfs);
+        return m_CallbackHooks->m_OnCantDeleteDestinationFile(_error, _path, _vfs);
 
     if( m_SkipAll )
         return CB::CantDeleteDestinationFileResolution::Skip;
@@ -437,7 +441,7 @@ Copying::OnCantDeleteDestinationFile(int _err, const std::string &_path, VFSHost
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(GenericDialog::AbortSkipSkipAllRetry,
                       NSLocalizedString(@"Failed to delete a destination file", ""),
-                      _err,
+                      _error,
                       {_vfs, _path},
                       ctx);
     WaitForDialogResponse(ctx);
@@ -456,8 +460,10 @@ Copying::OnCantDeleteDestinationFile(int _err, const std::string &_path, VFSHost
 
 void Copying::OnFileVerificationFailed(const std::string &_path, VFSHost &_vfs)
 {
-    if( m_CallbackHooks && m_CallbackHooks->m_OnFileVerificationFailed )
-        return m_CallbackHooks->m_OnFileVerificationFailed(_path, _vfs);
+    if( m_CallbackHooks && m_CallbackHooks->m_OnFileVerificationFailed ) {
+        m_CallbackHooks->m_OnFileVerificationFailed(_path, _vfs);
+        return;
+    }
 
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(GenericDialog::Continue,
@@ -468,10 +474,11 @@ void Copying::OnFileVerificationFailed(const std::string &_path, VFSHost &_vfs)
     WaitForDialogResponse(ctx);
 }
 
-CB::CantDeleteSourceFileResolution Copying::OnCantDeleteSourceItem(int _err, const std::string &_path, VFSHost &_vfs)
+CB::CantDeleteSourceFileResolution
+Copying::OnCantDeleteSourceItem(Error _error, const std::string &_path, VFSHost &_vfs)
 {
     if( m_CallbackHooks && m_CallbackHooks->m_OnCantDeleteSourceItem )
-        return m_CallbackHooks->m_OnCantDeleteSourceItem(_err, _path, _vfs);
+        return m_CallbackHooks->m_OnCantDeleteSourceItem(_error, _path, _vfs);
 
     if( m_SkipAll )
         return CB::CantDeleteSourceFileResolution::Skip;
@@ -481,7 +488,7 @@ CB::CantDeleteSourceFileResolution Copying::OnCantDeleteSourceItem(int _err, con
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(GenericDialog::AbortSkipSkipAllRetry,
                       NSLocalizedString(@"Failed to delete a source item", ""),
-                      _err,
+                      _error,
                       {_vfs, _path},
                       ctx);
     WaitForDialogResponse(ctx);
@@ -531,7 +538,7 @@ CB::NotADirectoryResolution Copying::OnNotADirectory(const std::string &_path, V
 }
 
 CB::LockedItemResolution
-Copying::OnLockedItemIssue(int _err, const std::string &_path, VFSHost &_vfs, LockedItemCause _cause)
+Copying::OnLockedItemIssue(Error _error, const std::string &_path, VFSHost &_vfs, LockedItemCause _cause)
 {
     // NOT YET WIRED TO m_CallbackHooks
 
@@ -551,7 +558,8 @@ Copying::OnLockedItemIssue(int _err, const std::string &_path, VFSHost &_vfs, Lo
         return CB::LockedItemResolution::Stop;
 
     const auto ctx = std::make_shared<AsyncDialogResponse>();
-    dispatch_to_main_queue([=, vfs = _vfs.shared_from_this()] { OnLockedItemIssueUI(_err, _path, vfs, _cause, ctx); });
+    dispatch_to_main_queue(
+        [=, this, vfs = _vfs.shared_from_this()] { OnLockedItemIssueUI(_error, _path, vfs, _cause, ctx); });
     WaitForDialogResponse(ctx);
 
     if( ctx->response == NSModalResponseSkip ) {
@@ -572,7 +580,7 @@ Copying::OnLockedItemIssue(int _err, const std::string &_path, VFSHost &_vfs, Lo
     }
 }
 
-void Copying::OnLockedItemIssueUI(int _err,
+void Copying::OnLockedItemIssueUI(Error _err,
                                   const std::string &_path,
                                   [[maybe_unused]] std::shared_ptr<VFSHost> _vfs,
                                   LockedItemCause _cause,
@@ -592,8 +600,8 @@ void Copying::OnLockedItemIssueUI(int _err,
             break;
     }
     sheet.path = [NSString stringWithUTF8String:_path.c_str()];
-    sheet.showApplyToAll = m_Job->IsSingleScannedItemProcessing() == false;
-    sheet.errorNo = _err;
+    sheet.showApplyToAll = !m_Job->IsSingleScannedItemProcessing();
+    sheet.error = _err;
     [sheet addButtonWithTitle:NSLocalizedString(@"Abort", "") responseCode:NSModalResponseStop];
     [sheet addButtonWithTitle:NSLocalizedString(@"Unlock", "") responseCode:NSModalResponseUnlock];
     [sheet addButtonWithTitle:NSLocalizedString(@"Skip", "") responseCode:NSModalResponseSkip];
@@ -601,7 +609,7 @@ void Copying::OnLockedItemIssueUI(int _err,
     Show(sheet.window, _ctx);
 }
 
-CB::UnlockErrorResolution Copying::OnUnlockError(int _err, const std::string &_path, VFSHost &_vfs)
+CB::UnlockErrorResolution Copying::OnUnlockError(Error _error, const std::string &_path, VFSHost &_vfs)
 {
     if( m_SkipAll )
         return CB::UnlockErrorResolution::Skip;
@@ -611,7 +619,7 @@ CB::UnlockErrorResolution Copying::OnUnlockError(int _err, const std::string &_p
     const auto ctx = std::make_shared<AsyncDialogResponse>();
     ShowGenericDialog(GenericDialog::AbortSkipSkipAllRetry,
                       NSLocalizedString(@"Failed to unlock an item", ""),
-                      _err,
+                      _error,
                       {_vfs, _path},
                       ctx);
     WaitForDialogResponse(ctx);
@@ -630,8 +638,8 @@ CB::UnlockErrorResolution Copying::OnUnlockError(int _err, const std::string &_p
 
 void Copying::OnStageChanged()
 {
-    CopyingTitleBuilder b{m_Job->SourceItems(), m_Job->DestinationPath(), m_Job->Options()};
-    std::string title = "";
+    const CopyingTitleBuilder b{m_Job->SourceItems(), m_Job->DestinationPath(), m_Job->Options()};
+    std::string title;
     switch( m_Job->Stage() ) {
         case CopyingJob::Stage::Default:
         case CopyingJob::Stage::Process:
@@ -641,10 +649,10 @@ void Copying::OnStageChanged()
             title = b.TitleForPreparing();
             break;
         case CopyingJob::Stage::Verify:
-            title = b.TitleForVerifying();
+            title = nc::ops::CopyingTitleBuilder::TitleForVerifying();
             break;
         case CopyingJob::Stage::Cleaning:
-            title = b.TitleForCleanup();
+            title = nc::ops::CopyingTitleBuilder::TitleForCleanup();
             break;
     }
     SetTitle(std::move(title));
@@ -655,4 +663,4 @@ void Copying::SetCallbackHooks(const CopyingJobCallbacks *_callbacks)
     m_CallbackHooks = _callbacks;
 }
 
-}
+} // namespace nc::ops

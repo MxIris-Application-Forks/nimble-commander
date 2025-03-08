@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PanelController.h"
 #include <Base/algo.h>
 #include <Utility/NSView+Sugar.h>
@@ -20,6 +20,7 @@
 #include <Panel/PanelData.h>
 #include "PanelView.h"
 #include "DragReceiver.h"
+#include "ContextMenu.h"
 #include <Panel/PanelDataExternalEntryKey.h>
 #include "PanelDataPersistency.h"
 #include <NimbleCommander/Core/VFSInstanceManager.h>
@@ -36,6 +37,8 @@
 #include <Utility/StringExtras.h>
 #include <Utility/PathManip.h>
 #include <Base/mach_time.h>
+
+#include <algorithm>
 
 using namespace nc;
 using namespace nc::core;
@@ -60,7 +63,7 @@ ActivityTicket::ActivityTicket(PanelController *_panel, uint64_t _ticket) : tick
 {
 }
 
-ActivityTicket::ActivityTicket(ActivityTicket &&_rhs) : ticket(_rhs.ticket), panel(_rhs.panel)
+ActivityTicket::ActivityTicket(ActivityTicket &&_rhs) noexcept : ticket(_rhs.ticket), panel(_rhs.panel)
 {
     _rhs.panel = nil;
     _rhs.ticket = 0;
@@ -71,19 +74,20 @@ ActivityTicket::~ActivityTicket()
     Reset();
 }
 
-void ActivityTicket::operator=(ActivityTicket &&_rhs)
+ActivityTicket &ActivityTicket::operator=(ActivityTicket &&_rhs) noexcept
 {
     Reset();
     panel = _rhs.panel;
     ticket = _rhs.ticket;
     _rhs.panel = nil;
     _rhs.ticket = 0;
+    return *this;
 }
 
 void ActivityTicket::Reset()
 {
     if( ticket )
-        if( PanelController *pc = panel )
+        if( PanelController *const pc = panel )
             [pc finishExtActivityWithTicket:ticket];
     panel = nil;
     ticket = 0;
@@ -94,7 +98,7 @@ struct CalculatedSizesBatch {
     std::vector<uint64_t> sizes;
 };
 
-}
+} // namespace nc::panel
 
 #define MAKE_AUTO_UPDATING_BOOL_CONFIG_VALUE(_name, _path)                                                             \
     static bool _name()                                                                                                \
@@ -253,13 +257,13 @@ static void HeatUpConfigValues()
         m_QuickSearch = [[NCPanelQuickSearch alloc] initWithData:m_Data delegate:self config:GlobalConfig()];
         __weak NCPanelQuickSearch *weak_qs = m_QuickSearch;
         auto callback = [weak_qs](NSString *_request) {
-            if( NCPanelQuickSearch *strong_qs = weak_qs )
+            if( NCPanelQuickSearch *const strong_qs = weak_qs )
                 strong_qs.searchCriteria = _request;
         };
         m_View.headerView.searchRequestChangeCallback = std::move(callback);
 
-        [m_View addKeystrokeSink:self withBasePriority:view::BiddingPriority::Default];
-        [m_View addKeystrokeSink:m_QuickSearch withBasePriority:view::BiddingPriority::High];
+        [m_View addKeystrokeSink:self];
+        [m_View addKeystrokeSink:m_QuickSearch];
     }
 
     return self;
@@ -275,21 +279,21 @@ static void HeatUpConfigValues()
 
 - (void)configVFSFetchFlagsChanged
 {
-    if( ConfigShowDotDotEntry() == false )
+    if( !ConfigShowDotDotEntry() )
         m_VFSFetchingFlags |= VFSFlags::F_NoDotDot;
     else
         m_VFSFetchingFlags &= ~VFSFlags::F_NoDotDot;
 
-    if( ConfigShowLocalizedFilenames() == true )
+    if( ConfigShowLocalizedFilenames() )
         m_VFSFetchingFlags |= VFSFlags::F_LoadDisplayNames;
     else
         m_VFSFetchingFlags &= ~VFSFlags::F_LoadDisplayNames;
 
-    if( ConfigEnableFinderTags()== true )
+    if( ConfigEnableFinderTags() )
         m_VFSFetchingFlags |= VFSFlags::F_LoadTags;
     else
         m_VFSFetchingFlags &= ~VFSFlags::F_LoadTags;
-    
+
     [self refreshPanel];
 }
 
@@ -375,7 +379,7 @@ static void HeatUpConfigValues()
 - (void)reloadRefreshedListing:(const VFSListingPtr &)_ptr
 {
     assert(dispatch_is_main_queue());
-    Log::Info(SPDLOC, "Reloading refreshed listing, {}", _ptr->IsUniform() ? _ptr->Directory().c_str() : "uniform");
+    Log::Info("Reloading refreshed listing, {}", _ptr->IsUniform() ? _ptr->Directory().c_str() : "uniform");
 
     const auto pers = CursorBackup{m_View.curpos, m_Data};
 
@@ -384,7 +388,7 @@ static void HeatUpConfigValues()
     [m_QuickSearch dataUpdated];
 
     if( [self checkAgainstRequestedFocusing] ) {
-        Log::Trace(SPDLOC, "Cursor position was changed by requested focusing, skipping RestoredCursorPosition()");
+        Log::Trace("Cursor position was changed by requested focusing, skipping RestoredCursorPosition()");
     }
     else {
         m_View.curpos = pers.RestoredCursorPosition();
@@ -396,13 +400,23 @@ static void HeatUpConfigValues()
 
 - (void)refreshPanelDiscardingCaches:(bool)_force
 {
+    Log::Debug("refreshPanelDiscardingCaches:{} was called", _force);
+
     if( m_View == nil )
         return; // guard agains calls from init process
     if( &m_Data.Listing() == VFSListing::EmptyListing().get() )
         return; // guard agains calls from init process
 
-    if( !m_DirectoryLoadingQ.Empty() )
+    if( !m_DirectoryLoadingQ.Empty() ) {
+        Log::Debug("Discarding the refresh request as there is a load request in place");
         return; // reducing overhead
+    }
+
+    if( m_DirectoryReLoadingQ.Length() >= 2 ) {
+        Log::Debug("Discarding the refresh request as the current length of reload queue is {}",
+                   m_DirectoryReLoadingQ.Length());
+        return; // reducing overhead
+    }
 
     // later: maybe check PanelType somehow
 
@@ -412,15 +426,29 @@ static void HeatUpConfigValues()
         const auto vfs = self.vfs;
 
         m_DirectoryReLoadingQ.Run([=] {
-            if( m_DirectoryReLoadingQ.IsStopped() )
+            if( m_DirectoryReLoadingQ.IsStopped() ) {
+                Log::Trace("[PanelController refreshPanelDiscardingCaches] cancelled the refresh");
                 return;
-            VFSListingPtr listing;
-            int ret = vfs->FetchDirectoryListing(
-                dirpath.c_str(), listing, fetch_flags, [&] { return m_DirectoryReLoadingQ.IsStopped(); });
-            if( ret >= 0 )
-                dispatch_to_main_queue([=] { [self reloadRefreshedListing:listing]; });
-            else
-                dispatch_to_main_queue([=] { [self recoverFromInvalidDirectory]; });
+            }
+            const std::expected<VFSListingPtr, Error> listing =
+                vfs->FetchDirectoryListing(dirpath, fetch_flags, [&] { return m_DirectoryReLoadingQ.IsStopped(); });
+            if( m_DirectoryReLoadingQ.IsStopped() ) {
+                Log::Trace("[PanelController refreshPanelDiscardingCaches] cancelled the refresh");
+                return;
+            }
+            dispatch_to_main_queue([=] {
+                if( self.currentDirectoryPath != dirpath ) {
+                    Log::Debug(
+                        "[PanelController refreshPanelDiscardingCaches]: discarding a stale request to refresh '{}'",
+                        dirpath);
+                    return;
+                }
+
+                if( listing )
+                    [self reloadRefreshedListing:*listing];
+                else
+                    [self recoverFromInvalidDirectory];
+            });
         });
     }
     else {
@@ -437,11 +465,13 @@ static void HeatUpConfigValues()
 
 - (void)refreshPanel
 {
+    Log::Trace("[Panel refreshPanel] was called");
     [self refreshPanelDiscardingCaches:false];
 }
 
 - (void)forceRefreshPanel
 {
+    Log::Trace("[Panel forceRefreshPanel] was called");
     [self refreshPanelDiscardingCaches:true];
 }
 
@@ -494,7 +524,7 @@ static void HeatUpConfigValues()
     const size_t items_count = _items.size();
     const size_t batches = std::min(g_MaxSizeCalculationCommitBatches, items_count);
     const size_t items_per_batch = items_count / batches;
-    const size_t items_leftover = items_count - items_per_batch * batches;
+    const size_t items_leftover = items_count - (items_per_batch * batches);
 
     for( size_t batch = 0, items_first = 0, items_last = 0; batch != batches; ++batch ) {
         items_first = items_last;
@@ -512,15 +542,14 @@ static void HeatUpConfigValues()
             if( !i.IsDir() )
                 continue;
 
-            const auto result =
-                i.Host()->CalculateDirectorySize(!i.IsDotDot() ? i.Path().c_str() : i.Directory().c_str(),
-                                                 [=] { return m_DirectorySizeCountingQ.IsStopped(); });
+            const std::expected<uint64_t, Error> result = i.Host()->CalculateDirectorySize(
+                !i.IsDotDot() ? i.Path() : i.Directory(), [=] { return m_DirectorySizeCountingQ.IsStopped(); });
 
-            if( result < 0 )
+            if( !result )
                 continue; // silently skip items that caused erros while calculating size
 
             calculated.items.emplace_back(i);
-            calculated.sizes.emplace_back(static_cast<uint64_t>(result));
+            calculated.sizes.emplace_back(*result);
         }
 
         if( calculated.items.empty() )
@@ -536,21 +565,17 @@ static void HeatUpConfigValues()
             if( &m_Data.Listing() == calculated.items.front().Listing().get() ) {
                 // the listing is the same, can use indices directly
                 std::vector<unsigned> raw_indices(calculated.items.size());
-                std::transform(calculated.items.begin(), calculated.items.end(), raw_indices.begin(), [](auto &i) {
-                    return i.Index();
-                });
+                std::ranges::transform(calculated.items, raw_indices.begin(), [](auto &i) { return i.Index(); });
                 num_set = m_Data.SetCalculatedSizesForDirectories(raw_indices, calculated.sizes);
             }
             else {
                 // the listing has changed, need to use indirects: filename and directory
                 std::vector<std::string_view> filenames(calculated.items.size());
                 std::vector<std::string_view> directories(calculated.items.size());
-                std::transform(calculated.items.begin(), calculated.items.end(), filenames.begin(), [](auto &i) {
-                    return std::string_view{i.Filename()};
-                });
-                std::transform(calculated.items.begin(), calculated.items.end(), directories.begin(), [](auto &i) {
-                    return std::string_view{i.Directory()};
-                });
+                std::ranges::transform(
+                    calculated.items, filenames.begin(), [](auto &i) { return std::string_view{i.Filename()}; });
+                std::ranges::transform(
+                    calculated.items, directories.begin(), [](auto &i) { return std::string_view{i.Directory()}; });
                 num_set = m_Data.SetCalculatedSizesForDirectories(filenames, directories, calculated.sizes);
             }
             if( num_set != 0 ) {
@@ -598,7 +623,7 @@ static void HeatUpConfigValues()
 - (void)selectEntriesWithFilenames:(const std::vector<std::string> &)_filenames
 {
     for( auto &i : _filenames )
-        m_Data.CustomFlagsSelectSorted(m_Data.SortedIndexForName(i.c_str()), true);
+        m_Data.CustomFlagsSelectSorted(m_Data.SortedIndexForName(i), true);
     [m_View volatileDataChanged];
 }
 
@@ -618,15 +643,27 @@ static void HeatUpConfigValues()
 
 - (void)onPathChanged
 {
+    Log::Trace("[PanelController onPathChanged] was called");
     // update directory changes notification ticket
     __weak PanelController *weakself = self;
     m_UpdatesObservationTicket.reset();
     if( self.isUniform ) {
+        const std::string current_directory_path = self.currentDirectoryPath;
         auto dir_change_callback = [=] {
-            dispatch_to_main_queue([=] { [static_cast<PanelController *>(weakself) refreshPanel]; });
+            dispatch_to_main_queue([=] {
+                Log::Debug("Got a notification about a directory change: '{}'", current_directory_path);
+                if( PanelController *const pc = weakself ) {
+                    if( pc.currentDirectoryPath == current_directory_path ) {
+                        [pc refreshPanel];
+                    }
+                    else {
+                        Log::Debug("Discarded a stale directory change notification");
+                    }
+                }
+            });
         };
         m_UpdatesObservationTicket =
-            self.vfs->DirChangeObserve(self.currentDirectoryPath.c_str(), std::move(dir_change_callback));
+            self.vfs->ObserveDirectoryChanges(current_directory_path, std::move(dir_change_callback));
     }
 
     [self clearFocusingRequest];
@@ -673,7 +710,7 @@ static void HeatUpConfigValues()
     [self onCursorChanged];
 }
 
-- (NSMenu *)panelView:(PanelView *)_view requestsContextMenuForItemNo:(int)_sort_pos
+- (NCPanelContextMenu *)panelView:(PanelView *)_view requestsContextMenuForItemNo:(int)_sort_pos
 {
     dispatch_assert_main_queue();
 
@@ -684,16 +721,16 @@ static void HeatUpConfigValues()
     const auto clicked_item_vd = m_Data.VolatileDataAtSortPosition(_sort_pos);
 
     std::vector<VFSListingItem> vfs_items;
-    if( clicked_item_vd.is_selected() == false )
+    if( !clicked_item_vd.is_selected() )
         vfs_items.emplace_back(clicked_item); // only clicked item
     else
-        vfs_items = m_Data.SelectedEntriesUnsorted(); // all selected items
+        vfs_items = m_Data.SelectedEntriesSorted(); // all selected items
 
     for( auto &i : vfs_items )
         m_Data.VolatileDataAtRawPosition(i.Index()).toggle_highlight(true);
     [_view volatileDataChanged];
 
-    const auto menu = m_ContextMenuProvider(std::move(vfs_items), self);
+    NCPanelContextMenu *const menu = m_ContextMenuProvider(std::move(vfs_items), self);
     return menu;
 }
 
@@ -705,7 +742,7 @@ static void HeatUpConfigValues()
 
 static void ShowAlertAboutInvalidFilename(const std::string &_filename)
 {
-    Alert *a = [[Alert alloc] init];
+    Alert *const a = [[Alert alloc] init];
     auto fn = [NSString stringWithUTF8StdString:_filename];
     if( fn.length > 256 )
         fn = [[fn substringToIndex:256] stringByAppendingString:@"..."];
@@ -726,10 +763,10 @@ static void ShowAlertAboutInvalidFilename(const std::string &_filename)
         _filename == _item.Filename() )
         return;
 
-    const auto target_fn = _filename;
+    const auto &target_fn = _filename;
 
     // checking for invalid symbols
-    if( !_item.Host()->ValidateFilename(target_fn.c_str()) ) {
+    if( !_item.Host()->ValidateFilename(target_fn) ) {
         ShowAlertAboutInvalidFilename(target_fn);
         return;
     }
@@ -792,7 +829,7 @@ static void ShowAlertAboutInvalidFilename(const std::string &_filename)
 {
     {
         auto lock = std::lock_guard{m_ActivitiesTicketsLock};
-        auto i = find(begin(m_ActivitiesTickets), end(m_ActivitiesTickets), _ticket);
+        auto i = std::ranges::find(m_ActivitiesTickets, _ticket);
         if( i == end(m_ActivitiesTickets) )
             return;
         m_ActivitiesTickets.erase(i);
@@ -824,7 +861,7 @@ static void ShowAlertAboutInvalidFilename(const std::string &_filename)
             [m_View setPresentationLayout:*l];
         }
         else {
-            m_AssignedViewLayout = m_Layouts->LastResortLayout();
+            m_AssignedViewLayout = nc::panel::PanelViewLayoutsStorage::LastResortLayout();
             [m_View setPresentationLayout:*m_AssignedViewLayout];
         }
     }
@@ -852,45 +889,49 @@ static void ShowAlertAboutInvalidFilename(const std::string &_filename)
     auto &vfs = *_request.VFS;
     auto &access_provider = *m_DirectoryAccessProvider;
     const auto has_access = access_provider.HasAccess(self, directory, vfs);
-    if( has_access == true ) {
+    if( has_access ) {
         return true;
     }
     else {
-        if( _request.InitiatedByUser == true )
+        if( _request.InitiatedByUser )
             return access_provider.RequestAccessSync(self, directory, vfs);
         else
             return false;
     }
 }
 
-- (void)doGoToDirWithContext:(std::shared_ptr<DirectoryChangeRequest>)_request
+- (std::expected<void, Error>)doGoToDirWithContext:(std::shared_ptr<DirectoryChangeRequest>)_request
 {
+    assert(_request != nullptr);
+    assert(_request->VFS != nullptr);
+    Log::Debug("[PanelController doGoToDirWithContext] was called with {}", *_request);
+
     try {
-        if( [self probeDirectoryAccessForRequest:*_request] == false ) {
-            _request->LoadingResultCode = VFSError::FromErrno(EPERM);
-            return;
+        if( ![self probeDirectoryAccessForRequest:*_request] ) {
+            return std::unexpected(Error{Error::POSIX, EPERM});
         }
 
         auto directory = _request->RequestedDirectory;
         auto &vfs = *_request->VFS;
         const auto canceller = VFSCancelChecker([&] { return m_DirectoryLoadingQ.IsStopped(); });
-        VFSListingPtr listing;
-        const auto fetch_result = vfs.FetchDirectoryListing(directory.c_str(), listing, m_VFSFetchingFlags, canceller);
-        _request->LoadingResultCode = fetch_result;
-        if( _request->LoadingResultCallback )
-            _request->LoadingResultCallback(fetch_result);
+        const std::expected<VFSListingPtr, Error> listing =
+            vfs.FetchDirectoryListing(directory, m_VFSFetchingFlags, canceller);
+        if( _request->LoadingResultCallback ) {
+            _request->LoadingResultCallback(listing ? std::expected<void, Error>{}
+                                                    : std::expected<void, Error>{std::unexpected(listing.error())});
+        }
 
-        if( fetch_result < 0 )
-            return;
+        if( !listing )
+            return std::unexpected(listing.error());
 
         // TODO: need an ability to show errors at least
 
         [self CancelBackgroundOperations]; // clean running operations if any
         dispatch_or_run_in_main_queue([=] {
             [m_View savePathState];
-            m_Data.Load(listing, data::Model::PanelType::Directory);
+            m_Data.Load(*listing, data::Model::PanelType::Directory);
             for( auto &i : _request->RequestSelectedEntries )
-                m_Data.CustomFlagsSelectSorted(m_Data.SortedIndexForName(i.c_str()), true);
+                m_Data.CustomFlagsSelectSorted(m_Data.SortedIndexForName(i), true);
             m_DataGeneration++;
             [m_View dataUpdated];
             [m_View panelChangedWithFocusedFilename:_request->RequestFocusedEntry
@@ -902,31 +943,36 @@ static void ShowAlertAboutInvalidFilename(const std::string &_filename)
     } catch( ... ) {
         ShowExceptionAlert();
     }
+    return {};
 }
 
-- (int)GoToDirWithContext:(std::shared_ptr<DirectoryChangeRequest>)_request
+- (std::expected<void, Error>)GoToDirWithContext:(std::shared_ptr<DirectoryChangeRequest>)_request
 {
     if( _request == nullptr )
-        return VFSError::InvalidCall;
+        return std::unexpected(Error{Error::POSIX, EINVAL});
 
     if( _request->RequestedDirectory.empty() || _request->RequestedDirectory.front() != '/' ||
         _request->VFS == nullptr )
-        return VFSError::InvalidCall;
+        return std::unexpected(Error{Error::POSIX, EINVAL});
 
-    if( _request->PerformAsynchronous == false ) {
+    assert(_request != nullptr);
+    assert(_request->VFS != nullptr);
+    Log::Debug("[PanelController GoToDirWithContext] was called with {}", *_request);
+
+    if( !_request->PerformAsynchronous ) {
         assert(dispatch_is_main_queue());
         m_DirectoryLoadingQ.Stop();
         m_DirectoryLoadingQ.Wait();
 
-        [self doGoToDirWithContext:_request];
-        return _request->LoadingResultCode;
+        const std::expected<void, Error> result = [self doGoToDirWithContext:_request];
+        return result;
     }
     else {
         if( !m_DirectoryLoadingQ.Empty() )
-            return 0;
+            return {};
 
         m_DirectoryLoadingQ.Run([=] { [self doGoToDirWithContext:_request]; });
-        return 0;
+        return {};
     }
 }
 
@@ -953,10 +999,10 @@ static void ShowAlertAboutInvalidFilename(const std::string &_filename)
     m_DirectoryLoadingQ.Run([=] {
         // 1st - try to locate a valid dir in current host
         std::filesystem::path path = initial_path;
-        auto vfs = initial_vfs;
+        const auto &vfs = initial_vfs;
 
         while( true ) {
-            if( vfs->IterateDirectoryListing(path.c_str(), [](const VFSDirEnt &) { return false; }) >= 0 ) {
+            if( vfs->IterateDirectoryListing(path.native(), [](const VFSDirEnt &) { return false; }) ) {
                 dispatch_to_main_queue([=] {
                     auto request = std::make_shared<DirectoryChangeRequest>();
                     request->RequestedDirectory = path.native();
@@ -982,13 +1028,15 @@ static void ShowAlertAboutInvalidFilename(const std::string &_filename)
     });
 }
 
-- (void)scheduleDelayedFocusing:(DelayedFocusing)request
+- (void)scheduleDelayedFocusing:(const DelayedFocusing &)request
 {
     assert(dispatch_is_main_queue()); // to preserve against fancy threading stuff
     // we assume that _item_name will not contain any forward slashes
 
     if( request.filename.empty() )
         return;
+
+    nc::panel::Log::Trace("[PanelController scheduleDelayedFocusing] called for '{}'", request.filename);
 
     m_DelayedSelection.request_end = nc::base::machtime() + request.timeout;
     m_DelayedSelection.filename = request.filename;
@@ -1009,14 +1057,18 @@ static void ShowAlertAboutInvalidFilename(const std::string &_filename)
         return false;
 
     if( nc::base::machtime() > m_DelayedSelection.request_end ) {
+        nc::panel::Log::Trace("[PanelController checkAgainstRequestedFocusing] removing a stale request for '{}'",
+                              m_DelayedSelection.filename);
         [self clearFocusingRequest];
         return false;
     }
 
     // now try to find it
-    int raw_index = m_Data.RawIndexForName(m_DelayedSelection.filename.c_str());
+    int raw_index = m_Data.RawIndexForName(m_DelayedSelection.filename);
     if( raw_index < 0 )
         return false;
+    nc::panel::Log::Trace("[PanelController checkAgainstRequestedFocusing] found an entry for '{}'",
+                          m_DelayedSelection.filename);
 
     // we found this entry. regardless of appearance of this entry in current directory presentation
     // there's no reason to search for it again
@@ -1095,7 +1147,7 @@ static void ShowAlertAboutInvalidFilename(const std::string &_filename)
 
 - (bool)isDoingBackgroundLoading
 {
-    return m_DirectoryLoadingQ.Empty() == false;
+    return !m_DirectoryLoadingQ.Empty();
 }
 
 - (std::unique_ptr<nc::panel::DragReceiver>)panelView:(PanelView *) [[maybe_unused]] _view
@@ -1108,13 +1160,14 @@ static void ShowAlertAboutInvalidFilename(const std::string &_filename)
 
 - (void)hintAboutFilesystemChange
 {
+    Log::Trace("[PanelController hintAboutFilesystemChange] was called");
     dispatch_assert_main_queue(); // to preserve against fancy threading stuff
     if( self.receivesUpdateNotifications ) {
         // check in some future that the notification actually came
         const auto timestamp = nc::base::machtime();
         __weak PanelController *weak_me = self;
         dispatch_to_main_queue_after(g_FilesystemHintTriggerDelay, [weak_me, timestamp] {
-            if( PanelController *me = weak_me ) {
+            if( PanelController *const me = weak_me ) {
                 // now check if our listing was created after we were hinted
                 if( me->m_Data.Listing().BuildTicksTimestamp() > timestamp )
                     return; // yep, fresh enough.

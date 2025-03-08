@@ -10,8 +10,8 @@ namespace nc::vfs {
 using nc::base::variable_container;
 
 // static_assert(sizeof(Listing) <= 824); // became 944 on Xcode15 ???
-static_assert(std::is_move_constructible<ListingItem>::value);
-static_assert(std::is_move_constructible<Listing::iterator>::value);
+static_assert(std::is_move_constructible_v<ListingItem>);
+static_assert(std::is_move_constructible_v<Listing::iterator>);
 
 static bool BasicDirectoryCheck(std::string_view _str) noexcept
 {
@@ -156,7 +156,7 @@ base::intrusive_ptr<const Listing> Listing::Build(ListingInput &&_input)
     l->m_UnixFlags = std::move(_input.unix_flags);
     l->m_Symlinks = std::move(_input.symlinks);
     l->m_Tags = std::move(_input.tags);
-    l->m_CreationTime = time(0);
+    l->m_CreationTime = time(nullptr);
     l->m_CreationTicks = base::machtime();
     l->BuildFilenames();
 
@@ -319,34 +319,32 @@ VFSListingPtr Listing::ProduceUpdatedTemporaryPanelListing(const Listing &_origi
         path.assign(_original.Directory(i));
         path.append(_original.Filename(i));
 
-        VFSStat st;
-        auto stat_flags = _original.IsSymlink(i) ? VFSFlags::F_NoFollow : 0;
-        if( _original.Host(i)->Stat(path.c_str(), st, stat_flags, _cancel_checker) == 0 ) {
-
+        const uint64_t stat_flags = _original.IsSymlink(i) ? VFSFlags::F_NoFollow : 0;
+        if( const std::expected<VFSStat, Error> st = _original.Host(i)->Stat(path, stat_flags, _cancel_checker) ) {
             result.filenames.emplace_back(_original.Filename(i));
             result.unix_modes.emplace_back(_original.UnixMode(i));
             result.unix_types.emplace_back(_original.UnixType(i));
             result.hosts.insert(count, _original.Host(i));
             result.directories.insert(count, _original.Directory(i));
 
-            if( st.meaning.size )
-                result.sizes.insert(count, st.size);
-            if( st.meaning.inode )
-                result.inodes.insert(count, st.inode);
-            if( st.meaning.atime )
-                result.atimes.insert(count, st.atime.tv_sec);
-            if( st.meaning.btime )
-                result.btimes.insert(count, st.btime.tv_sec);
-            if( st.meaning.ctime )
-                result.ctimes.insert(count, st.ctime.tv_sec);
-            if( st.meaning.mtime )
-                result.mtimes.insert(count, st.mtime.tv_sec);
-            if( st.meaning.uid )
-                result.uids.insert(count, st.uid);
-            if( st.meaning.gid )
-                result.gids.insert(count, st.gid);
-            if( st.meaning.flags )
-                result.unix_flags.insert(count, st.flags);
+            if( st->meaning.size )
+                result.sizes.insert(count, st->size);
+            if( st->meaning.inode )
+                result.inodes.insert(count, st->inode);
+            if( st->meaning.atime )
+                result.atimes.insert(count, st->atime.tv_sec);
+            if( st->meaning.btime )
+                result.btimes.insert(count, st->btime.tv_sec);
+            if( st->meaning.ctime )
+                result.ctimes.insert(count, st->ctime.tv_sec);
+            if( st->meaning.mtime )
+                result.mtimes.insert(count, st->mtime.tv_sec);
+            if( st->meaning.uid )
+                result.uids.insert(count, st->uid);
+            if( st->meaning.gid )
+                result.gids.insert(count, st->gid);
+            if( st->meaning.flags )
+                result.unix_flags.insert(count, st->flags);
 
             // mb update symlink too?
             if( _original.HasSymlink(i) )
@@ -386,7 +384,8 @@ static base::CFString UTF8WithFallback(const std::string &_s)
 
 void Listing::BuildFilenames()
 {
-    size_t i = 0, e = m_ItemsCount;
+    size_t i = 0;
+    const size_t e = m_ItemsCount;
 
     m_FilenamesCF = std::make_unique<base::CFString[]>(e);
     m_ExtensionOffsets = std::make_unique<uint16_t[]>(e);

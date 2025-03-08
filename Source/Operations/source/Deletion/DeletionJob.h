@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include "../Job.h"
@@ -32,11 +32,9 @@ private:
     void DoUnlink(const std::string &_path, VFSHost &_vfs);
     void DoTrash(const std::string &_path, VFSHost &_vfs, SourceItem _src);
     bool DoUnlock(const std::string &_path, VFSHost &_vfs);
-    void ScanDirectory(const std::string &_path,
-                       int _listing_item_index,
-                       const base::chained_strings::node *_prefix);
-    bool IsNativeLockedItem(int vfs_err, const std::string &_path, VFSHost &_vfs) const;
-    int UnlockItem(const std::string &_path, VFSHost &_vfs) const;
+    void ScanDirectory(const std::string &_path, int _listing_item_index, const base::chained_strings::node *_prefix);
+    static bool IsNativeLockedItem(const nc::Error &_err, const std::string &_path, VFSHost &_vfs);
+    static std::expected<void, Error> UnlockItem(std::string_view _path, VFSHost &_vfs);
 
     std::vector<VFSListingItem> m_SourceItems;
     DeletionType m_Type;

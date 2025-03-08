@@ -7,21 +7,19 @@ const char *MemHost::UniqueTag = "memfs";
 class VFSMemHostConfiguration
 {
 public:
-    const char *Tag() const { return MemHost::UniqueTag; }
+    [[nodiscard]] static const char *Tag() { return MemHost::UniqueTag; }
 
-    const char *Junction() const { return ""; }
+    [[nodiscard]] static const char *Junction() { return ""; }
 
-    bool operator==(const VFSMemHostConfiguration &) const { return true; }
+    bool operator==(const VFSMemHostConfiguration & /*unused*/) const { return true; }
 
-    const char *VerboseJunction() const { return "[memfs]:"; }
+    [[nodiscard]] static const char *VerboseJunction() { return "[memfs]:"; }
 };
 
-MemHost::MemHost() : Host("", std::shared_ptr<Host>(0), UniqueTag)
+MemHost::MemHost() : Host("", std::shared_ptr<Host>(nullptr), UniqueTag)
 {
 }
-MemHost::~MemHost()
-{
-}
+MemHost::~MemHost() = default;
 
 VFSConfiguration MemHost::Configuration() const
 {
@@ -35,9 +33,7 @@ VFSMeta MemHost::Meta()
     m.Tag = UniqueTag;
     m.SpawnWithConfig = []([[maybe_unused]] const VFSHostPtr &_parent,
                            [[maybe_unused]] const VFSConfiguration &_config,
-                           [[maybe_unused]] VFSCancelChecker _cancel_checker) {
-        return std::make_shared<MemHost>();
-    };
+                           [[maybe_unused]] VFSCancelChecker _cancel_checker) { return std::make_shared<MemHost>(); };
     return m;
 }
 

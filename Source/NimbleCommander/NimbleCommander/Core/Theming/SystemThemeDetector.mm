@@ -1,4 +1,4 @@
-// Copyright (C) 2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2022-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "SystemThemeDetector.h"
 #include <functional>
 #include <Cocoa/Cocoa.h>
@@ -12,11 +12,15 @@
 @property(readwrite, nonatomic) std::function<void()> onChange;
 @end
 
-@implementation NCSystemThemeDetectorObjCShim
+@implementation NCSystemThemeDetectorObjCShim {
+    std::function<void()> m_onChange;
+}
+@synthesize onChange = m_onChange;
 
 - (instancetype)init
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         [NSDistributedNotificationCenter.defaultCenter addObserver:self
                                                           selector:@selector(themeChanged:)
                                                               name:@"AppleInterfaceThemeChangedNotification"
@@ -40,14 +44,14 @@
                         change:(NSDictionary<NSKeyValueChangeKey, id> *)change
                        context:(void *)context
 {
-    if( _onChange )
-        _onChange();
+    if( m_onChange )
+        m_onChange();
 }
 
 - (void)themeChanged:(NSNotification *)_notification
 {
-    if( _onChange )
-        _onChange();
+    if( m_onChange )
+        m_onChange();
 }
 
 @end
@@ -58,13 +62,13 @@ struct SystemThemeDetector::Impl {
     NCSystemThemeDetectorObjCShim *shim;
     ThemeAppearance appearance = ThemeAppearance::Light;
 
-    ThemeAppearance Detect();
+    static ThemeAppearance Detect();
     void OnChanged();
 };
 
 SystemThemeDetector::SystemThemeDetector() : I(std::make_unique<Impl>())
 {
-    I->appearance = I->Detect();
+    I->appearance = Impl::Detect();
     I->shim = [[NCSystemThemeDetectorObjCShim alloc] init];
     I->shim.onChange = [this] {
         // The 30ms delay is to partially mitigate a race condition between the 'AppleInterfaceThemeChangedNotification'
@@ -98,7 +102,7 @@ ThemeAppearance SystemThemeDetector::SystemAppearance() const noexcept
 ThemeAppearance SystemThemeDetector::Impl::Detect()
 {
     // TODO: check me on different versions!
-    NSString *style = [NSUserDefaults.standardUserDefaults stringForKey:@"AppleInterfaceStyle"];
+    NSString *const style = [NSUserDefaults.standardUserDefaults stringForKey:@"AppleInterfaceStyle"];
     if( style == nil )
         return ThemeAppearance::Light;
     else {
@@ -111,7 +115,7 @@ ThemeAppearance SystemThemeDetector::Impl::Detect()
 
 void SystemThemeDetector::OnChanged()
 {
-    const auto new_app = I->Detect();
+    const auto new_app = Impl::Detect();
     if( new_app == I->appearance )
         return;
     I->appearance = new_app;

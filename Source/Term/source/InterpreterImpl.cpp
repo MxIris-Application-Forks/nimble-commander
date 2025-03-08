@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2020-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "InterpreterImpl.h"
 #include <Base/CFString.h>
 #include <Base/CFPtr.h>
@@ -7,10 +7,9 @@
 #include "OrthodoxMonospace.h"
 #include "TranslateMaps.h"
 #include "Log.h"
+#include <fmt/format.h>
 
 namespace nc::term {
-
-using utility::CharInfo;
 
 static std::u16string ConvertUTF8ToUTF16(std::string_view _utf8);
 static void ApplyTranslateMap(std::u16string &_utf16, const unsigned short *_map);
@@ -131,7 +130,7 @@ void InterpreterImpl::InterpretSingleCommand(const input::Command &_command)
             ProcessCursorStyle(*std::get_if<input::CursorStyle>(&_command.payload));
             break;
         default:
-            Log::Warn(SPDLOC, "Interpreter::InterpretSingleCommand: missed {}", magic_enum::enum_name(type));
+            Log::Warn("Interpreter::InterpretSingleCommand: missed {}", magic_enum::enum_name(type));
             break;
     }
 }
@@ -186,7 +185,7 @@ void InterpreterImpl::ProcessText(const input::UTF8Text &_text)
             continue;
         }
 
-        if( m_AutoWrapMode == true && m_Screen.LineOverflown() &&
+        if( m_AutoWrapMode && m_Screen.LineOverflown() &&
             (m_Screen.CursorX() >= sx - 1 || (m_Screen.CursorX() == sx - 2 && curr_line_ends_with_mcg())) ) {
             m_Screen.PutWrap();
             ProcessCR();
@@ -321,7 +320,7 @@ void InterpreterImpl::ProcessReport(const input::DeviceReport _device_report)
         char buf[64];
         const int x = m_Screen.CursorX();
         const int y = m_OriginLineMode ? m_Screen.CursorY() - m_Extent.top : m_Screen.CursorY();
-        snprintf(buf, sizeof(buf), "\033[%d;%dR", y + 1, x + 1);
+        *fmt::format_to(buf, "\033[{};{}R", y + 1, x + 1) = 0;
         Response(buf);
     }
 }
@@ -352,11 +351,8 @@ void InterpreterImpl::ProcessEraseInDisplay(const input::DisplayErasure _display
         case input::DisplayErasure::Area::FromDisplayStartToCursor:
             m_Screen.DoEraseScreen(1);
             break;
+        case input::DisplayErasure::Area::WholeDisplayWithScrollback: // TODO: need a real implementation
         case input::DisplayErasure::Area::WholeDisplay:
-            m_Screen.DoEraseScreen(2);
-            break;
-        case input::DisplayErasure::Area::WholeDisplayWithScrollback:
-            // TODO: need a real implementation
             m_Screen.DoEraseScreen(2);
             break;
     }
@@ -458,41 +454,41 @@ void InterpreterImpl::ProcessChangeMode(const input::ModeChange _mode_change)
             }
             break;
         case Kind::SendMouseXYOnPress:
-            if( _mode_change.status == true && m_RequestedMouseEvents != RequestedMouseEvents::X10 ) {
+            if( _mode_change.status && m_RequestedMouseEvents != RequestedMouseEvents::X10 ) {
                 m_RequestedMouseEvents = RequestedMouseEvents::X10;
                 RequestMouseEventsChanged();
             }
-            if( _mode_change.status == false && m_RequestedMouseEvents == RequestedMouseEvents::X10 ) {
+            if( !_mode_change.status && m_RequestedMouseEvents == RequestedMouseEvents::X10 ) {
                 m_RequestedMouseEvents = RequestedMouseEvents::None;
                 RequestMouseEventsChanged();
             }
             break;
         case Kind::SendMouseXYOnPressAndRelease:
-            if( _mode_change.status == true && m_RequestedMouseEvents != RequestedMouseEvents::Normal ) {
+            if( _mode_change.status && m_RequestedMouseEvents != RequestedMouseEvents::Normal ) {
                 m_RequestedMouseEvents = RequestedMouseEvents::Normal;
                 RequestMouseEventsChanged();
             }
-            if( _mode_change.status == false && m_RequestedMouseEvents == RequestedMouseEvents::Normal ) {
+            if( !_mode_change.status && m_RequestedMouseEvents == RequestedMouseEvents::Normal ) {
                 m_RequestedMouseEvents = RequestedMouseEvents::None;
                 RequestMouseEventsChanged();
             }
             break;
         case Kind::SendMouseXYOnPressDragAndRelease:
-            if( _mode_change.status == true && m_RequestedMouseEvents != RequestedMouseEvents::ButtonTracking ) {
+            if( _mode_change.status && m_RequestedMouseEvents != RequestedMouseEvents::ButtonTracking ) {
                 m_RequestedMouseEvents = RequestedMouseEvents::ButtonTracking;
                 RequestMouseEventsChanged();
             }
-            if( _mode_change.status == false && m_RequestedMouseEvents == RequestedMouseEvents::ButtonTracking ) {
+            if( !_mode_change.status && m_RequestedMouseEvents == RequestedMouseEvents::ButtonTracking ) {
                 m_RequestedMouseEvents = RequestedMouseEvents::None;
                 RequestMouseEventsChanged();
             }
             break;
         case Kind::SendMouseXYAnyEvent:
-            if( _mode_change.status == true && m_RequestedMouseEvents != RequestedMouseEvents::Any ) {
+            if( _mode_change.status && m_RequestedMouseEvents != RequestedMouseEvents::Any ) {
                 m_RequestedMouseEvents = RequestedMouseEvents::Any;
                 RequestMouseEventsChanged();
             }
-            if( _mode_change.status == false && m_RequestedMouseEvents == RequestedMouseEvents::Any ) {
+            if( !_mode_change.status && m_RequestedMouseEvents == RequestedMouseEvents::Any ) {
                 m_RequestedMouseEvents = RequestedMouseEvents::None;
                 RequestMouseEventsChanged();
             }
@@ -504,7 +500,7 @@ void InterpreterImpl::ProcessChangeMode(const input::ModeChange _mode_change)
 
 void InterpreterImpl::ProcessChangeColumnMode132(bool _on)
 {
-    if( m_AllowScreenResize == false )
+    if( !m_AllowScreenResize )
         return;
 
     const auto height = m_Screen.Height();
@@ -623,8 +619,6 @@ void InterpreterImpl::ProcessSetCharacterAttributes(input::CharacterAttributes _
             set_blink(false);
             break;
         case Kind::Underlined:
-            set_underline(true);
-            break;
         case Kind::DoublyUnderlined:
             set_underline(true);
             break;
@@ -670,7 +664,7 @@ void InterpreterImpl::UpdateCharacterAttributes()
 void InterpreterImpl::Response(std::string_view _text)
 {
     assert(m_Output);
-    Bytes bytes{reinterpret_cast<const std::byte *>(_text.data()), _text.length()};
+    const Bytes bytes{reinterpret_cast<const std::byte *>(_text.data()), _text.length()};
     m_Output(bytes);
 }
 
@@ -909,7 +903,7 @@ void InterpreterImpl::ProcessTitleManipulation(const input::TitleManipulation &_
         if( _title_manipulation.target == input::TitleManipulation::Icon ||
             _title_manipulation.target == input::TitleManipulation::Both ) {
             if( not m_Titles.saved_icon.empty() ) {
-                const input::Title cmd{input::Title::Icon, m_Titles.saved_icon.back()};
+                const input::Title cmd{.kind = input::Title::Icon, .title = m_Titles.saved_icon.back()};
                 m_Titles.saved_icon.pop_back();
                 ProcessChangeTitle(cmd);
             }
@@ -917,7 +911,7 @@ void InterpreterImpl::ProcessTitleManipulation(const input::TitleManipulation &_
         if( _title_manipulation.target == input::TitleManipulation::Window ||
             _title_manipulation.target == input::TitleManipulation::Both ) {
             if( not m_Titles.saved_window.empty() ) {
-                const input::Title cmd{input::Title::Window, m_Titles.saved_window.back()};
+                const input::Title cmd{.kind = input::Title::Window, .title = m_Titles.saved_window.back()};
                 m_Titles.saved_window.pop_back();
                 ProcessChangeTitle(cmd);
             }
@@ -929,7 +923,7 @@ void InterpreterImpl::ProcessCursorStyle(const input::CursorStyle &_style)
 {
     assert(m_OnCursorStyleChanged);
     if( _style.style )
-        m_OnCursorStyleChanged(*_style.style);
+        m_OnCursorStyleChanged(_style.style);
     else
         m_OnCursorStyleChanged(std::nullopt);
 }

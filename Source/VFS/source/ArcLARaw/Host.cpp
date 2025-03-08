@@ -1,4 +1,4 @@
-// Copyright (C) 2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2022-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Host.h"
 #include "../Log.h"
 #include <vector>
@@ -20,27 +20,25 @@ const char *const ArchiveRawHost::UniqueTag = "arc_libarchive_raw";
 
 // An arbitrary picked value, invented out of a blue. Should presumably cover reasonable uses cases
 // while giving a protection about potential traps, like accidentally expanding a 100GB .gz file.
-static constexpr uint64_t g_MaxBytes = 64 * 1024 * 1024;
+static constexpr uint64_t g_MaxBytes = 64ULL * 1024ULL * 1024ULL;
 
 // A filename to be used if we failed to deduce or extract it
 static constexpr const char *g_LastResortFilename = "data";
 
 // Lowercase FormC extensions supported by this VFS
-static constexpr std::string_view g_ExtensionsList[] =
-    {"bz2", "gz", "lz", "lz4", "lzma", "lzo", "xz", "z", "zst"};
+static constexpr std::string_view g_ExtensionsList[] = {"bz2", "gz", "lz", "lz4", "lzma", "lzo", "xz", "z", "zst"};
 
 // O(1) unordered set of the extensions
-[[clang::no_destroy]] static const robin_hood::
-    unordered_flat_set<std::string, RHTransparentStringHashEqual, RHTransparentStringHashEqual>
-        g_ExtensionsSet(std::begin(g_ExtensionsList), std::end(g_ExtensionsList));
+[[clang::no_destroy]] static const ankerl::unordered_dense::
+    set<std::string, UnorderedStringHashEqual, UnorderedStringHashEqual> g_ExtensionsSet(std::begin(g_ExtensionsList),
+                                                                                         std::end(g_ExtensionsList));
 
 namespace {
 struct Extracted {
     Extracted() = default;
-    Extracted(int _vfs_err) : vfs_err(_vfs_err){};
+    Extracted(const Error &_err) : bytes(std::unexpected(_err)) {};
 
-    int vfs_err = VFSError::Ok;
-    std::vector<std::byte> bytes;
+    std::expected<std::vector<std::byte>, Error> bytes;
     std::string filename;
     time_t mtime = 0;
 };
@@ -52,7 +50,7 @@ static Extracted read_stream(const uint64_t _max_bytes,
                              VFSHost &_parent,
                              const VFSCancelChecker &_cancel_checker)
 {
-    static constexpr size_t buf_sz = 256 * 1024;
+    static constexpr size_t buf_sz = 256ULL * 1024ULL;
     struct State {
         VFSFilePtr source_file;
         std::unique_ptr<std::byte[]> inbuf;
@@ -60,29 +58,32 @@ static Extracted read_stream(const uint64_t _max_bytes,
         VFSCancelChecker cancel_checker;
     } st;
 
+    if( const std::expected<std::shared_ptr<VFSFile>, Error> exp = _parent.CreateFile(_path, _cancel_checker); exp )
+        st.source_file = *exp;
+    else
+        return exp.error();
+
     int rc = 0;
-    rc = _parent.CreateFile(_path.c_str(), st.source_file, _cancel_checker);
-    if( rc < 0 )
-        return rc;
+
     rc = st.source_file->Open(VFSFlags::OF_Read);
     if( rc < 0 )
-        return rc;
+        return VFSError::ToError(rc);
     if( st.source_file->Size() <= 0 )
-        return VFSError::ArclibFileFormat;
+        return VFSError::ToError(VFSError::ArclibFileFormat);
     if( st.source_file->GetReadParadigm() < VFSFile::ReadParadigm::Sequential )
-        return VFSError::InvalidCall;
+        return VFSError::ToError(VFSError::InvalidCall);
 
     st.inbuf = std::make_unique<std::byte[]>(buf_sz);
     st.outbuf = std::make_unique<std::byte[]>(buf_sz);
     st.cancel_checker = _cancel_checker;
 
     auto myread = [](struct archive *a, void *client_data, const void **buff) -> ssize_t {
-        State &st = *static_cast<State *>(client_data);
+        const State &st = *static_cast<State *>(client_data);
         if( st.cancel_checker && st.cancel_checker() ) {
             archive_set_error(a, ECANCELED, "user-canceled");
             return ARCHIVE_FATAL;
         }
-        ssize_t result = st.source_file->Read(st.inbuf.get(), buf_sz);
+        const ssize_t result = st.source_file->Read(st.inbuf.get(), buf_sz);
         if( result < 0 ) {
             archive_set_error(a, EIO, "I/O error");
             return ARCHIVE_FATAL; // handle somehow
@@ -111,18 +112,18 @@ static Extracted read_stream(const uint64_t _max_bytes,
     archive_read_set_read_callback(arc, myread);
     int arc_rc = archive_read_open1(arc);
     if( arc_rc != ARCHIVE_OK )
-        return VFSError::FromErrno(archive_errno(arc));
+        return VFSError::ToError(VFSError::FromErrno(archive_errno(arc)));
 
     if( archive_filter_code(arc, 0) == ARCHIVE_FILTER_NONE ) {
         // libarchive always supports "none" compression filter as a fallback, but in this
         // configuration it doesn't make any sense, so reject such files.
-        return VFSError::ArclibFileFormat;
+        return VFSError::ToError(VFSError::ArclibFileFormat);
     }
 
     archive_entry *entry;
     arc_rc = archive_read_next_header(arc, &entry);
     if( arc_rc != ARCHIVE_OK )
-        return VFSError::FromErrno(archive_errno(arc));
+        return VFSError::ToError(VFSError::FromErrno(archive_errno(arc)));
 
     Extracted extr;
 
@@ -136,17 +137,17 @@ static Extracted read_stream(const uint64_t _max_bytes,
     uint64_t total_size = 0;
     while( true ) {
         if( st.cancel_checker && st.cancel_checker() ) {
-            return VFSError::Cancelled;
+            return Error{Error::POSIX, ECANCELED};
         }
         const ssize_t size = archive_read_data(arc, st.outbuf.get(), buf_sz);
         if( size < 0 )
-            return VFSError::FromErrno(archive_errno(arc));
+            return VFSError::ToError(VFSError::FromErrno(archive_errno(arc)));
         if( size == 0 )
             break; // EOF?
         total_size += size;
         if( total_size > _max_bytes )
-            return VFSError::FromErrno(EFBIG);
-        extr.bytes.insert(extr.bytes.end(), st.outbuf.get(), st.outbuf.get() + size);
+            return Error{Error::POSIX, EFBIG};
+        extr.bytes->insert(extr.bytes->end(), st.outbuf.get(), st.outbuf.get() + size);
     }
 
     return extr;
@@ -155,23 +156,19 @@ static Extracted read_stream(const uint64_t _max_bytes,
 class VFSArchiveRawHostConfiguration
 {
 public:
-    std::filesystem::path path;
+    std::string path;
 
-    const char *Tag() const noexcept { return ArchiveRawHost::UniqueTag; }
+    [[nodiscard]] static const char *Tag() noexcept { return ArchiveRawHost::UniqueTag; }
 
-    const char *Junction() const noexcept { return path.c_str(); }
+    [[nodiscard]] const char *Junction() const noexcept { return path.c_str(); }
 
-    bool operator==(const VFSArchiveRawHostConfiguration &_rhs) const noexcept
-    {
-        return path == _rhs.path;
-    }
+    bool operator==(const VFSArchiveRawHostConfiguration &_rhs) const noexcept { return path == _rhs.path; }
 };
 
-ArchiveRawHost::ArchiveRawHost(const std::string &_path,
+ArchiveRawHost::ArchiveRawHost(const std::string_view _path,
                                const VFSHostPtr &_parent,
                                VFSCancelChecker _cancel_checker)
-    : Host(_path.c_str(), _parent, UniqueTag),
-      m_Configuration(VFSArchiveRawHostConfiguration{_path})
+    : Host(_path, _parent, UniqueTag), m_Configuration(VFSArchiveRawHostConfiguration{std::string(_path)})
 {
     Init(_cancel_checker);
 }
@@ -179,8 +176,7 @@ ArchiveRawHost::ArchiveRawHost(const std::string &_path,
 ArchiveRawHost::ArchiveRawHost(const VFSHostPtr &_parent,
                                const VFSConfiguration &_config,
                                VFSCancelChecker _cancel_checker)
-    : Host(_config.Get<VFSArchiveRawHostConfiguration>().path.c_str(), _parent, UniqueTag),
-      m_Configuration(_config)
+    : Host(_config.Get<VFSArchiveRawHostConfiguration>().path, _parent, UniqueTag), m_Configuration(_config)
 {
     Init(_cancel_checker);
 }
@@ -189,11 +185,10 @@ VFSMeta ArchiveRawHost::Meta()
 {
     VFSMeta m;
     m.Tag = UniqueTag;
-    m.SpawnWithConfig = [](const VFSHostPtr &_parent,
-                           const VFSConfiguration &_config,
-                           VFSCancelChecker _cancel_checker) {
-        return std::make_shared<ArchiveRawHost>(_parent, _config, _cancel_checker);
-    };
+    m.SpawnWithConfig =
+        [](const VFSHostPtr &_parent, const VFSConfiguration &_config, VFSCancelChecker _cancel_checker) {
+            return std::make_shared<ArchiveRawHost>(_parent, _config, _cancel_checker);
+        };
     return m;
 }
 
@@ -201,103 +196,92 @@ void ArchiveRawHost::Init(const VFSCancelChecker &_cancel_checker)
 {
     const auto &path = Configuration().Get<VFSArchiveRawHostConfiguration>().path;
     auto extracted = read_stream(g_MaxBytes, path, *Parent(), _cancel_checker);
-    if( extracted.vfs_err != VFSError::Ok ) {
-        Log::Warn(SPDLOC,
-                  "unable to open {}({}), error: {}({})",
-                  path.c_str(),
-                  Parent()->Tag(),
-                  VFSError::FormatErrorCode(extracted.vfs_err),
-                  extracted.vfs_err);
-        throw VFSErrorException(extracted.vfs_err);
+    if( !extracted.bytes ) {
+        Log::Warn("unable to open {}({}), error: {}", path.c_str(), Parent()->Tag(), extracted.bytes.error());
+        throw ErrorException(extracted.bytes.error());
     }
 
-    m_Data = std::move(extracted.bytes);
+    m_Data = std::move(*extracted.bytes);
     m_Filename = extracted.filename;
     if( m_Filename.empty() )
-        m_Filename = DeduceFilename(path.native());
+        m_Filename = DeduceFilename(path);
     if( m_Filename.empty() )
         m_Filename = g_LastResortFilename;
     m_MTime.tv_nsec = 0;
     m_MTime.tv_sec = extracted.mtime;
     if( m_MTime.tv_sec == 0 ) {
-        VFSStat st;
-        const auto st_rc = Parent()->Stat(path.c_str(), st, Flags::None, _cancel_checker);
-        if( st_rc != VFSError::Ok )
-            throw VFSErrorException(st_rc);
-        m_MTime = st.mtime;
+        const std::expected<VFSStat, Error> st = Parent()->Stat(path, Flags::None, _cancel_checker);
+        if( !st )
+            throw ErrorException(st.error());
+        m_MTime = st->mtime;
     }
 }
 
-int ArchiveRawHost::CreateFile(const char *_path,
-                               std::shared_ptr<VFSFile> &_target,
-                               [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<std::shared_ptr<VFSFile>, Error>
+ArchiveRawHost::CreateFile(std::string_view _path, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
-    if( _path == nullptr || _path[0] != '/' )
-        return VFSError::FromErrno(EINVAL);
+    if( !_path.starts_with("/") )
+        return std::unexpected(Error{Error::POSIX, EINVAL});
 
-    if( m_Filename != std::string_view(_path + 1) )
-        return VFSError::FromErrno(ENOENT);
+    if( m_Filename != _path.substr(1) )
+        return std::unexpected(Error{Error::POSIX, ENOENT});
 
-    _target = std::make_unique<GenericMemReadOnlyFile>(
-        _path, shared_from_this(), m_Data.data(), m_Data.size());
-    return VFSError::Ok;
+    return std::make_shared<GenericMemReadOnlyFile>(_path, shared_from_this(), m_Data.data(), m_Data.size());
 }
 
-int ArchiveRawHost::Stat(const char *_path,
-                         VFSStat &_st,
-                         [[maybe_unused]] unsigned long _flags,
-                         [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<VFSStat, Error> ArchiveRawHost::Stat(std::string_view _path,
+                                                   [[maybe_unused]] unsigned long _flags,
+                                                   [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
-    if( _path == nullptr || _path[0] != '/' )
-        return VFSError::FromErrno(EINVAL);
+    if( _path.empty() || _path[0] != '/' )
+        return std::unexpected(Error{Error::POSIX, EINVAL});
 
-    if( m_Filename != std::string_view(_path + 1) )
-        return VFSError::FromErrno(ENOENT);
+    if( m_Filename != _path.substr(1) )
+        return std::unexpected(Error{Error::POSIX, ENOENT});
 
-    std::memset(&_st, 0, sizeof(_st));
-
-    _st.size = m_Data.size();
-    _st.meaning.size = 1;
-    _st.mode_bits.reg = 1;
-    _st.mode_bits.rusr = 1;
-    _st.mode_bits.rgrp = 1;
-    _st.meaning.mode = 1;
-    _st.mtime = _st.atime = _st.ctime = _st.btime = m_MTime;
-    _st.meaning.mtime = _st.meaning.atime = _st.meaning.ctime = _st.meaning.btime = 1;
-    return VFSError::Ok;
+    VFSStat st;
+    st.size = m_Data.size();
+    st.meaning.size = 1;
+    st.mode_bits.reg = 1;
+    st.mode_bits.rusr = 1;
+    st.mode_bits.rgrp = 1;
+    st.meaning.mode = 1;
+    st.mtime = st.atime = st.ctime = st.btime = m_MTime;
+    st.meaning.mtime = st.meaning.atime = st.meaning.ctime = st.meaning.btime = 1;
+    return st;
 }
 
-int ArchiveRawHost::IterateDirectoryListing(
-    const char *_path,
-    const std::function<bool(const VFSDirEnt &_dirent)> &_handler)
+std::expected<void, Error>
+ArchiveRawHost::IterateDirectoryListing(std::string_view _path,
+                                        const std::function<bool(const VFSDirEnt &_dirent)> &_handler)
 {
-    if( _path == nullptr || _path[0] != '/' || !_handler )
-        return VFSError::FromErrno(EINVAL);
-    if( std::string_view(_path) != "/" )
-        return VFSError::FromErrno(ENOENT);
+    if( !_path.starts_with("/") || !_handler )
+        return std::unexpected(Error{Error::POSIX, EINVAL});
+    if( _path != "/" )
+        return std::unexpected(Error{Error::POSIX, ENOENT});
 
     VFSDirEnt entry;
     entry.type = VFSDirEnt::Reg;
     if( m_Filename.size() > sizeof(entry.name) - 1 )
-        return VFSError::FromErrno(ENAMETOOLONG);
+        return std::unexpected(Error{Error::POSIX, ENAMETOOLONG});
     strcpy(entry.name, m_Filename.c_str());
     entry.name_len = static_cast<uint16_t>(m_Filename.size());
 
     _handler(entry);
 
-    return VFSError::Ok;
+    return {};
 }
 
-int ArchiveRawHost::FetchDirectoryListing(const char *_path,
-                                          VFSListingPtr &_target,
-                                          unsigned long _flags,
-                                          [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<VFSListingPtr, Error>
+ArchiveRawHost::FetchDirectoryListing(std::string_view _path,
+                                      unsigned long _flags,
+                                      [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 
 {
-    if( _path == nullptr || _path[0] != '/' )
-        return VFSError::FromErrno(EINVAL);
-    if( std::string_view(_path) != "/" )
-        return VFSError::FromErrno(ENOENT);
+    if( _path.empty() || _path[0] != '/' )
+        return std::unexpected(Error{Error::POSIX, EINVAL});
+    if( _path != "/" )
+        return std::unexpected(Error{Error::POSIX, ENOENT});
 
     using nc::base::variable_container;
     ListingInput listing_source;
@@ -332,8 +316,7 @@ int ArchiveRawHost::FetchDirectoryListing(const char *_path,
     listing_source.mtimes.insert(index, m_MTime.tv_sec);
     listing_source.sizes.insert(index, m_Data.size());
 
-    _target = VFSListing::Build(std::move(listing_source));
-    return 0;
+    return VFSListing::Build(std::move(listing_source));
 }
 
 std::string_view ArchiveRawHost::DeduceFilename(std::string_view _path) noexcept

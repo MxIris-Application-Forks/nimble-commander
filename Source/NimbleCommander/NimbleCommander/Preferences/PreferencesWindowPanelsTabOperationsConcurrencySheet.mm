@@ -1,7 +1,7 @@
-// Copyright (C) 2021-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2021-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PreferencesWindowPanelsTabOperationsConcurrencySheet.h"
 #include <Base/algo.h>
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 #include <vector>
 #include <ranges>
 #include <fmt/core.h>
@@ -20,14 +20,22 @@
 @implementation PreferencesWindowPanelsTabOperationsConcurrencySheet {
     std::string m_OriginalExclusionList;
     std::string m_FinalExclusionList;
-    robin_hood::unordered_map<std::string, NSButton *> m_Tags;
+    ankerl::unordered_dense::map<std::string, NSButton *> m_Tags;
 }
 
 @synthesize exclusionList = m_FinalExclusionList;
+@synthesize opCopy;
+@synthesize opDelete;
+@synthesize opMkdir;
+@synthesize opLink;
+@synthesize opCompress;
+@synthesize opBatchRename;
+@synthesize opChAttrs;
 
 - (instancetype)initWithConcurrencyExclusionList:(const std::string &)_list
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         m_OriginalExclusionList = _list;
     }
     return self;
@@ -53,7 +61,7 @@
     for( const auto str : std::views::split(std::string_view{m_OriginalExclusionList}, ',') )
         if( auto trimmed = nc::base::Trim(std::string_view{str}); !trimmed.empty() )
             excluded.emplace_back(trimmed);
-    
+
     for( auto &operation : excluded )
         if( m_Tags.contains(operation) )
             [m_Tags[operation] setState:NSControlStateValueOff];

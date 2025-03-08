@@ -23,7 +23,7 @@ TEST_CASE(PREFIX "Returns zero on invalid paths")
 
 TEST_CASE(PREFIX "Registers event listeners")
 {
-    TempTestDir tmp_dir;
+    const TempTestDir tmp_dir;
     auto &inst = FSEventsDirUpdate::Instance();
     int call_count[3] = {0, 0, 0};
 
@@ -50,7 +50,7 @@ TEST_CASE(PREFIX "Registers event listeners")
 
 TEST_CASE(PREFIX "Removes event listeners")
 {
-    TempTestDir tmp_dir;
+    const TempTestDir tmp_dir;
     auto &inst = FSEventsDirUpdate::Instance();
     int call_count[3] = {0, 0, 0};
 
@@ -84,25 +84,31 @@ TEST_CASE(PREFIX "Firing logic")
         std::vector<FSEventStreamEventFlags> event_flags;
         bool exp = false;
     } tcs[] = {
-        {"/dir/", {}, {}, false},
-        {"/dir/", {""}, {0}, false},
-        {"/dir/", {"/"}, {0}, false},
-        {"/dir/", {"/di"}, {0}, false},
-        {"/dir/", {"/dir"}, {0}, true},
-        {"/dir/", {"/dir/"}, {0}, true},
-        {"/dir/", {"/dirr"}, {0}, false},
-        {"/dir/", {"/dirr/"}, {0}, false},
-        {"/dir/", {"/dir/sub"}, {0}, false},
-        {"/dir/", {"/dir/sub/"}, {0}, false},
-        {"/dir/", {"/else", "/dir/"}, {0, 0}, true},
-        {"/dir/", {"/else/", "/dir"}, {0, 0}, true},
-        {"/dir/", {"/else", "/another/"}, {kFSEventStreamEventFlagRootChanged, 0}, true},
-        {"/dir/", {"/else", "/another/"}, {0, kFSEventStreamEventFlagRootChanged}, true},
+        {.watched_path = "/dir/", .event_paths = {}, .event_flags = {}, .exp = false},
+        {.watched_path = "/dir/", .event_paths = {""}, .event_flags = {0}, .exp = false},
+        {.watched_path = "/dir/", .event_paths = {"/"}, .event_flags = {0}, .exp = false},
+        {.watched_path = "/dir/", .event_paths = {"/di"}, .event_flags = {0}, .exp = false},
+        {.watched_path = "/dir/", .event_paths = {"/dir"}, .event_flags = {0}, .exp = true},
+        {.watched_path = "/dir/", .event_paths = {"/dir/"}, .event_flags = {0}, .exp = true},
+        {.watched_path = "/dir/", .event_paths = {"/dirr"}, .event_flags = {0}, .exp = false},
+        {.watched_path = "/dir/", .event_paths = {"/dirr/"}, .event_flags = {0}, .exp = false},
+        {.watched_path = "/dir/", .event_paths = {"/dir/sub"}, .event_flags = {0}, .exp = false},
+        {.watched_path = "/dir/", .event_paths = {"/dir/sub/"}, .event_flags = {0}, .exp = false},
+        {.watched_path = "/dir/", .event_paths = {"/else", "/dir/"}, .event_flags = {0, 0}, .exp = true},
+        {.watched_path = "/dir/", .event_paths = {"/else/", "/dir"}, .event_flags = {0, 0}, .exp = true},
+        {.watched_path = "/dir/",
+         .event_paths = {"/else", "/another/"},
+         .event_flags = {kFSEventStreamEventFlagRootChanged, 0},
+         .exp = true},
+        {.watched_path = "/dir/",
+         .event_paths = {"/else", "/another/"},
+         .event_flags = {0, kFSEventStreamEventFlagRootChanged},
+         .exp = true},
     };
 
     for( auto &tc : tcs ) {
         assert(tc.event_paths.size() == tc.event_flags.size());
-        bool result =
+        const bool result =
             I::ShouldFire(tc.watched_path, tc.event_paths.size(), tc.event_paths.data(), tc.event_flags.data());
         CHECK(result == tc.exp);
     }

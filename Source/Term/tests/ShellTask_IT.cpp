@@ -1,26 +1,26 @@
-// Copyright (C) 2014-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 
 #include "Tests.h"
 #include "AtomicHolder.h"
 
-#include <ShellTask.h>
-#include <Screen.h>
-#include <ParserImpl.h>
-#include <InterpreterImpl.h>
 #include <Base/CommonPaths.h>
-#include <Base/mach_time.h>
 #include <Base/dispatch_cpp.h>
+#include <Base/mach_time.h>
+#include <InterpreterImpl.h>
+#include <ParserImpl.h>
+#include <Screen.h>
+#include <ShellTask.h>
 #include <Utility/SystemInformation.h>
-#include <magic_enum.hpp>
-#include <sys/param.h>
-#include <unordered_map>
 #include <algorithm>
-#include <numeric>
-#include <fstream>
 #include <fmt/format.h>
 #include <fmt/std.h>
+#include <fstream>
 #include <libproc.h>
+#include <magic_enum.hpp>
+#include <numeric>
+#include <sys/param.h>
 #include <sys/proc_info.h>
+#include <unordered_map>
 
 #pragma clang diagnostic ignored "-Wframe-larger-than="
 
@@ -72,7 +72,7 @@ static std::vector<int> GetAllFileDescriptors()
 {
     // TODO: move this to nc::base and cover with tests
     const int pid = getpid();
-    int buffer_size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, 0, 0);
+    const int buffer_size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nullptr, 0);
     if( buffer_size == -1 ) {
         abort();
     }
@@ -90,7 +90,7 @@ static std::vector<int> GetAllFileDescriptors()
             info.proc_fdtype == PROX_FDTYPE_SOCKET )
             res.emplace_back(info.proc_fd);
 
-    std::sort(res.begin(), res.end());
+    std::ranges::sort(res);
 
     return res;
 }
@@ -98,10 +98,22 @@ static std::vector<int> GetAllFileDescriptors()
 TEST_CASE(PREFIX "Inactive -> Shell -> Terminate - Inactive")
 {
     ShellTask shell;
-    SECTION("/bin/bash") { shell.SetShellPath("/bin/bash"); }
-    SECTION("/bin/zsh") { shell.SetShellPath("/bin/zsh"); }
-    SECTION("/bin/tcsh") { shell.SetShellPath("/bin/tcsh"); }
-    SECTION("/bin/csh") { shell.SetShellPath("/bin/csh"); }
+    SECTION("/bin/bash")
+    {
+        shell.SetShellPath("/bin/bash");
+    }
+    SECTION("/bin/zsh")
+    {
+        shell.SetShellPath("/bin/zsh");
+    }
+    SECTION("/bin/tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
+    SECTION("/bin/csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
     QueuedAtomicHolder<ShellTask::TaskState> shell_state(shell.State());
     REQUIRE(shell.State() == TaskState::Inactive);
 
@@ -121,10 +133,22 @@ TEST_CASE(PREFIX "Inactive -> Shell -> ProgramInternal (exit) -> Dead -> Inactiv
 {
     QueuedAtomicHolder<ShellTask::TaskState> shell_state(ShellTask::TaskState::Inactive);
     ShellTask shell;
-    SECTION("/bin/bash") { shell.SetShellPath("/bin/bash"); }
-    SECTION("/bin/zsh") { shell.SetShellPath("/bin/zsh"); }
-    SECTION("/bin/tcsh") { shell.SetShellPath("/bin/tcsh"); }
-    SECTION("/bin/csh") { shell.SetShellPath("/bin/csh"); }
+    SECTION("/bin/bash")
+    {
+        shell.SetShellPath("/bin/bash");
+    }
+    SECTION("/bin/zsh")
+    {
+        shell.SetShellPath("/bin/zsh");
+    }
+    SECTION("/bin/tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
+    SECTION("/bin/csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
     shell.SetOnStateChange([&shell_state](ShellTask::TaskState _new_state) { shell_state.store(_new_state); });
     REQUIRE(shell.State() == TaskState::Inactive);
     REQUIRE(shell.Launch(CommonPaths::AppTemporaryDirectory()));
@@ -139,10 +163,22 @@ TEST_CASE(PREFIX "Inactive -> Shell -> ProgramInternal (exit) -> Dead -> Inactiv
 TEST_CASE(PREFIX "Inactive -> Shell -> ProgramInternal (vi) -> Shell -> Terminate -> Inactive")
 {
     ShellTask shell;
-    SECTION("/bin/bash") { shell.SetShellPath("/bin/bash"); }
-    SECTION("/bin/zsh") { shell.SetShellPath("/bin/zsh"); }
-    SECTION("/bin/tcsh") { shell.SetShellPath("/bin/tcsh"); }
-    SECTION("/bin/csh") { shell.SetShellPath("/bin/csh"); }
+    SECTION("/bin/bash")
+    {
+        shell.SetShellPath("/bin/bash");
+    }
+    SECTION("/bin/zsh")
+    {
+        shell.SetShellPath("/bin/zsh");
+    }
+    SECTION("/bin/tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
+    SECTION("/bin/csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
     QueuedAtomicHolder<ShellTask::TaskState> shell_state(shell.State());
     shell.SetOnStateChange([&shell_state](ShellTask::TaskState _new_state) { shell_state.store(_new_state); });
     REQUIRE(shell.State() == TaskState::Inactive);
@@ -159,10 +195,22 @@ TEST_CASE(PREFIX "Inactive -> Shell -> ProgramInternal (vi) -> Shell -> Terminat
 TEST_CASE(PREFIX "Inactive -> Shell -> ProgramExternal (vi) -> Shell -> Terminate -> Inactive")
 {
     ShellTask shell;
-    SECTION("/bin/bash") { shell.SetShellPath("/bin/bash"); }
-    SECTION("/bin/zsh") { shell.SetShellPath("/bin/zsh"); }
-    SECTION("/bin/tcsh") { shell.SetShellPath("/bin/tcsh"); }
-    SECTION("/bin/csh") { shell.SetShellPath("/bin/csh"); }
+    SECTION("/bin/bash")
+    {
+        shell.SetShellPath("/bin/bash");
+    }
+    SECTION("/bin/zsh")
+    {
+        shell.SetShellPath("/bin/zsh");
+    }
+    SECTION("/bin/tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
+    SECTION("/bin/csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
     QueuedAtomicHolder<ShellTask::TaskState> shell_state(shell.State());
     shell.SetOnStateChange([&shell_state](ShellTask::TaskState _new_state) { shell_state.store(_new_state); });
     REQUIRE(shell.State() == TaskState::Inactive);
@@ -198,8 +246,14 @@ TEST_CASE(PREFIX "Launch=>Exit via output (Bash)")
         shell.AddCustomShellArgument("zsh");
         shell.AddCustomShellArgument("-f");
     }
-    SECTION("csh") { shell.SetShellPath("/bin/csh"); }
-    SECTION("tcsh") { shell.SetShellPath("/bin/tcsh"); }
+    SECTION("csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
+    SECTION("tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
     const auto type = shell.GetShellType();
     shell.SetOnChildOutput([&](const void *_d, int _sz) {
         if( auto cmds = parser.Parse({reinterpret_cast<const std::byte *>(_d), static_cast<size_t>(_sz)});
@@ -240,7 +294,7 @@ TEST_CASE(PREFIX "ChDir(), verify via output and cwd prompt (Bash)")
     const auto dir3 = dir.directory / "Blackmore's Night" / "";
     const auto dir4 = dir.directory / U"Сектор Газа" / "";
     const auto dir5 = dir.directory / U"😀🍻" / "";
-    for( auto d : {dir2, dir3, dir4, dir5} )
+    for( const auto &d : {dir2, dir3, dir4, dir5} )
         std::filesystem::create_directory(d);
 
     AtomicHolder<std::string> buffer_dump;
@@ -264,8 +318,14 @@ TEST_CASE(PREFIX "ChDir(), verify via output and cwd prompt (Bash)")
         shell.AddCustomShellArgument("zsh");
         shell.AddCustomShellArgument("-f");
     }
-    SECTION("csh") { shell.SetShellPath("/bin/csh"); }
-    SECTION("tcsh") { shell.SetShellPath("/bin/tcsh"); }
+    SECTION("csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
+    SECTION("tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
     const auto type = shell.GetShellType();
     shell.SetOnChildOutput([&](const void *_d, int _sz) {
         if( auto cmds = parser.Parse({reinterpret_cast<const std::byte *>(_d), static_cast<size_t>(_sz)});
@@ -356,10 +416,22 @@ TEST_CASE(PREFIX "CWD prompt response")
     AtomicHolder<std::filesystem::path> cwd;
     shell.SetOnPwdPrompt([&](const char *_cwd, bool) { cwd.store(_cwd); });
     REQUIRE(shell.State() == TaskState::Inactive);
-    SECTION("/bin/bash") { shell.SetShellPath("/bin/bash"); }
-    SECTION("/bin/zsh") { shell.SetShellPath("/bin/zsh"); }
-    SECTION("/bin/tcsh") { shell.SetShellPath("/bin/tcsh"); }
-    SECTION("/bin/csh") { shell.SetShellPath("/bin/csh"); }
+    SECTION("/bin/bash")
+    {
+        shell.SetShellPath("/bin/bash");
+    }
+    SECTION("/bin/zsh")
+    {
+        shell.SetShellPath("/bin/zsh");
+    }
+    SECTION("/bin/tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
+    SECTION("/bin/csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
     REQUIRE(shell.Launch(dir.directory));
     REQUIRE(shell_state.wait_to_become(5s, TaskState::Shell));
     REQUIRE(cwd.wait_to_become(5s, dir.directory));
@@ -417,10 +489,22 @@ TEST_CASE(PREFIX "CWD prompt response - changed/same")
     ShellTask shell;
     QueuedAtomicHolder<std::pair<std::filesystem::path, bool>> cwd;
     shell.SetOnPwdPrompt([&](const char *_cwd, bool _changed) { cwd.store({_cwd, _changed}); });
-    SECTION("/bin/bash") { shell.SetShellPath("/bin/bash"); }
-    SECTION("/bin/zsh") { shell.SetShellPath("/bin/zsh"); }
-    SECTION("/bin/tcsh") { shell.SetShellPath("/bin/tcsh"); }
-    SECTION("/bin/csh") { shell.SetShellPath("/bin/csh"); }
+    SECTION("/bin/bash")
+    {
+        shell.SetShellPath("/bin/bash");
+    }
+    SECTION("/bin/zsh")
+    {
+        shell.SetShellPath("/bin/zsh");
+    }
+    SECTION("/bin/tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
+    SECTION("/bin/csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
     REQUIRE(shell.Launch(dir.directory));
     REQUIRE(cwd.wait_to_become(5s, {dir.directory, false}));
 
@@ -447,10 +531,22 @@ TEST_CASE(PREFIX "Test basics (legacy stuff)")
     shell_state.strict(false);
     shell.SetOnStateChange([&shell_state](ShellTask::TaskState _new_state) { shell_state.store(_new_state); });
     shell.SetOnPwdPrompt([&](const char *_cwd, bool) { cwd.store(_cwd); });
-    SECTION("/bin/bash") { shell.SetShellPath("/bin/bash"); }
-    SECTION("/bin/zsh") { shell.SetShellPath("/bin/zsh"); }
-    SECTION("/bin/tcsh") { shell.SetShellPath("/bin/tcsh"); }
-    SECTION("/bin/csh") { shell.SetShellPath("/bin/csh"); }
+    SECTION("/bin/bash")
+    {
+        shell.SetShellPath("/bin/bash");
+    }
+    SECTION("/bin/zsh")
+    {
+        shell.SetShellPath("/bin/zsh");
+    }
+    SECTION("/bin/tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
+    SECTION("/bin/csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
     shell.ResizeWindow(100, 100);
     REQUIRE(shell.Launch(dir.directory));
 
@@ -461,7 +557,7 @@ TEST_CASE(PREFIX "Test basics (legacy stuff)")
     // the only task is running is shell itself, and is not returned by ChildrenList
     // though __in the process of bash initialization__ it can temporary spawn subprocesses
     REQUIRE(WaitChildrenListToBecome(shell, {}, 5s, 1ms));
-    
+
     // test executing binaries within a shell
     shell.ExecuteWithFullPath("/usr/bin/top", nullptr);
     REQUIRE(shell_state.wait_to_become(5s, TaskState::ProgramExternal));
@@ -529,8 +625,14 @@ TEST_CASE(PREFIX "Test vim interaction via output")
         shell.AddCustomShellArgument("zsh");
         shell.AddCustomShellArgument("-f");
     }
-    SECTION("csh") { shell.SetShellPath("/bin/csh"); }
-    SECTION("tcsh") { shell.SetShellPath("/bin/tcsh"); }
+    SECTION("csh")
+    {
+        shell.SetShellPath("/bin/csh");
+    }
+    SECTION("tcsh")
+    {
+        shell.SetShellPath("/bin/tcsh");
+    }
     shell.SetOnChildOutput([&](const void *_d, int _sz) {
         if( auto cmds = parser.Parse({reinterpret_cast<const std::byte *>(_d), static_cast<size_t>(_sz)});
             !cmds.empty() ) {
@@ -907,7 +1009,7 @@ TEST_CASE(PREFIX "Closes all file descriptors used by terminal")
 
 TEST_CASE(PREFIX "Doesn't allow double-launch")
 {
-    ShellTask shell;    
+    ShellTask shell;
     REQUIRE(shell.Launch(CommonPaths::AppTemporaryDirectory()));
     CHECK_THROWS_AS(shell.Launch(CommonPaths::AppTemporaryDirectory()), std::logic_error);
 }

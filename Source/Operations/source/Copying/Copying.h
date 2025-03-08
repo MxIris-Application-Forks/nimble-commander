@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <VFS/VFS.h>
@@ -24,8 +24,7 @@ public:
 private:
     using CB = CopyingJobCallbacks;
 
-    enum class LockedItemCause
-    {
+    enum class LockedItemCause {
         Moving,
         Deletion,
         Opening
@@ -48,38 +47,38 @@ private:
                               const std::string &_path,
                               std::shared_ptr<AsyncDialogResponse> _ctx);
 
-    CB::CantAccessSourceItemResolution OnCantAccessSourceItem(int _vfs_error, const std::string &_path, VFSHost &_vfs);
+    CB::CantAccessSourceItemResolution OnCantAccessSourceItem(Error _error, const std::string &_path, VFSHost &_vfs);
 
     CB::CantOpenDestinationFileResolution
-    OnCantOpenDestinationFile(int _vfs_error, const std::string &_path, VFSHost &_vfs);
+    OnCantOpenDestinationFile(Error _error, const std::string &_path, VFSHost &_vfs);
 
     CB::SourceFileReadErrorResolution OnSourceFileReadError(int _vfs_error, const std::string &_path, VFSHost &_vfs);
 
     CB::DestinationFileReadErrorResolution
-    OnDestinationFileReadError(int _vfs_error, const std::string &_path, VFSHost &_vfs);
+    OnDestinationFileReadError(Error _error, const std::string &_path, VFSHost &_vfs);
 
     CB::DestinationFileWriteErrorResolution
-    OnDestinationFileWriteError(int _vfs_error, const std::string &_path, VFSHost &_vfs);
+    OnDestinationFileWriteError(Error _error, const std::string &_path, VFSHost &_vfs);
 
     CB::CantCreateDestinationRootDirResolution
-    OnCantCreateDestinationRootDir(int _vfs_error, const std::string &_path, VFSHost &_vfs);
+    OnCantCreateDestinationRootDir(Error _error, const std::string &_path, VFSHost &_vfs);
 
     CB::CantCreateDestinationDirResolution
-    OnCantCreateDestinationDir(int _vfs_error, const std::string &_path, VFSHost &_vfs);
+    OnCantCreateDestinationDir(Error _error, const std::string &_path, VFSHost &_vfs);
 
     CB::CantDeleteDestinationFileResolution
-    OnCantDeleteDestinationFile(int _vfs_error, const std::string &_path, VFSHost &_vfs);
+    OnCantDeleteDestinationFile(Error _error, const std::string &_path, VFSHost &_vfs);
 
-    CB::CantDeleteSourceFileResolution OnCantDeleteSourceItem(int _vfs_error, const std::string &_path, VFSHost &_vfs);
+    CB::CantDeleteSourceFileResolution OnCantDeleteSourceItem(Error _error, const std::string &_path, VFSHost &_vfs);
 
     CB::NotADirectoryResolution OnNotADirectory(const std::string &_path, VFSHost &_vfs);
 
-    CB::UnlockErrorResolution OnUnlockError(int _vfs_error, const std::string &_path, VFSHost &_vfs);
+    CB::UnlockErrorResolution OnUnlockError(Error _error, const std::string &_path, VFSHost &_vfs);
 
     CB::LockedItemResolution
-    OnLockedItemIssue(int _vfs_error, const std::string &_path, VFSHost &_vfs, LockedItemCause _cause);
+    OnLockedItemIssue(Error _error, const std::string &_path, VFSHost &_vfs, LockedItemCause _cause);
 
-    void OnLockedItemIssueUI(int _err,
+    void OnLockedItemIssueUI(Error _err,
                              const std::string &_path,
                              std::shared_ptr<VFSHost> _vfs,
                              LockedItemCause _cause,

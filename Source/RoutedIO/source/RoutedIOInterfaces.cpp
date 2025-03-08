@@ -1,18 +1,18 @@
 // Copyright (C) 2014-2021 Michael Kazakov. Subject to GNU General Public License version 3.
-#include <assert.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <stddef.h>
-#include <unistd.h>
-#include <ftw.h>
-#include <dirent.h>
-#include <signal.h>
-#include <errno.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/param.h>
-#include <sys/mount.h>
 #include <Base/CFPtr.h>
+#include <cassert>
+#include <cerrno>
+#include <csignal>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <dirent.h>
+#include <ftw.h>
+#include <sys/mount.h>
+#include <sys/param.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "RoutedIOInterfaces.h"
 #include "Trash.h"
@@ -172,7 +172,7 @@ int PosixIOInterfaceNative::ApplyTimeChange(const char *_path, time_t _time, uin
     memset(&attrs, 0, sizeof(attrs));
     attrs.bitmapcount = ATTR_BIT_MAP_COUNT;
     attrs.commonattr = _attr;
-    timespec time = {_time, 0};
+    timespec time = {.tv_sec = _time, .tv_nsec = 0};
     return setattrlist(_path, &attrs, &time, sizeof(time), 0);
 }
 
@@ -207,7 +207,7 @@ int PosixIOInterfaceRouted::open(const char *_path, int _flags, int _mode) noexc
             need_owner_fixup = true;
     }
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "open");
     xpc_dictionary_set_string(message, "path", _path);
     xpc_dictionary_set_int64(message, "flags", _flags);
@@ -221,14 +221,14 @@ int PosixIOInterfaceRouted::open(const char *_path, int _flags, int _mode) noexc
         return super::open(_path, _flags, _mode);
     }
 
-    if( int64_t err = xpc_dictionary_get_int64(reply, "error") ) {
+    if( const int64_t err = xpc_dictionary_get_int64(reply, "error") ) {
         // got a graceful error, propaganate it
         xpc_release(reply);
         errno = static_cast<int>(err);
         return -1;
     }
 
-    int fd = xpc_dictionary_dup_fd(reply, "fd");
+    const int fd = xpc_dictionary_dup_fd(reply, "fd");
     xpc_release(reply);
 
     if( fd > 0 && need_owner_fixup )
@@ -243,7 +243,7 @@ int PosixIOInterfaceRouted::stat(const char *_path, struct ::stat *_st) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::stat(_path, _st);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "stat");
     xpc_dictionary_set_string(message, "path", _path);
 
@@ -281,7 +281,7 @@ int PosixIOInterfaceRouted::lstat(const char *_path, struct ::stat *_st) noexcep
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::lstat(_path, _st);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "lstat");
     xpc_dictionary_set_string(message, "path", _path);
 
@@ -324,7 +324,7 @@ DIR *PosixIOInterfaceRouted::opendir(const char *_path) noexcept
     if( !inst.Enabled() )
         return super::opendir(_path);
 
-    int fd = this->open(_path, O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_CLOEXEC, 0);
+    const int fd = this->open(_path, O_RDONLY | O_NONBLOCK | O_DIRECTORY | O_CLOEXEC, 0);
     if( fd < 0 )
         return nullptr;
 
@@ -337,7 +337,7 @@ int PosixIOInterfaceRouted::mkdir(const char *_path, mode_t _mode) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::mkdir(_path, _mode);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "mkdir");
     xpc_dictionary_set_string(message, "path", _path);
     xpc_dictionary_set_int64(message, "mode", _mode);
@@ -357,7 +357,7 @@ int PosixIOInterfaceRouted::mkdir(const char *_path, mode_t _mode) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -377,7 +377,7 @@ int PosixIOInterfaceRouted::chown(const char *_path, uid_t _uid, gid_t _gid) noe
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::chown(_path, _uid, _gid);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "chown");
     xpc_dictionary_set_string(message, "path", _path);
     xpc_dictionary_set_int64(message, "uid", _uid);
@@ -398,7 +398,7 @@ int PosixIOInterfaceRouted::chown(const char *_path, uid_t _uid, gid_t _gid) noe
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -414,7 +414,7 @@ int PosixIOInterfaceRouted::chflags(const char *_path, u_int _flags) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::chflags(_path, _flags);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "chflags");
     xpc_dictionary_set_string(message, "path", _path);
     xpc_dictionary_set_int64(message, "flags", _flags);
@@ -434,7 +434,7 @@ int PosixIOInterfaceRouted::chflags(const char *_path, u_int _flags) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -450,7 +450,7 @@ int PosixIOInterfaceRouted::lchflags(const char *_path, u_int _flags) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::lchflags(_path, _flags);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "lchflags");
     xpc_dictionary_set_string(message, "path", _path);
     xpc_dictionary_set_int64(message, "flags", _flags);
@@ -470,7 +470,7 @@ int PosixIOInterfaceRouted::lchflags(const char *_path, u_int _flags) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -486,7 +486,7 @@ int PosixIOInterfaceRouted::rmdir(const char *_path) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::rmdir(_path);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "rmdir");
     xpc_dictionary_set_string(message, "path", _path);
 
@@ -505,7 +505,7 @@ int PosixIOInterfaceRouted::rmdir(const char *_path) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -521,7 +521,7 @@ int PosixIOInterfaceRouted::unlink(const char *_path) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::unlink(_path);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "unlink");
     xpc_dictionary_set_string(message, "path", _path);
 
@@ -540,7 +540,7 @@ int PosixIOInterfaceRouted::unlink(const char *_path) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -556,7 +556,7 @@ int PosixIOInterfaceRouted::rename(const char *_old, const char *_new) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::rename(_old, _new);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "rename");
     xpc_dictionary_set_string(message, "oldpath", _old);
     xpc_dictionary_set_string(message, "newpath", _new);
@@ -576,7 +576,7 @@ int PosixIOInterfaceRouted::rename(const char *_old, const char *_new) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -592,7 +592,7 @@ ssize_t PosixIOInterfaceRouted::readlink(const char *_path, char *_symlink, size
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::readlink(_path, _symlink, _buf_sz);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "readlink");
     xpc_dictionary_set_string(message, "path", _path);
 
@@ -618,7 +618,7 @@ ssize_t PosixIOInterfaceRouted::readlink(const char *_path, char *_symlink, size
         return -1;
     }
 
-    size_t sz = strlen(value);
+    const size_t sz = strlen(value);
     strncpy(_symlink, value, _buf_sz);
 
     xpc_release(reply);
@@ -632,7 +632,7 @@ int PosixIOInterfaceRouted::symlink(const char *_value, const char *_symlink_pat
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::symlink(_value, _symlink_path);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "symlink");
     xpc_dictionary_set_string(message, "path", _symlink_path);
     xpc_dictionary_set_string(message, "value", _value);
@@ -652,7 +652,7 @@ int PosixIOInterfaceRouted::symlink(const char *_value, const char *_symlink_pat
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -668,7 +668,7 @@ int PosixIOInterfaceRouted::link(const char *_path_exist, const char *_path_newn
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::link(_path_exist, _path_newnode);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "link");
     xpc_dictionary_set_string(message, "exist", _path_exist);
     xpc_dictionary_set_string(message, "newnode", _path_newnode);
@@ -688,7 +688,7 @@ int PosixIOInterfaceRouted::link(const char *_path_exist, const char *_path_newn
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -704,7 +704,7 @@ int PosixIOInterfaceRouted::chmod(const char *_path, mode_t _mode) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::chmod(_path, _mode);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "chmod");
     xpc_dictionary_set_string(message, "path", _path);
     xpc_dictionary_set_int64(message, "mode", _mode);
@@ -724,7 +724,7 @@ int PosixIOInterfaceRouted::chmod(const char *_path, mode_t _mode) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -740,7 +740,7 @@ int PosixIOInterfaceRouted::chmtime(const char *_path, time_t _time) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::chmtime(_path, _time);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "chmtime");
     xpc_dictionary_set_string(message, "path", _path);
     xpc_dictionary_set_int64(message, "time", _time);
@@ -760,7 +760,7 @@ int PosixIOInterfaceRouted::chmtime(const char *_path, time_t _time) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -776,7 +776,7 @@ int PosixIOInterfaceRouted::chatime(const char *_path, time_t _time) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::chatime(_path, _time);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "chatime");
     xpc_dictionary_set_string(message, "path", _path);
     xpc_dictionary_set_int64(message, "time", _time);
@@ -796,7 +796,7 @@ int PosixIOInterfaceRouted::chatime(const char *_path, time_t _time) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -812,7 +812,7 @@ int PosixIOInterfaceRouted::chbtime(const char *_path, time_t _time) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::chbtime(_path, _time);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "chbtime");
     xpc_dictionary_set_string(message, "path", _path);
     xpc_dictionary_set_int64(message, "time", _time);
@@ -832,7 +832,7 @@ int PosixIOInterfaceRouted::chbtime(const char *_path, time_t _time) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -848,7 +848,7 @@ int PosixIOInterfaceRouted::chctime(const char *_path, time_t _time) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::chctime(_path, _time);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "chctime");
     xpc_dictionary_set_string(message, "path", _path);
     xpc_dictionary_set_int64(message, "time", _time);
@@ -868,7 +868,7 @@ int PosixIOInterfaceRouted::chctime(const char *_path, time_t _time) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -885,7 +885,7 @@ int PosixIOInterfaceRouted::killpg(int _pid, int _signal) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::killpg(_pid, _signal);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "killpg");
     xpc_dictionary_set_int64(message, "pid", _pid);
     xpc_dictionary_set_int64(message, "signal", _signal);
@@ -905,7 +905,7 @@ int PosixIOInterfaceRouted::killpg(int _pid, int _signal) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
@@ -921,7 +921,7 @@ int PosixIOInterfaceRouted::trash(const char *_path) noexcept
     if( !conn ) // fallback to native on disabled routing or on helper connectity problems
         return super::trash(_path);
 
-    xpc_object_t message = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
     xpc_dictionary_set_string(message, "operation", "trash");
     xpc_dictionary_set_string(message, "path", _path);
 
@@ -940,14 +940,14 @@ int PosixIOInterfaceRouted::trash(const char *_path) noexcept
         return -1;
     }
 
-    if( xpc_dictionary_get_bool(reply, "ok") != true ) {
+    if( !xpc_dictionary_get_bool(reply, "ok") ) {
         xpc_release(reply);
         errno = EIO;
         return -1;
     }
 
     xpc_release(reply);
-    return 0;    
+    return 0;
 }
 
 } // namespace nc::routedio

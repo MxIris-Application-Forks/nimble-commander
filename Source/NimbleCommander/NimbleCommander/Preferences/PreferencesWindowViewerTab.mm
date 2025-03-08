@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PreferencesWindowViewerTab.h"
 #include <Utility/FontExtras.h>
 #include <Viewer/History.h>
@@ -12,7 +12,7 @@ static const auto g_ConfigDefaultEncoding = "viewer.defaultEncoding";
 @end
 
 @implementation PreferencesBoolToNumberValueTransformer
-+(Class)transformedValueClass
++ (Class)transformedValueClass
 {
     return NSNumber.class;
 }
@@ -31,33 +31,32 @@ static const auto g_ConfigDefaultEncoding = "viewer.defaultEncoding";
 - (id)reverseTransformedValue:(id)value
 {
     if( auto n = nc::objc_cast<NSNumber>(value) )
-        return [NSNumber numberWithBool:n.intValue == 0 ? false : true];
+        return [NSNumber numberWithBool:n.intValue != 0];
     return nil;
 }
 @end
 
-@interface PreferencesWindowViewerTab()
+@interface PreferencesWindowViewerTab ()
 
-@property (nonatomic) IBOutlet NSPopUpButton *DefaultEncoding;
+@property(nonatomic) IBOutlet NSPopUpButton *DefaultEncoding;
 
 @end
 
-@implementation PreferencesWindowViewerTab
-{
+@implementation PreferencesWindowViewerTab {
     nc::viewer::History *m_History;
 }
+@synthesize DefaultEncoding;
 
-- (instancetype)initWithHistory:(nc::viewer::History&)_history
+- (instancetype)initWithHistory:(nc::viewer::History &)_history
 {
     self = [super initWithNibName:NSStringFromClass(self.class) bundle:nil];
-    if (self) {
+    if( self ) {
         m_History = &_history;
     }
     return self;
 }
 
-- (id)initWithNibName:(NSString*)[[maybe_unused]] _nibNameOrNil
-               bundle:(NSBundle*)[[maybe_unused]] _nibBundleOrNil
+- (id)initWithNibName:(NSString *) [[maybe_unused]] _nibNameOrNil bundle:(NSBundle *) [[maybe_unused]] _nibBundleOrNil
 {
     assert(0);
     return nil;
@@ -66,20 +65,22 @@ static const auto g_ConfigDefaultEncoding = "viewer.defaultEncoding";
 - (void)loadView
 {
     [super loadView];
-    
-    for(const auto &i: encodings::LiteralEncodingsList())
-        [self.DefaultEncoding addItemWithTitle: (__bridge NSString*)i.second];
-    int default_encoding = encodings::EncodingFromName( GlobalConfig().GetString(g_ConfigDefaultEncoding).c_str() );
-    if(default_encoding == encodings::ENCODING_INVALID)
-        default_encoding = encodings::ENCODING_MACOS_ROMAN_WESTERN; // this should not happen, but just to be sure
 
-    for(const auto &i: encodings::LiteralEncodingsList())
-        if(i.first == default_encoding) {
-            [self.DefaultEncoding selectItemWithTitle:(__bridge NSString*)i.second];
+    for( const auto &i : nc::utility::LiteralEncodingsList() )
+        [self.DefaultEncoding addItemWithTitle:(__bridge NSString *)i.second];
+    nc::utility::Encoding default_encoding =
+        nc::utility::EncodingFromName(GlobalConfig().GetString(g_ConfigDefaultEncoding).c_str());
+    if( default_encoding == nc::utility::Encoding::ENCODING_INVALID )
+        default_encoding =
+            nc::utility::Encoding::ENCODING_MACOS_ROMAN_WESTERN; // this should not happen, but just to be sure
+
+    for( const auto &i : nc::utility::LiteralEncodingsList() )
+        if( i.first == default_encoding ) {
+            [self.DefaultEncoding selectItemWithTitle:(__bridge NSString *)i.second];
             break;
         }
-    
-    [self.view layoutSubtreeIfNeeded];    
+
+    [self.view layoutSubtreeIfNeeded];
 }
 
 - (NSToolbarItem *)toolbarItem
@@ -91,42 +92,49 @@ static const auto g_ConfigDefaultEncoding = "viewer.defaultEncoding";
     return item;
 }
 
--(NSString*)identifier{
+- (NSString *)identifier
+{
     return NSStringFromClass(self.class);
 }
--(NSImage*)toolbarItemImage{
-    return [NSImage imageNamed:@"PreferencesIcons_Viewer"];    
-}
--(NSString*)toolbarItemLabel{
-    return NSLocalizedStringFromTable(@"Viewer",
-                                      @"Preferences",
-                                      "General preferences tab title");
-}
 
-- (void)changeAttributes:(id)[[maybe_unused]]_sender {} // wtf, is this necessary?
-
-- (IBAction)DefaultEncodingChanged:(id)[[maybe_unused]]_sender
+- (NSImage *)toolbarItemImage
 {
-    for(const auto &i: encodings::LiteralEncodingsList())
-        if([(__bridge NSString*)i.second isEqualToString:[[self.DefaultEncoding selectedItem] title]]) {
-            GlobalConfig().Set( g_ConfigDefaultEncoding, encodings::NameFromEncoding(i.first) );
-            break;
-        }    
+    return [NSImage imageNamed:@"preferences.toolbar.viewer"];
 }
 
-- (IBAction)ClearHistory:(id)[[maybe_unused]]_sender
+- (NSString *)toolbarItemLabel
+{
+    return NSLocalizedStringFromTable(@"Viewer", @"Preferences", "General preferences tab title");
+}
+
+- (void)changeAttributes:(id) [[maybe_unused]] _sender
+{
+} // wtf, is this necessary?
+
+- (IBAction)DefaultEncodingChanged:(id) [[maybe_unused]] _sender
+{
+    for( const auto &i : nc::utility::LiteralEncodingsList() )
+        if( [(__bridge NSString *)i.second isEqualToString:[[self.DefaultEncoding selectedItem] title]] ) {
+            GlobalConfig().Set(g_ConfigDefaultEncoding, nc::utility::NameFromEncoding(i.first));
+            break;
+        }
+}
+
+- (IBAction)ClearHistory:(id) [[maybe_unused]] _sender
 {
     NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = NSLocalizedStringFromTable(@"Are you sure you want to clear saved file states?",
-                                                   @"Preferences",
-                                                   "Message text asking if user really wants to clear saved viewer file states");
-    alert.informativeText = NSLocalizedStringFromTable(@"This will erase stored positions, encodings, selections, etc.",
-                                                       @"Preferences",
-                                                       "Informative text displayed when the user is going to clear saved file state");
-    [alert addButtonWithTitle:NSLocalizedString(@"OK","")];
-    [alert addButtonWithTitle:NSLocalizedString(@"Cancel","")];
+    alert.messageText =
+        NSLocalizedStringFromTable(@"Are you sure you want to clear saved file states?",
+                                   @"Preferences",
+                                   "Message text asking if user really wants to clear saved viewer file states");
+    alert.informativeText =
+        NSLocalizedStringFromTable(@"This will erase stored positions, encodings, selections, etc.",
+                                   @"Preferences",
+                                   "Informative text displayed when the user is going to clear saved file state");
+    [alert addButtonWithTitle:NSLocalizedString(@"OK", "")];
+    [alert addButtonWithTitle:NSLocalizedString(@"Cancel", "")];
     [[alert.buttons objectAtIndex:0] setKeyEquivalent:@""];
-    if([alert runModal] == NSAlertFirstButtonReturn)
+    if( [alert runModal] == NSAlertFirstButtonReturn )
         m_History->ClearHistory();
 }
 

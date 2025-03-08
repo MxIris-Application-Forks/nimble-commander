@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2020 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Tests.h"
 #include "TestEnv.h"
 #include <VFS/VFS.h>
@@ -9,8 +9,6 @@
 #include <sys/stat.h>
 #include <iostream>
 
-static const auto g_LocalFTP = NCE(nc::env::test::ftp_qnap_nas_host);
-
 using namespace nc::ops;
 using namespace nc::vfs;
 
@@ -18,7 +16,7 @@ using namespace nc::vfs;
 
 TEST_CASE(PREFIX "Simple creation")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = TestEnv().vfs_native;
     DirectoryCreation operation{"Test", dir.directory.native(), *host};
     operation.Start();
@@ -30,7 +28,7 @@ TEST_CASE(PREFIX "Simple creation")
 
 TEST_CASE(PREFIX "Multiple directories creation")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = TestEnv().vfs_native;
     DirectoryCreation operation{"Test1/Test2/Test3", dir.directory.native(), *host};
     operation.Start();
@@ -43,7 +41,7 @@ TEST_CASE(PREFIX "Multiple directories creation")
 
 TEST_CASE(PREFIX "Trailing slashes")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = TestEnv().vfs_native;
     DirectoryCreation operation{"Test///", dir.directory.native(), *host};
     operation.Start();
@@ -54,7 +52,7 @@ TEST_CASE(PREFIX "Trailing slashes")
 
 TEST_CASE(PREFIX "Heading slashes")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = TestEnv().vfs_native;
     DirectoryCreation operation{"///Test", dir.directory.native(), *host};
     operation.Start();
@@ -65,7 +63,7 @@ TEST_CASE(PREFIX "Heading slashes")
 
 TEST_CASE(PREFIX "Empty input")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = TestEnv().vfs_native;
     DirectoryCreation operation{"", dir.directory.native(), *host};
     operation.Start();
@@ -75,7 +73,7 @@ TEST_CASE(PREFIX "Empty input")
 
 TEST_CASE(PREFIX "Weird input")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = TestEnv().vfs_native;
     DirectoryCreation operation{"!@#$%^&*()_+", dir.directory.native(), *host};
     operation.Start();
@@ -86,7 +84,7 @@ TEST_CASE(PREFIX "Weird input")
 
 TEST_CASE(PREFIX "Alredy existing dir")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = TestEnv().vfs_native;
     mkdir((dir.directory / "Test1").c_str(), 0755);
     DirectoryCreation operation{"Test1/Test2/Test3", dir.directory.native(), *host};
@@ -100,7 +98,7 @@ TEST_CASE(PREFIX "Alredy existing dir")
 
 TEST_CASE(PREFIX "Alredy existing reg file")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto host = TestEnv().vfs_native;
     close(creat((dir.directory / "Test1").c_str(), 0755));
     DirectoryCreation operation{"Test1/Test2/Test3", dir.directory.native(), *host};
@@ -113,27 +111,19 @@ TEST_CASE(PREFIX "Alredy existing reg file")
     REQUIRE(!host->Exists((dir.directory / "Test1/Test2/Test3").c_str()));
 }
 
-TEST_CASE(PREFIX "On lLocal FTP server")
+TEST_CASE(PREFIX "On local FTP server")
 {
     VFSHostPtr host;
-    try {
-        host = std::make_shared<FTPHost>(g_LocalFTP, "", "", "/");
-    } catch( VFSErrorException &e ) {
-        std::cout << "Skipping test, host not reachable: " << g_LocalFTP << std::endl;
-        return;
-    }
+    REQUIRE_NOTHROW(host = std::make_shared<nc::vfs::FTPHost>("127.0.0.1", "ftpuser", "ftpuserpasswd", "/", 9021));
 
     {
-        DirectoryCreation operation(
-            "/Public/!FilesTesting/Dir/Other/Dir/And/Many/other fancy dirs/", "/", *host);
+        DirectoryCreation operation("/Public/!FilesTesting/Dir/Other/Dir/And/Many/other fancy dirs/", "/", *host);
         operation.Start();
         operation.Wait();
     }
 
-    VFSStat st;
-    REQUIRE(host->Stat(
-                "/Public/!FilesTesting/Dir/Other/Dir/And/Many/other fancy dirs/", st, 0, 0) == 0);
-    REQUIRE(VFSEasyDelete("/Public/!FilesTesting/Dir", host) == 0);
+    REQUIRE(host->Stat("/Public/!FilesTesting/Dir/Other/Dir/And/Many/other fancy dirs/", 0));
+    REQUIRE(VFSEasyDelete("/Public/!FilesTesting/Dir", host));
 
     {
         DirectoryCreation operation("AnotherDir/AndSecondOne", "/Public/!FilesTesting", *host);
@@ -141,6 +131,6 @@ TEST_CASE(PREFIX "On lLocal FTP server")
         operation.Wait();
     }
 
-    REQUIRE(host->Stat("/Public/!FilesTesting/AnotherDir/AndSecondOne", st, 0, 0) == 0);
-    REQUIRE(VFSEasyDelete("/Public/!FilesTesting/AnotherDir", host) == 0);
+    REQUIRE(host->Stat("/Public/!FilesTesting/AnotherDir/AndSecondOne", 0));
+    REQUIRE(VFSEasyDelete("/Public/!FilesTesting/AnotherDir", host));
 }

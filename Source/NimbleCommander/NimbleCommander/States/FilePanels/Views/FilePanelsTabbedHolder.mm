@@ -1,10 +1,10 @@
-// Copyright (C) 2014-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #import <MMTabBarView/MMTabBarView.h>
 #import <MMTabBarView/MMTabBarItem.h>
 #include "FilePanelsTabbedHolder.h"
 #include <NimbleCommander/States/FilePanels/PanelController.h>
 #include <NimbleCommander/States/FilePanels/PanelView.h>
-#include <NimbleCommander/Core/ActionsShortcutsManager.h>
+#include <Utility/ActionsShortcutsManager.h>
 #include "TabBarStyle.h"
 #include <Utility/ObjCpp.h>
 
@@ -15,6 +15,7 @@
 @end
 
 @implementation FilePanelsTabbedBarItem
+@synthesize hasCloseButton;
 
 - (id)init
 {
@@ -28,18 +29,21 @@
 @end
 
 @implementation FilePanelsTabbedHolder {
+    const nc::utility::ActionsShortcutsManager *m_ActionsShortcutsManager;
     MMTabBarView *m_TabBar;
     NSTabView *m_TabView;
     bool m_TabBarShown;
 }
 
 - (id)initWithFrame:(NSRect)frameRect
+    actionsShortcutsManager:(const nc::utility::ActionsShortcutsManager &)_actions_shortcuts_manager
 {
     static std::once_flag once;
     std::call_once(once, [] { [MMTabBarView registerTabStyleClass:TabBarStyle.class]; });
 
     self = [super initWithFrame:frameRect];
     if( self ) {
+        m_ActionsShortcutsManager = &_actions_shortcuts_manager;
         self.translatesAutoresizingMaskIntoConstraints = false;
 
         m_TabBarShown = false;
@@ -47,23 +51,21 @@
         m_TabView = [[NSTabView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
         m_TabView.translatesAutoresizingMaskIntoConstraints = false;
         m_TabView.tabViewType = NSNoTabsNoBorder;
-        [m_TabView
-            addConstraint:[NSLayoutConstraint constraintWithItem:m_TabView
-                                                       attribute:NSLayoutAttributeWidth
-                                                       relatedBy:NSLayoutRelationGreaterThanOrEqual
-                                                          toItem:nil
-                                                       attribute:NSLayoutAttributeNotAnAttribute
-                                                      multiplier:1.0
-                                                        constant:50]];
+        [m_TabView addConstraint:[NSLayoutConstraint constraintWithItem:m_TabView
+                                                              attribute:NSLayoutAttributeWidth
+                                                              relatedBy:NSLayoutRelationGreaterThanOrEqual
+                                                                 toItem:nil
+                                                              attribute:NSLayoutAttributeNotAnAttribute
+                                                             multiplier:1.0
+                                                               constant:50]];
 
-        NSLayoutConstraint *c =
-            [NSLayoutConstraint constraintWithItem:m_TabView
-                                         attribute:NSLayoutAttributeHeight
-                                         relatedBy:NSLayoutRelationGreaterThanOrEqual
-                                            toItem:nil
-                                         attribute:NSLayoutAttributeNotAnAttribute
-                                        multiplier:1.0
-                                          constant:50];
+        NSLayoutConstraint *c = [NSLayoutConstraint constraintWithItem:m_TabView
+                                                             attribute:NSLayoutAttributeHeight
+                                                             relatedBy:NSLayoutRelationGreaterThanOrEqual
+                                                                toItem:nil
+                                                             attribute:NSLayoutAttributeNotAnAttribute
+                                                            multiplier:1.0
+                                                              constant:50];
         c.priority = NSLayoutPriorityDefaultLow;
         [m_TabView addConstraint:c];
         [self addSubview:m_TabView];
@@ -81,14 +83,13 @@
         m_TabBar.buttonMaxWidth = 2000;
         m_TabBar.buttonOptimumWidth = 2000;
         [m_TabBar setStyleNamed:@"NC"];
-        [m_TabBar
-            addConstraint:[NSLayoutConstraint constraintWithItem:m_TabBar
-                                                       attribute:NSLayoutAttributeWidth
-                                                       relatedBy:NSLayoutRelationGreaterThanOrEqual
-                                                          toItem:nil
-                                                       attribute:NSLayoutAttributeNotAnAttribute
-                                                      multiplier:1.0
-                                                        constant:50]];
+        [m_TabBar addConstraint:[NSLayoutConstraint constraintWithItem:m_TabBar
+                                                             attribute:NSLayoutAttributeWidth
+                                                             relatedBy:NSLayoutRelationGreaterThanOrEqual
+                                                                toItem:nil
+                                                             attribute:NSLayoutAttributeNotAnAttribute
+                                                            multiplier:1.0
+                                                              constant:50]];
         c = [NSLayoutConstraint constraintWithItem:m_TabBar
                                          attribute:NSLayoutAttributeHeight
                                          relatedBy:NSLayoutRelationEqual
@@ -118,11 +119,10 @@
                                                                  options:0
                                                                  metrics:nil
                                                                    views:views]];
-    [self addConstraints:[NSLayoutConstraint
-                             constraintsWithVisualFormat:@"V:|-(==0)-[m_TabView]-(==0)-|"
-                                                 options:0
-                                                 metrics:nil
-                                                   views:views]];
+    [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|-(==0)-[m_TabView]-(==0)-|"
+                                                                 options:0
+                                                                 metrics:nil
+                                                                   views:views]];
 }
 
 - (void)doLayoutWithTabs
@@ -137,11 +137,11 @@
                                                                  options:0
                                                                  metrics:nil
                                                                    views:views]];
-    [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:
-                                                 @"V:|-(==0)-[m_TabBar]-(==0)-[m_TabView]-(==0)-|"
-                                                                 options:0
-                                                                 metrics:nil
-                                                                   views:views]];
+    [self
+        addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|-(==0)-[m_TabBar]-(==0)-[m_TabView]-(==0)-|"
+                                                               options:0
+                                                               metrics:nil
+                                                                 views:views]];
 }
 
 - (MMTabBarView *)tabBar
@@ -225,74 +225,90 @@
 
 - (BOOL)performKeyEquivalent:(NSEvent *)_event
 {
+    struct Tags {
+        int prev = -1;
+        int next = -1;
+        int t1 = -1;
+        int t2 = -1;
+        int t3 = -1;
+        int t4 = -1;
+        int t5 = -1;
+        int t6 = -1;
+        int t7 = -1;
+        int t8 = -1;
+        int t9 = -1;
+        int t10 = -1;
+    };
+    static const Tags tags = [&] {
+        Tags t;
+        t.prev = m_ActionsShortcutsManager->TagFromAction("panel.show_previous_tab").value();
+        t.next = m_ActionsShortcutsManager->TagFromAction("panel.show_next_tab").value();
+        t.t1 = m_ActionsShortcutsManager->TagFromAction("panel.show_tab_no_1").value();
+        t.t2 = m_ActionsShortcutsManager->TagFromAction("panel.show_tab_no_2").value();
+        t.t3 = m_ActionsShortcutsManager->TagFromAction("panel.show_tab_no_3").value();
+        t.t4 = m_ActionsShortcutsManager->TagFromAction("panel.show_tab_no_4").value();
+        t.t5 = m_ActionsShortcutsManager->TagFromAction("panel.show_tab_no_5").value();
+        t.t6 = m_ActionsShortcutsManager->TagFromAction("panel.show_tab_no_6").value();
+        t.t7 = m_ActionsShortcutsManager->TagFromAction("panel.show_tab_no_7").value();
+        t.t8 = m_ActionsShortcutsManager->TagFromAction("panel.show_tab_no_8").value();
+        t.t9 = m_ActionsShortcutsManager->TagFromAction("panel.show_tab_no_9").value();
+        t.t10 = m_ActionsShortcutsManager->TagFromAction("panel.show_tab_no_10").value();
+        return t;
+    }();
+
     const auto resp_view = nc::objc_cast<NSView>(self.window.firstResponder);
     if( !resp_view || ![resp_view isDescendantOf:m_TabView] )
         return [super performKeyEquivalent:_event];
 
-    const auto event_data = nc::utility::ActionShortcut::EventData(_event);
+    const std::optional<int> event_action_tag = m_ActionsShortcutsManager->FirstOfActionTagsFromShortcut(
+        {reinterpret_cast<const int *>(&tags), sizeof(tags) / sizeof(int)},
+        nc::utility::ActionShortcut::EventData(_event));
 
-    static ActionsShortcutsManager::ShortCut hk_prev, hk_next, hk_t1, hk_t2, hk_t3, hk_t4, hk_t5,
-        hk_t6, hk_t7, hk_t8, hk_t9, hk_t10;
-    [[clang::no_destroy]] static ActionsShortcutsManager::ShortCutsUpdater hotkeys_updater(
-        std::initializer_list<ActionsShortcutsManager::ShortCutsUpdater::UpdateTarget>{
-            {&hk_prev, "panel.show_previous_tab"},
-            {&hk_next, "panel.show_next_tab"},
-            {&hk_t1, "panel.show_tab_no_1"},
-            {&hk_t2, "panel.show_tab_no_2"},
-            {&hk_t3, "panel.show_tab_no_3"},
-            {&hk_t4, "panel.show_tab_no_4"},
-            {&hk_t5, "panel.show_tab_no_5"},
-            {&hk_t6, "panel.show_tab_no_6"},
-            {&hk_t7, "panel.show_tab_no_7"},
-            {&hk_t8, "panel.show_tab_no_8"},
-            {&hk_t9, "panel.show_tab_no_9"},
-            {&hk_t10, "panel.show_tab_no_10"}});
-
-    if( hk_prev.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.prev ) {
         [self selectPreviousFilePanelTab];
         return true;
     }
-    if( hk_next.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.next ) {
         [self selectNextFilePanelTab];
         return true;
     }
-    if( hk_t1.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.t1 ) {
         [self selectTabAtIndex:0];
         return true;
     }
-    if( hk_t2.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.t2 ) {
         [self selectTabAtIndex:1];
         return true;
     }
-    if( hk_t3.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.t3 ) {
         [self selectTabAtIndex:2];
         return true;
     }
-    if( hk_t4.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.t4 ) {
         [self selectTabAtIndex:3];
         return true;
     }
-    if( hk_t5.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.t5 ) {
         [self selectTabAtIndex:4];
         return true;
     }
-    if( hk_t6.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.t6 ) {
         [self selectTabAtIndex:5];
         return true;
     }
-    if( hk_t7.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.t7 ) {
         [self selectTabAtIndex:6];
         return true;
     }
-    if( hk_t8.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.t8 ) {
         [self selectTabAtIndex:7];
         return true;
     }
-    if( hk_t9.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.t9 ) {
         [self selectTabAtIndex:8];
         return true;
     }
-    if( hk_t10.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.t10 ) {
         [self selectTabAtIndex:9];
         return true;
     }

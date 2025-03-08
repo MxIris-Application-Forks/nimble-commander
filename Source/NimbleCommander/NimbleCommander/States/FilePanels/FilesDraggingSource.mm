@@ -1,4 +1,4 @@
-// Copyright (C) 2016-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2016-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "FilesDraggingSource.h"
 #include <VFS/Native.h>
 #include <Utility/StringExtras.h>
@@ -29,6 +29,7 @@ static const auto g_PasteboardFilenamesUTI = static_cast<NSString *>(
     VFSListingItem m_Item;
 }
 @synthesize item = m_Item;
+@synthesize icon;
 
 - (PanelDraggingItem *)initWithItem:(const VFSListingItem &)_item
 {
@@ -253,11 +254,9 @@ static NSURL *ExtractPromiseDropLocation(NSPasteboard *_pasteboard)
     if( !item.item )
         return;
 
-    if( false )
-        ;
     //    else if( [type isEqualToString:g_PasteboardFilenamesUTI] )
     //        [self provideFilenamesPasteboard:sender item:item];
-    else if( [type isEqualToString:g_PasteboardFileURLPromiseUTI] )
+    if( [type isEqualToString:g_PasteboardFileURLPromiseUTI] )
         [self provideURLPromisePasteboard:sender item:item];
     //    else if( [type isEqualToString:g_PasteboardFileURLUTI] )
     //        [self provideFilenamesURLsPasteboard:sender item:item];
@@ -283,7 +282,7 @@ static void AddPanelRefreshEpilogIfNeeded(PanelController *_target, nc::ops::Ope
     __weak PanelController *weak_panel = _target;
     _operation.ObserveUnticketed(nc::ops::Operation::NotifyAboutFinish, [=] {
         dispatch_to_main_queue([=] {
-            if( PanelController *strong_pc = weak_panel )
+            if( PanelController *const strong_pc = weak_panel )
                 [strong_pc hintAboutFilesystemChange];
         });
     });

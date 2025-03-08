@@ -1,9 +1,11 @@
-// Copyright (C) 2013-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <VFS/FileWindow.h>
+#include <Utility/Encodings.h>
 #include <MacTypes.h>
 #include <functional>
+#include <filesystem>
 
 namespace nc::viewer {
 
@@ -14,16 +16,16 @@ namespace nc::viewer {
 class DataBackend
 {
 public:
-    DataBackend(std::shared_ptr<nc::vfs::FileWindow> _fw, int _encoding);
+    DataBackend(std::shared_ptr<nc::vfs::FileWindow> _fw, utility::Encoding _encoding);
 
     ////////////////////////////////////////////////////////////////////////////////////////////
     // settings
-    int Encoding() const;
-    void SetEncoding(int _encoding);
+    utility::Encoding Encoding() const;
+    void SetEncoding(utility::Encoding _encoding);
 
     ////////////////////////////////////////////////////////////////////////////////////////////
     // operations
-    int MoveWindowSync(uint64_t _pos); // return VFS error code
+    std::expected<void, Error> MoveWindowSync(uint64_t _pos);
 
     ////////////////////////////////////////////////////////////////////////////////////////////
     // data access
@@ -51,16 +53,18 @@ public:
      */
     uint64_t RawSize() const;
 
-    const UniChar *UniChars() const; // decoded buffer
-    const uint32_t *
-    UniCharToByteIndeces() const;  // byte indeces within file window of decoded unichars
-    uint32_t UniCharsSize() const; // decoded buffer size in unichars
+    const UniChar *UniChars() const;              // decoded buffer
+    const uint32_t *UniCharToByteIndeces() const; // byte indeces within file window of decoded unichars
+    uint32_t UniCharsSize() const;                // decoded buffer size in unichars
+
+    // Returns a filename component of the underlying VFS file's path
+    std::filesystem::path FileName() const;
 
 private:
     void DecodeBuffer(); // called by internal update logic
 
     std::shared_ptr<nc::vfs::FileWindow> m_FileWindow;
-    int m_Encoding;
+    utility::Encoding m_Encoding;
 
     // decoded buffer with unichars
     // useful size of m_DecodedBufferSize

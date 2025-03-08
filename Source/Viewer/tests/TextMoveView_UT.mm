@@ -1,8 +1,9 @@
-// Copyright (C) 2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2021-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Tests.h"
 #include "TextModeView.h"
 #include "TextModeFrame.h"
 #include "Theme.h"
+#include "Highlighting/SettingsStorage.h"
 #include "TextModeWorkingSet.h"
 #include <Utility/Encodings.h>
 #include <Base/algo.h>
@@ -17,34 +18,43 @@
 #define PREFIX "NCViewerTextModeView "
 
 using namespace nc::viewer;
+using Catch::Approx;
 
 namespace {
 
 struct DummyTheme : Theme {
-    NSFont *Font() const override;
-    NSColor *OverlayColor() const override;
-    NSColor *TextColor() const override;
-    NSColor *ViewerSelectionColor() const override;
-    NSColor *ViewerBackgroundColor() const override;
-    void ObserveChanges(std::function<void()>) override;
+    [[nodiscard]] NSFont *Font() const override;
+    [[nodiscard]] NSColor *OverlayColor() const override;
+    [[nodiscard]] NSColor *TextColor() const override;
+    [[nodiscard]] NSColor *TextSyntaxCommentColor() const override;
+    [[nodiscard]] NSColor *TextSyntaxPreprocessorColor() const override;
+    [[nodiscard]] NSColor *TextSyntaxKeywordColor() const override;
+    [[nodiscard]] NSColor *TextSyntaxOperatorColor() const override;
+    [[nodiscard]] NSColor *TextSyntaxIdentifierColor() const override;
+    [[nodiscard]] NSColor *TextSyntaxNumberColor() const override;
+    [[nodiscard]] NSColor *TextSyntaxStringColor() const override;
+    [[nodiscard]] NSColor *ViewerSelectionColor() const override;
+    [[nodiscard]] NSColor *ViewerBackgroundColor() const override;
+    void ObserveChanges(std::function<void()> /*_callback*/) override;
 };
 
 struct Context {
     Context(std::string_view _string);
     void Reload(std::string_view _new_string);
-    
+
     std::shared_ptr<nc::vfs::GenericMemReadOnlyFile> file;
     std::shared_ptr<nc::vfs::FileWindow> window;
     std::shared_ptr<DataBackend> backend;
+    hl::DummySettingsStorage hl_settings;
 
 private:
     void Open(std::string_view _string);
 };
 
-}
+} // namespace
 
 @interface NCViewerTextModeViewMockDelegate : NSObject <NCViewerTextModeViewDelegate>
-@property(nonatomic, readwrite) std::function<int(NCViewerTextModeView *, int64_t _position)>
+@property(nonatomic, readwrite) std::function<std::expected<void, nc::Error>(NCViewerTextModeView *, int64_t _position)>
     syncBackendWindowMovement;
 @end
 
@@ -55,10 +65,12 @@ static const auto g_500x100 = NSMakeRect(0., 0., 500., 100.);
 TEST_CASE(PREFIX "Basic geomtery initialization")
 {
     const std::string data = "Hello, world!";
-    Context ctx{data};
+    Context ctx{data}; // NOLINT
     auto view = [[NCViewerTextModeView alloc] initWithFrame:g_500x100
                                                     backend:ctx.backend
-                                                      theme:g_DummyTheme];
+                                                      theme:g_DummyTheme
+                                       highlightingSettings:ctx.hl_settings
+                                         enableHighlighting:false];
     // let's pretend that I happen to know the internal insets and sizes.
     CHECK(view.contentsSize.width == Approx(477.)); // 500-4-4-15
     CHECK(view.contentsSize.height == Approx(100.));
@@ -82,10 +94,12 @@ TEST_CASE(PREFIX "isAtTheBeginning/isAtTheEnd")
                                      "text4\n"
                                      "text5\n"
                                      "text6";
-            Context ctx{data};
+            Context ctx{data}; // NOLINT
             auto view = [[NCViewerTextModeView alloc] initWithFrame:g_500x100
                                                             backend:ctx.backend
-                                                              theme:g_DummyTheme];
+                                                              theme:g_DummyTheme
+                                               highlightingSettings:ctx.hl_settings
+                                                 enableHighlighting:false];
             CHECK(view.isAtTheBeginning == true);
             CHECK(view.isAtTheEnd == true);
         }
@@ -98,10 +112,12 @@ TEST_CASE(PREFIX "isAtTheBeginning/isAtTheEnd")
                                      "text5\n"
                                      "text6\n"
                                      "text7\n";
-            Context ctx{data};
+            Context ctx{data}; // NOLINT
             auto view = [[NCViewerTextModeView alloc] initWithFrame:g_500x100
                                                             backend:ctx.backend
-                                                              theme:g_DummyTheme];
+                                                              theme:g_DummyTheme
+                                               highlightingSettings:ctx.hl_settings
+                                                 enableHighlighting:false];
             CHECK(view.isAtTheBeginning == true);
             CHECK(view.isAtTheEnd == false);
 
@@ -124,7 +140,9 @@ TEST_CASE(PREFIX "isAtTheBeginning/isAtTheEnd")
 
         auto view = [[NCViewerTextModeView alloc] initWithFrame:g_500x100
                                                         backend:ctx.backend
-                                                          theme:g_DummyTheme];
+                                                          theme:g_DummyTheme
+                                           highlightingSettings:ctx.hl_settings
+                                             enableHighlighting:false];
         view.delegate = delegate;
         CHECK(view.isAtTheBeginning == true);
         CHECK(view.isAtTheEnd == false);
@@ -153,13 +171,16 @@ TEST_CASE(PREFIX "attachToNewBackend")
     Context ctx{data1};
     auto view = [[NCViewerTextModeView alloc] initWithFrame:g_500x100
                                                     backend:ctx.backend
-                                                      theme:g_DummyTheme];
+                                                      theme:g_DummyTheme
+                                       highlightingSettings:ctx.hl_settings
+                                         enableHighlighting:false];
     [view scrollToGlobalBytesOffset:data1.size()];
     CHECK(view.textFrame.LinesNumber() == 7);
     CHECK(view.isAtTheBeginning == false);
     CHECK(view.isAtTheEnd == true);
 
-    SECTION("Smaller") {
+    SECTION("Smaller")
+    {
         const std::string data2 = "text1\n"
                                   "text2\n"
                                   "text3\n";
@@ -170,8 +191,9 @@ TEST_CASE(PREFIX "attachToNewBackend")
         CHECK(view.isAtTheBeginning == true);
         CHECK(view.isAtTheEnd == true);
     }
-    SECTION("Empty"){
-        const std::string data2 = "";
+    SECTION("Empty")
+    {
+        const std::string data2;
         ctx.Reload(data2);
         [view attachToNewBackend:ctx.backend];
         [view scrollToGlobalBytesOffset:0]; // TODO: a view shouldn't need this!
@@ -196,6 +218,41 @@ NSColor *DummyTheme::TextColor() const
     return NSColor.blackColor;
 }
 
+NSColor *DummyTheme::TextSyntaxCommentColor() const
+{
+    return NSColor.blackColor;
+}
+
+NSColor *DummyTheme::TextSyntaxPreprocessorColor() const
+{
+    return NSColor.blackColor;
+}
+
+NSColor *DummyTheme::TextSyntaxKeywordColor() const
+{
+    return NSColor.blackColor;
+}
+
+NSColor *DummyTheme::TextSyntaxOperatorColor() const
+{
+    return NSColor.blackColor;
+}
+
+NSColor *DummyTheme::TextSyntaxIdentifierColor() const
+{
+    return NSColor.blackColor;
+}
+
+NSColor *DummyTheme::TextSyntaxNumberColor() const
+{
+    return NSColor.blackColor;
+}
+
+NSColor *DummyTheme::TextSyntaxStringColor() const
+{
+    return NSColor.blackColor;
+}
+
 NSColor *DummyTheme::ViewerSelectionColor() const
 {
     return NSColor.blackColor;
@@ -206,7 +263,7 @@ NSColor *DummyTheme::ViewerBackgroundColor() const
     return NSColor.blackColor;
 }
 
-void DummyTheme::ObserveChanges(std::function<void()>)
+void DummyTheme::ObserveChanges(std::function<void()> /*_callback*/)
 {
 }
 
@@ -217,11 +274,10 @@ Context::Context(std::string_view _string)
 
 void Context::Open(std::string_view _string)
 {
-    file = std::make_shared<nc::vfs::GenericMemReadOnlyFile>(
-        "/foo.txt", nc::vfs::Host::DummyHost(), _string);
+    file = std::make_shared<nc::vfs::GenericMemReadOnlyFile>("/foo.txt", nc::vfs::Host::DummyHost(), _string);
     file->Open(nc::vfs::Flags::OF_Read);
     window = std::make_shared<nc::vfs::FileWindow>(file);
-    backend = std::make_shared<DataBackend>(window, encodings::ENCODING_UTF8);
+    backend = std::make_shared<DataBackend>(window, nc::utility::Encoding::ENCODING_UTF8);
 }
 
 void Context::Reload(std::string_view _new_string)
@@ -233,8 +289,8 @@ void Context::Reload(std::string_view _new_string)
 
 @synthesize syncBackendWindowMovement;
 
-- (int)textModeView:(NCViewerTextModeView *)_view
-    requestsSyncBackendWindowMovementAt:(int64_t)_position
+- (std::expected<void, nc::Error>)textModeView:(NCViewerTextModeView *)_view
+           requestsSyncBackendWindowMovementAt:(int64_t)_position
 {
     assert(self.syncBackendWindowMovement);
     return self.syncBackendWindowMovement(_view, _position);

@@ -1,5 +1,7 @@
-// Copyright (C) 2016-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2016-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
+
+@class NSFont;
 
 namespace nc::panel {
 
@@ -16,6 +18,9 @@ public:
     short TopInset() const { return 1; }
     short RightInset() const { return 5; }
     short BottomInset() const { return 1; }
+
+    // Returns the the left offset of the filename text in its column
+    short FilenameOffsetInColumn() const noexcept;
 
 private:
     short m_LineHeight;

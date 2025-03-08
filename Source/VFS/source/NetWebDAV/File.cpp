@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "File.h"
 #include "Internal.h"
 #include "Cache.h"
@@ -7,7 +7,7 @@
 
 namespace nc::vfs::webdav {
 
-File::File(const char *_relative_path, const std::shared_ptr<WebDAVHost> &_host)
+File::File(std::string_view _relative_path, const std::shared_ptr<WebDAVHost> &_host)
     : VFSFile(_relative_path, _host), m_Host(*_host)
 {
 }
@@ -22,50 +22,44 @@ int File::Open(unsigned long _open_flags, const VFSCancelChecker &_cancel_checke
     if( _open_flags & VFSFlags::OF_Append )
         return VFSError::FromErrno(EPERM);
 
-    if( (_open_flags & (VFSFlags::OF_Read | VFSFlags::OF_Write)) ==
-        (VFSFlags::OF_Read | VFSFlags::OF_Write) )
+    if( (_open_flags & (VFSFlags::OF_Read | VFSFlags::OF_Write)) == (VFSFlags::OF_Read | VFSFlags::OF_Write) )
         return VFSError::FromErrno(EPERM);
 
     if( _open_flags & VFSFlags::OF_Read ) {
-        VFSStat st;
-        const auto stat_rc = m_Host.Stat(Path(), st, 0, _cancel_checker);
-        if( stat_rc != VFSError::Ok )
-            return stat_rc;
+        const std::expected<VFSStat, Error> st = m_Host.Stat(Path(), 0, _cancel_checker);
+        if( !st )
+            return VFSError::FromErrno(EINVAL); // TODO: return 'st'
 
-        if( !S_ISREG(st.mode) )
+        if( !S_ISREG(st->mode) )
             return VFSError::FromErrno(EPERM); // TODO: test for this
 
-        m_Size = st.size;
+        m_Size = st->size;
         m_OpenFlags = _open_flags;
         return VFSError::Ok;
     }
     if( _open_flags & VFSFlags::OF_Write ) {
-        VFSStat st;
-        const auto stat_rc = m_Host.Stat(Path(), st, 0, _cancel_checker);
+        const std::expected<VFSStat, Error> st = m_Host.Stat(Path(), 0, _cancel_checker);
 
         // Refuse if the file does exist and OF_NoExist was specified
-        if( _open_flags & VFSFlags::OF_NoExist ) {
-            if( stat_rc == VFSError::Ok )
-                return VFSError::FromErrno(EEXIST);
+        if( (_open_flags & VFSFlags::OF_NoExist) && st ) {
+            return VFSError::FromErrno(EEXIST);
         }
 
         // Refuse if the file does not exist but OF_Create was not specified
-        if( (_open_flags & VFSFlags::OF_Create) == 0 ) {
-            if( stat_rc != VFSError::Ok )
-                return VFSError::FromErrno(ENOENT);
+        if( (_open_flags & VFSFlags::OF_Create) == 0 && !st ) {
+            return VFSError::FromErrno(ENOENT);
         }
 
         // If file already exist, but it is actually a directory
-        if( stat_rc == VFSError::Ok ) {
-            if( st.mode_bits.dir )
-                return VFSError::FromErrno(EISDIR);
+        if( st && st->mode_bits.dir ) {
+            return VFSError::FromErrno(EISDIR);
         }
 
         // If file already exist - remove it
-        if( stat_rc == VFSError::Ok ) {
+        if( st ) {
             const auto unlink_rc = m_Host.Unlink(Path(), _cancel_checker);
-            if( unlink_rc != VFSError::Ok )
-                return unlink_rc;
+            if( !unlink_rc )
+                return VFSError::FromErrno(EINVAL); // TODO: return 'unlink_rc'
         }
 
         // Finally verified and ready to go

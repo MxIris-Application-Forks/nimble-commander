@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "AttrsChangingJob.h"
 #include <Utility/PathManip.h>
 #include <sys/stat.h>
@@ -10,8 +10,7 @@ struct AttrsChangingJob::Meta {
     int origin_item;
 };
 
-static std::pair<uint16_t, uint16_t>
-PermissionsValueAndMask(const AttrsChangingCommand::Permissions &_p);
+static std::pair<uint16_t, uint16_t> PermissionsValueAndMask(const AttrsChangingCommand::Permissions &_p);
 static std::pair<uint32_t, uint32_t> FlagsValueAndMask(const AttrsChangingCommand::Flags &_f);
 
 AttrsChangingJob::AttrsChangingJob(AttrsChangingCommand _command) : m_Command(std::move(_command))
@@ -24,9 +23,7 @@ AttrsChangingJob::AttrsChangingJob(AttrsChangingCommand _command) : m_Command(st
     Statistics().SetPreferredSource(Statistics::SourceType::Items);
 }
 
-AttrsChangingJob::~AttrsChangingJob()
-{
-}
+AttrsChangingJob::~AttrsChangingJob() = default;
 
 void AttrsChangingJob::Perform()
 {
@@ -57,10 +54,12 @@ void AttrsChangingJob::ScanItem(unsigned _origin_item)
     auto &vfs = *item.Host();
     VFSStat st;
     while( true ) {
-        const auto stat_rc = vfs.Stat(path.c_str(), st, 0);
-        if( stat_rc == VFSError::Ok )
+        const std::expected<VFSStat, Error> exp_stat = vfs.Stat(path, 0);
+        if( exp_stat ) {
+            st = *exp_stat;
             break;
-        switch( m_OnSourceAccessError(stat_rc, path, vfs) ) {
+        }
+        switch( m_OnSourceAccessError(exp_stat.error(), path, vfs) ) {
             case SourceAccessErrorResolution::Stop:
                 Stop();
                 return;
@@ -75,8 +74,7 @@ void AttrsChangingJob::ScanItem(unsigned _origin_item)
     m.stat = st;
     m.origin_item = _origin_item;
     m_Metas.emplace_back(m);
-    m_Filenames.push_back(item.IsDir() ? EnsureTrailingSlash(item.Filename()) : item.Filename(),
-                          nullptr);
+    m_Filenames.push_back(item.IsDir() ? EnsureTrailingSlash(item.Filename()) : item.Filename(), nullptr);
     Statistics().CommitEstimated(Statistics::SourceType::Items, 1);
 
     if( m_Command.apply_to_subdirs && item.IsDir() ) {
@@ -86,10 +84,10 @@ void AttrsChangingJob::ScanItem(unsigned _origin_item)
                 dir_entries.emplace_back(_entry);
                 return true;
             };
-            const auto list_rc = vfs.IterateDirectoryListing(path.c_str(), callback);
-            if( list_rc == VFSError::Ok )
+            const std::expected<void, Error> list_rc = vfs.IterateDirectoryListing(path, callback);
+            if( list_rc )
                 break;
-            switch( m_OnSourceAccessError(list_rc, path, vfs) ) {
+            switch( m_OnSourceAccessError(list_rc.error(), path, vfs) ) {
                 case SourceAccessErrorResolution::Stop:
                     Stop();
                     return;
@@ -116,10 +114,12 @@ void AttrsChangingJob::ScanItem(const std::string &_full_path,
 
     VFSStat st;
     while( true ) {
-        const auto stat_rc = vfs.Stat(_full_path.c_str(), st, 0);
-        if( stat_rc == VFSError::Ok )
+        const std::expected<VFSStat, Error> exp_stat = vfs.Stat(_full_path, 0);
+        if( exp_stat ) {
+            st = *exp_stat;
             break;
-        switch( m_OnSourceAccessError(stat_rc, _full_path, vfs) ) {
+        }
+        switch( m_OnSourceAccessError(exp_stat.error(), _full_path, vfs) ) {
             case SourceAccessErrorResolution::Stop:
                 Stop();
                 return;
@@ -144,10 +144,10 @@ void AttrsChangingJob::ScanItem(const std::string &_full_path,
                 dir_entries.emplace_back(_entry);
                 return true;
             };
-            const auto list_rc = vfs.IterateDirectoryListing(_full_path.c_str(), callback);
-            if( list_rc == VFSError::Ok )
+            const std::expected<void, Error> list_rc = vfs.IterateDirectoryListing(_full_path, callback);
+            if( list_rc )
                 break;
-            switch( m_OnSourceAccessError(list_rc, _full_path, vfs) ) {
+            switch( m_OnSourceAccessError(list_rc.error(), _full_path, vfs) ) {
                 case SourceAccessErrorResolution::Stop:
                     Stop();
                     return;
@@ -177,7 +177,7 @@ void AttrsChangingJob::DoChange()
             Statistics().CommitProcessed(Statistics::SourceType::Items, 1);
 
             // for now reports only about successful processing
-            ItemStateReport report{*origin_item.Host(), path, ItemStatus::Processed};
+            const ItemStateReport report{.host = *origin_item.Host(), .path = path, .status = ItemStatus::Processed};
             TellItemReport(report);
         }
 
@@ -186,9 +186,7 @@ void AttrsChangingJob::DoChange()
     }
 }
 
-bool AttrsChangingJob::AlterSingleItem(const std::string &_path,
-                                       VFSHost &_vfs,
-                                       const VFSStat &_stat)
+bool AttrsChangingJob::AlterSingleItem(const std::string &_path, VFSHost &_vfs, const VFSStat &_stat)
 {
     if( m_ChmodCommand )
         if( !ChmodSingleItem(_path, _vfs, _stat) )
@@ -209,9 +207,7 @@ bool AttrsChangingJob::AlterSingleItem(const std::string &_path,
     return true;
 }
 
-bool AttrsChangingJob::ChmodSingleItem(const std::string &_path,
-                                       VFSHost &_vfs,
-                                       const VFSStat &_stat)
+bool AttrsChangingJob::ChmodSingleItem(const std::string &_path, VFSHost &_vfs, const VFSStat &_stat)
 {
     const auto [new_mode, mask] = *m_ChmodCommand;
     const uint16_t mode = (_stat.mode & ~mask) | (new_mode & mask);
@@ -219,10 +215,10 @@ bool AttrsChangingJob::ChmodSingleItem(const std::string &_path,
         return true;
 
     while( true ) {
-        const auto chmod_rc = _vfs.SetPermissions(_path.c_str(), mode);
-        if( chmod_rc == VFSError::Ok )
+        const std::expected<void, Error> chmod_rc = _vfs.SetPermissions(_path, mode);
+        if( chmod_rc )
             break;
-        switch( m_OnChmodError(chmod_rc, _path, _vfs) ) {
+        switch( m_OnChmodError(chmod_rc.error(), _path, _vfs) ) {
             case ChmodErrorResolution::Stop:
                 Stop();
                 return false;
@@ -237,9 +233,7 @@ bool AttrsChangingJob::ChmodSingleItem(const std::string &_path,
     return true;
 }
 
-bool AttrsChangingJob::ChownSingleItem(const std::string &_path,
-                                       VFSHost &_vfs,
-                                       const VFSStat &_stat)
+bool AttrsChangingJob::ChownSingleItem(const std::string &_path, VFSHost &_vfs, const VFSStat &_stat)
 {
     const auto new_uid = m_Command.ownage->uid ? *m_Command.ownage->uid : _stat.uid;
     const auto new_gid = m_Command.ownage->gid ? *m_Command.ownage->gid : _stat.gid;
@@ -247,10 +241,10 @@ bool AttrsChangingJob::ChownSingleItem(const std::string &_path,
         return true;
 
     while( true ) {
-        const auto chown_rc = _vfs.SetOwnership(_path.c_str(), new_uid, new_gid);
-        if( chown_rc == VFSError::Ok )
+        const std::expected<void, Error> chown_rc = _vfs.SetOwnership(_path, new_uid, new_gid);
+        if( chown_rc )
             break;
-        switch( m_OnChownError(chown_rc, _path, _vfs) ) {
+        switch( m_OnChownError(chown_rc.error(), _path, _vfs) ) {
             case ChownErrorResolution::Stop:
                 Stop();
                 return false;
@@ -265,9 +259,7 @@ bool AttrsChangingJob::ChownSingleItem(const std::string &_path,
     return true;
 }
 
-bool AttrsChangingJob::ChflagSingleItem(const std::string &_path,
-                                        VFSHost &_vfs,
-                                        const VFSStat &_stat)
+bool AttrsChangingJob::ChflagSingleItem(const std::string &_path, VFSHost &_vfs, const VFSStat &_stat)
 {
     const auto [new_flags, mask] = *m_ChflagCommand;
     const uint32_t flags = (_stat.flags & ~mask) | (new_flags & mask);
@@ -275,10 +267,10 @@ bool AttrsChangingJob::ChflagSingleItem(const std::string &_path,
         return true;
 
     while( true ) {
-        const auto chflags_rc = _vfs.SetFlags(_path.c_str(), flags, vfs::Flags::None);
-        if( chflags_rc == VFSError::Ok )
+        const std::expected<void, Error> chflags_rc = _vfs.SetFlags(_path, flags, vfs::Flags::None);
+        if( chflags_rc )
             break;
-        switch( m_OnFlagsError(chflags_rc, _path, _vfs) ) {
+        switch( m_OnFlagsError(chflags_rc.error(), _path, _vfs) ) {
             case FlagsErrorResolution::Stop:
                 Stop();
                 return false;
@@ -293,19 +285,14 @@ bool AttrsChangingJob::ChflagSingleItem(const std::string &_path,
     return true;
 }
 
-bool AttrsChangingJob::ChtimesSingleItem(const std::string &_path,
-                                         VFSHost &_vfs,
-                                         [[maybe_unused]] const VFSStat &_stat)
+bool AttrsChangingJob::ChtimesSingleItem(const std::string &_path, VFSHost &_vfs, [[maybe_unused]] const VFSStat &_stat)
 {
     while( true ) {
-        const auto set_times_rc = _vfs.SetTimes(_path.c_str(),
-                                                m_Command.times->btime,
-                                                m_Command.times->mtime,
-                                                m_Command.times->ctime,
-                                                m_Command.times->atime);
-        if( set_times_rc == VFSError::Ok )
+        const std::expected<void, Error> set_times_rc = _vfs.SetTimes(
+            _path, m_Command.times->btime, m_Command.times->mtime, m_Command.times->ctime, m_Command.times->atime);
+        if( set_times_rc )
             break;
-        switch( m_OnTimesError(set_times_rc, _path, _vfs) ) {
+        switch( m_OnTimesError(set_times_rc.error(), _path, _vfs) ) {
             case TimesErrorResolution::Stop:
                 Stop();
                 return false;
@@ -320,8 +307,7 @@ bool AttrsChangingJob::ChtimesSingleItem(const std::string &_path,
     return true;
 }
 
-static std::pair<uint16_t, uint16_t>
-PermissionsValueAndMask(const AttrsChangingCommand::Permissions &_p)
+static std::pair<uint16_t, uint16_t> PermissionsValueAndMask(const AttrsChangingCommand::Permissions &_p)
 {
     uint16_t value = 0;
     uint16_t mask = 0;

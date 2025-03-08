@@ -1,41 +1,32 @@
-// Copyright (C) 2016-2023 Michael Kazakov. Subject to GNU General Public License version 3.
-#include <Base/algo.h>
+// Copyright (C) 2016-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "VFSInstanceManagerImpl.h"
-#include <VFS/VFS.h>
-#include <iostream>
+#include <Base/algo.h>
 #include <Base/dispatch_cpp.h>
+#include <VFS/VFS.h>
+#include <algorithm>
+#include <iostream>
 
 namespace nc::core {
 
 struct VFSInstanceManagerImpl::Info {
-    Info(const std::shared_ptr<VFSHost> &_host,
-         uint64_t _id,
-         uint64_t _parent_id,
-         VFSConfiguration _config);
+    Info(const std::shared_ptr<VFSHost> &_host, uint64_t _id, uint64_t _parent_id, VFSConfiguration _config);
     uint64_t m_ID;
-    uint64_t m_PromisesCount; // combined from Promise instances and links via .m_ParentVFSID
-    uint64_t m_ParentVFSID;   // zero means no parent vfs info
-    std::weak_ptr<VFSHost>
-        m_WeakHost; // need to think about clearing this weak_ptr, so host's memory can be freed
+    uint64_t m_PromisesCount{0};       // combined from Promise instances and links via .m_ParentVFSID
+    uint64_t m_ParentVFSID;            // zero means no parent vfs info
+    std::weak_ptr<VFSHost> m_WeakHost; // need to think about clearing this weak_ptr, so host's memory can be freed
     VFSConfiguration m_Configuration;
 };
 
-VFSInstanceManagerImpl::Info::Info(const VFSHostPtr &_host,
-                                   uint64_t _id,
-                                   uint64_t _parent_id,
-                                   VFSConfiguration _config)
-    : m_ID(_id), m_PromisesCount(0), m_ParentVFSID(_parent_id), m_WeakHost(_host),
-      m_Configuration(_config)
+VFSInstanceManagerImpl::Info::Info(const VFSHostPtr &_host, uint64_t _id, uint64_t _parent_id, VFSConfiguration _config)
+    : m_ID(_id), m_ParentVFSID(_parent_id), m_WeakHost(_host), m_Configuration(_config)
 {
 }
 
-VFSInstanceManagerImpl::VFSInstanceManagerImpl()
-{
-}
+VFSInstanceManagerImpl::VFSInstanceManagerImpl() = default;
 
 VFSInstanceManagerImpl::~VFSInstanceManagerImpl()
 {
-    std::cerr << "VFSInstanceManager instances must live forever!" << std::endl;
+    std::cerr << "VFSInstanceManager instances must live forever!" << '\n';
 }
 
 VFSInstanceManager::Promise VFSInstanceManagerImpl::TameVFS(const VFSHostPtr &_instance)
@@ -63,9 +54,8 @@ VFSInstanceManager::Promise VFSInstanceManagerImpl::TameVFS(const VFSHostPtr &_i
             // find an info with matching configuration and requestd id
             for( auto &i : m_Memory )
                 if( i.m_Configuration == instance_config &&
-                    (info_id_request == 0
-                         ? i.m_WeakHost.expired()
-                         : // for frontmost vfs we should check that this filesystem was destroyed
+                    (info_id_request == 0 ? i.m_WeakHost.expired()
+                                          : // for frontmost vfs we should check that this filesystem was destroyed
                          i.m_ID == info_id_request) ) {
                     // need to check if there's an uplink to parent if needed, and only if needed
                     if( (i.m_ParentVFSID == 0 && !instance_recursive->Parent()) ||
@@ -131,8 +121,7 @@ VFSInstanceManager::Promise VFSInstanceManagerImpl::TameVFS(const VFSHostPtr &_i
     return result;
 }
 
-VFSInstanceManager::Promise
-VFSInstanceManagerImpl::PreserveVFS(const std::weak_ptr<VFSHost> &_instance)
+VFSInstanceManager::Promise VFSInstanceManagerImpl::PreserveVFS(const std::weak_ptr<VFSHost> &_instance)
 {
     auto lock = std::lock_guard{m_MemoryLock};
     // check if we have a weak_ptr to this instance
@@ -173,7 +162,7 @@ void VFSInstanceManagerImpl::DecPromiseCount(uint64_t _inst_id)
                     if( info->m_ParentVFSID > 0 ) {
                         // remove refcount on parent vfs
                         auto id_to_dec = info->m_ParentVFSID;
-                        dispatch_to_background([=] { DecPromiseCount(id_to_dec); });
+                        dispatch_to_background([=, this] { DecPromiseCount(id_to_dec); });
                     }
 
                     m_Memory.erase(next(begin(m_Memory), info - m_Memory.data()));
@@ -187,8 +176,7 @@ void VFSInstanceManagerImpl::DecPromiseCount(uint64_t _inst_id)
         FireObservers(KnownVFSListObservation);
 }
 
-VFSInstanceManagerImpl::Info *
-VFSInstanceManagerImpl::InfoFromVFSWeakPtr_Unlocked(const std::weak_ptr<VFSHost> &_ptr)
+VFSInstanceManagerImpl::Info *VFSInstanceManagerImpl::InfoFromVFSWeakPtr_Unlocked(const std::weak_ptr<VFSHost> &_ptr)
 {
     for( auto &i : m_Memory )
         if( !i.m_WeakHost.owner_before(_ptr) && !_ptr.owner_before(i.m_WeakHost) )
@@ -196,8 +184,7 @@ VFSInstanceManagerImpl::InfoFromVFSWeakPtr_Unlocked(const std::weak_ptr<VFSHost>
     return nullptr;
 }
 
-VFSInstanceManagerImpl::Info *
-VFSInstanceManagerImpl::InfoFromVFSPtr_Unlocked(const VFSHostPtr &_ptr)
+VFSInstanceManagerImpl::Info *VFSInstanceManagerImpl::InfoFromVFSPtr_Unlocked(const VFSHostPtr &_ptr)
 {
     if( !_ptr )
         return nullptr;
@@ -223,12 +210,7 @@ void VFSInstanceManagerImpl::SweepDeadMemory()
     {
         auto lock = std::lock_guard{m_MemoryLock};
         auto old_size = m_Memory.size();
-        m_Memory.erase(remove_if(begin(m_Memory),
-                                 end(m_Memory),
-                                 [](const auto &i) {
-                                     return i.m_WeakHost.expired() && i.m_PromisesCount == 0;
-                                 }),
-                       end(m_Memory));
+        std::erase_if(m_Memory, [](const auto &i) { return i.m_WeakHost.expired() && i.m_PromisesCount == 0; });
 
         for( auto &i : m_Memory )
             if( i.m_WeakHost.expired() )
@@ -248,13 +230,12 @@ void VFSInstanceManagerImpl::EnrollAliveHost(const VFSHostPtr &_inst)
 
     {
         auto lock = std::lock_guard{m_AliveHostsLock};
-        if( any_of(begin(m_AliveHosts), end(m_AliveHosts), [&](auto &_i) {
-                return !_i.owner_before(_inst) && !_inst.owner_before(_i);
-            }) )
+        if( std::ranges::any_of(m_AliveHosts,
+                                [&](auto &_i) { return !_i.owner_before(_inst) && !_inst.owner_before(_i); }) )
             return;
 
         m_AliveHosts.emplace_back(_inst);
-        _inst->SetDesctructCallback([=](const VFSHost *) {
+        _inst->SetDesctructCallback([this](const VFSHost *) {
             SweepDeadReferences();
             SweepDeadMemory();
         });
@@ -267,17 +248,14 @@ void VFSInstanceManagerImpl::SweepDeadReferences()
     {
         auto lock = std::lock_guard{m_AliveHostsLock};
         auto old_size = m_AliveHosts.size();
-        m_AliveHosts.erase(
-            remove_if(begin(m_AliveHosts), end(m_AliveHosts), [](auto &i) { return i.expired(); }),
-            end(m_AliveHosts));
+        std::erase_if(m_AliveHosts, [](auto &i) { return i.expired(); });
         if( old_size == m_AliveHosts.size() )
             return; // no changes
     }
     FireObservers(AliveVFSListObservation); // tell that we have removed some vfs from alive list
 }
 
-VFSHostPtr VFSInstanceManagerImpl::RetrieveVFS(const Promise &_promise,
-                                               std::function<bool()> _cancel_checker)
+VFSHostPtr VFSInstanceManagerImpl::RetrieveVFS(const Promise &_promise, std::function<bool()> _cancel_checker)
 {
     if( !_promise )
         return nullptr;
@@ -336,9 +314,7 @@ const char *VFSInstanceManagerImpl::GetTag(const Promise &_promise)
 }
 
 // assumes that m_MemoryLock is aquired
-VFSHostPtr
-VFSInstanceManagerImpl::GetOrRestoreVFS_Unlocked(Info *_info,
-                                                 const std::function<bool()> &_cancel_checker)
+VFSHostPtr VFSInstanceManagerImpl::GetOrRestoreVFS_Unlocked(Info *_info, const std::function<bool()> &_cancel_checker)
 {
     // check if host is alive - in this case we can return it immediately
     if( auto host = _info->m_WeakHost.lock() )
@@ -360,8 +336,7 @@ VFSInstanceManagerImpl::GetOrRestoreVFS_Unlocked(Info *_info,
         return nullptr; // unregistered vfs???
 
     // try to recreate a vfs
-    auto host = vfs_meta->SpawnWithConfig(
-        parent_host, _info->m_Configuration, _cancel_checker); // may throw here
+    auto host = vfs_meta->SpawnWithConfig(parent_host, _info->m_Configuration, _cancel_checker); // may throw here
     if( host ) {
         _info->m_WeakHost = host;
         EnrollAliveHost(host);

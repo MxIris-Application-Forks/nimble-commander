@@ -1,12 +1,16 @@
-// Copyright (C) 2013-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
-#include <optional>
+#include <Base/Error.h>
 #include "VFSError.h"
 #include "VFSDeclarations.h"
 #include "VFSConfiguration.h"
 #include "VFSFactory.h"
 #include "../../source/Listing.h"
+#include <optional>
+#include <string_view>
+#include <span>
+#include <expected>
 
 namespace nc::vfs {
 
@@ -18,7 +22,7 @@ public:
     HostDirObservationTicket(HostDirObservationTicket &&_rhs) noexcept;
     ~HostDirObservationTicket();
 
-    HostDirObservationTicket &operator=(HostDirObservationTicket &&_rhs);
+    HostDirObservationTicket &operator=(HostDirObservationTicket &&_rhs) noexcept;
     operator bool() const noexcept;
     bool valid() const noexcept;
     void reset();
@@ -41,7 +45,7 @@ public:
 
     FileObservationToken &operator=(const FileObservationToken &_rhs) = delete;
     FileObservationToken &operator=(FileObservationToken &&_rhs) noexcept;
-    
+
     operator bool() const noexcept;
     void reset() noexcept;
 
@@ -51,8 +55,7 @@ private:
 };
 
 struct HostFeatures {
-    enum Features : uint64_t
-    {
+    enum Features : uint64_t {
         FetchUsers = 1 << 0,
         FetchGroups = 1 << 1,
         SetPermissions = 1 << 2,
@@ -72,7 +75,7 @@ public:
     /**
      * junction path and parent can be nil
      */
-    Host(const char *_junction_path, const std::shared_ptr<Host> &_parent, const char *_fs_tag);
+    Host(std::string_view _junction_path, const std::shared_ptr<Host> &_parent, const char *_fs_tag);
     virtual ~Host();
 
     /***********************************************************************************************
@@ -96,11 +99,11 @@ public:
     const char *Tag() const noexcept;
 
     /**
-     * Returns a path of a filesystem root.
+     * Returns a path of the filesystem root.
      * It may be a filepath for archive or network address for remote filesystem
      * or even "" for special virtual filesystems or for native filesystem.
      */
-    const char *JunctionPath() const noexcept;
+    std::string_view JunctionPath() const noexcept;
 
     /**
      * Hosted filesystems, like archives, must have a parent vfs.
@@ -133,7 +136,7 @@ public:
      * Calculates a hash of a string representation of a hosts stack and the corresponding path.
      * Should not be used for an offline state storing.
      */
-    uint64_t FullHashForPath(const char *_path) const noexcept;
+    uint64_t FullHashForPath(std::string_view _path) const noexcept;
 
     std::string MakePathVerbose(std::string_view _path) const;
 
@@ -150,200 +153,187 @@ public:
     /**
      * Default implementation returns IsWritable();
      */
-    virtual bool IsWritableAtPath(const char *_dir) const;
+    virtual bool IsWritableAtPath(std::string_view _dir) const;
 
     /**
      * Tell if VFS differs between "Filename" and "filename" starting from a _dir.
      * In case of error will return "true" as a fallback value.
      */
-    virtual bool IsCaseSensitiveAtPath(const char *_dir = "/") const;
+    virtual bool IsCaseSensitiveAtPath(std::string_view _dir = "/") const;
 
     /**
      * VFS version of stat().
      * Default implementation does nothing, subclasses MUST implement it.
      */
-    virtual int Stat(const char *_path,
-                     VFSStat &_st,
-                     unsigned long _flags,
-                     const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<VFSStat, Error> Stat(std::string_view _path,                        //
+                                               unsigned long _flags,                          //
+                                               const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * VFS version of statfs().
      * Path may be a file path or a directory path.
      */
-    virtual int
-    StatFS(const char *_path, VFSStatFS &_stat, const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<VFSStatFS, Error> StatFS(std::string_view _path,                        //
+                                                   const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * Default implementation calls Stat() and then returns (st.mode & S_IFMT) == S_IFDIR.
      * On any errors returns false.
      */
-    virtual bool IsDirectory(const char *_path,
-                             unsigned long _flags,
-                             const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual bool IsDirectory(std::string_view _path,                        //
+                             unsigned long _flags,                          //
+                             const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * Default implementation calls Stat() and then returns (st.mode & S_IFMT) == S_IFLNK.
      * On any errors returns false.
      */
-    virtual bool IsSymlink(const char *_path,
-                           unsigned long _flags,
-                           const VFSCancelChecker &_cancel_checker = nullptr);
-
-    /** Return zero upon succes, negative value on error. */
-    virtual int ReadSymlink(const char *_symlink_path,
-                            char *_buffer,
-                            size_t _buffer_size,
-                            const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual bool IsSymlink(std::string_view _path,                        //
+                           unsigned long _flags,                          //
+                           const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
-     * Default implementation calls Stat() and returns true if return was Ok.
+     * Reads the symlink into a string.
      */
-    virtual bool Exists(const char *_path, const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<std::string, Error> ReadSymlink(std::string_view _symlink_path,                //
+                                                          const VFSCancelChecker &_cancel_checker = {}); //
+
+    // Default implementation calls Stat() and returns true if the call was sucessful.
+    virtual bool Exists(std::string_view _path,                        //
+                        const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * Checks if _filenames contains a forbidden symbols and return false if found them.
      * Default implementation forbids ":\\/\r\t\n" chars, overrides may change this behaviour
      */
-    virtual bool ValidateFilename(const char *_filename) const;
+    virtual bool ValidateFilename(std::string_view _filename) const;
 
-    /**
-     * DO NOT USE IT. Currently for experimental purposes only.
-     * Returns a vector with all xattrs at _path, labeled with it's names.
-     * On any error return negative value.
-     */
-    virtual int GetXAttrs(const char *_path,
-                          std::vector<std::pair<std::string, std::vector<uint8_t>>> &_xattrs);
+    // Returns size of all items in a directory, recursively.
+    // The default implementation uses IterateDirectoryListing() and Stat() to calculate the sizes.
+    // Symlinks are not followed.
+    virtual std::expected<uint64_t, Error> CalculateDirectorySize(std::string_view _path,                        //
+                                                                  const VFSCancelChecker &_cancel_checker = {}); //
 
-    virtual ssize_t CalculateDirectorySize(const char *_path,
-                                           const VFSCancelChecker &_cancel_checker = nullptr);
-
+    // TODO: describle
     virtual bool ShouldProduceThumbnails() const;
 
-    virtual bool FindLastValidItem(const char *_orig_path,
-                                   char *_valid_path,
-                                   unsigned long _flags,
-                                   const VFSCancelChecker &_cancel_checker = nullptr);
+    // Returns a list of known users on this host.
+    virtual std::expected<std::vector<VFSUser>, Error> FetchUsers(const VFSCancelChecker &_cancel_checker = {});
 
-    virtual int FetchUsers(std::vector<VFSUser> &_target,
-                           const VFSCancelChecker &_cancel_checker = nullptr);
-
-    virtual int FetchGroups(std::vector<VFSGroup> &_target,
-                            const VFSCancelChecker &_cancel_checker = nullptr);
+    // Returns a list of known user groups on this host.
+    virtual std::expected<std::vector<VFSGroup>, Error> FetchGroups(const VFSCancelChecker &_cancel_checker = {});
 
     /***********************************************************************************************
      * Directories iteration, listings fetching
      **********************************************************************************************/
 
-    /**
-     * Produce a regular directory listing.
-     */
-    virtual int FetchDirectoryListing(const char *_path,
-                                      VFSListingPtr &_target,
-                                      unsigned long _flags,
-                                      const VFSCancelChecker &_cancel_checker = nullptr);
+    // Produces a regular directory listing.
+    // An actual host implementation must provide this method.
+    virtual std::expected<VFSListingPtr, Error> FetchDirectoryListing(std::string_view _path,                        //
+                                                                      unsigned long _flags,                          //
+                                                                      const VFSCancelChecker &_cancel_checker = {}); //
 
-    /**
-     * Produce a regular listing, consisting of a single element.
-     * If there's no overriden implementaition in derived class, VFSHost will try to produce
-     * this listing with Stat().
-     */
-    virtual int FetchSingleItemListing(const char *_path_to_item,
-                                       VFSListingPtr &_target,
-                                       unsigned long _flags,
-                                       const VFSCancelChecker &_cancel_checker = nullptr);
+    // Produces a regular listing, consisting of a single element.
+    // If there's no overriden implementaition in derived class, VFSHost will try to produce this listing with Stat().
+    virtual std::expected<VFSListingPtr, Error> FetchSingleItemListing(std::string_view _path_to_item,                //
+                                                                       unsigned long _flags,                          //
+                                                                       const VFSCancelChecker &_cancel_checker = {}); //
 
-    /**
-     * IterateDirectoryListing will skip "." and ".." entries if they are present.
-     * Do not rely on it to build a directory listing, it's for contents iteration.
-     * _handler: return true to allow further iteration, false to stop it.
-     */
-    virtual int
-    IterateDirectoryListing(const char *_path,
-                            const std::function<bool(const VFSDirEnt &_dirent)> &_handler);
+    // IterateDirectoryListing will skip "." and ".." entries if they are present.
+    // Do not rely on it to build a directory listing, it's for contents iteration.
+    // _handler: return true to allow further iteration, false to stop it.
+    virtual std::expected<void, Error>
+    IterateDirectoryListing(std::string_view _path,                                         //
+                            const std::function<bool(const VFSDirEnt &_dirent)> &_handler); //
 
-    int FetchFlexibleListingItems(const std::string &_directory_path,
-                                  const std::vector<std::string> &_filenames,
-                                  unsigned long _flags,
-                                  std::vector<VFSListingItem> &_result,
-                                  const VFSCancelChecker &_cancel_checker);
+    // Fetches a listing of the specified directory and returns an array of items with the specified filenames.
+    std::expected<std::vector<VFSListingItem>, Error>
+    FetchFlexibleListingItems(const std::string &_directory_path,            //
+                              const std::vector<std::string> &_filenames,    //
+                              unsigned long _flags,                          //
+                              const VFSCancelChecker &_cancel_checker = {}); //
 
     /***********************************************************************************************
      * Making changes to the filesystem
      **********************************************************************************************/
 
-    virtual int CreateFile(const char *_path,
-                           std::shared_ptr<VFSFile> &_target,
-                           const VFSCancelChecker &_cancel_checker = nullptr);
+    // Factory method - creates a VFSFile for this VFS type that points at the specified path.
+    // The file object will be in a default non-opened state.
+    // This call is not assumed to cause any I/O.
+    // A host may refuse to create a file that points to an invalid path location.
+    // A host may also refuse if there can't be any item at that path and that's known in advance without I/O.
+    virtual std::expected<std::shared_ptr<VFSFile>, Error> CreateFile(std::string_view _path,                        //
+                                                                      const VFSCancelChecker &_cancel_checker = {}); //
 
-    virtual int CreateDirectory(const char *_path,
-                                int _mode,
-                                const VFSCancelChecker &_cancel_checker = nullptr);
+    // Creates a directory at the specified path with the specified permissions.
+    virtual std::expected<void, Error> CreateDirectory(std::string_view _path,                        //
+                                                       int _mode,                                     //
+                                                       const VFSCancelChecker &_cancel_checker = {}); //
 
     /** Return zero upon succes, negative value on error. */
-    virtual int CreateSymlink(const char *_symlink_path,
-                              const char *_symlink_value,
-                              const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<void, Error> CreateSymlink(std::string_view _symlink_path,                //
+                                                     std::string_view _symlink_value,               //
+                                                     const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * Unlinks(deletes) a file. Dont follow last symlink, in case of.
      * Don't delete directories, similar to POSIX.
      */
-    virtual int Unlink(const char *_path, const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<void, Error> Unlink(std::string_view _path,                        //
+                                              const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
-     * Deletes an empty directory. Will fail on non-empty ones, unless NonEmptyRmDir flag is
-     * specified.
+     * Deletes an empty directory.
      */
-    virtual int RemoveDirectory(const char *_path,
-                                const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<void, Error> RemoveDirectory(std::string_view _path,                        //
+                                                       const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * Moves an item into trash bin.
      */
-    virtual int Trash(const char *_path, const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<void, Error> Trash(std::string_view _path,                        //
+                                             const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * Change the name of a file.
      */
-    virtual int Rename(const char *_old_path,
-                       const char *_new_path,
-                       const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<void, Error> Rename(std::string_view _old_path,                    //
+                                              std::string_view _new_path,                    //
+                                              const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * Adjust file node times.
-     * NoFollow flag can be specified to alter symlink node itself.
      */
-    virtual int SetTimes(const char *_path,
-                         std::optional<time_t> _birth_time,
-                         std::optional<time_t> _mod_time,
-                         std::optional<time_t> _chg_time,
-                         std::optional<time_t> _acc_time,
-                         const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<void, Error> SetTimes(std::string_view _path,                        //
+                                                std::optional<time_t> _birth_time,             //
+                                                std::optional<time_t> _mod_time,               //
+                                                std::optional<time_t> _chg_time,               //
+                                                std::optional<time_t> _acc_time,               //
+                                                const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * Change permissions similarly to chmod().
      */
-    virtual int SetPermissions(const char *_path,
-                               uint16_t _mode,
-                               const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<void, Error> SetPermissions(std::string_view _path,                        //
+                                                      uint16_t _mode,                                //
+                                                      const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * Change flags similarly to chflags().
      * _vfs_options can include F_NoFollow to work akin to lchflags() instead.
      */
-    virtual int SetFlags(const char *_path,
-                         uint32_t _flags,
-                         uint64_t _vfs_options,
-                         const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<void, Error> SetFlags(std::string_view _path,                        //
+                                                uint32_t _flags,                               //
+                                                uint64_t _vfs_options,                         //
+                                                const VFSCancelChecker &_cancel_checker = {}); //
 
     /**
      * Change ownership similarly to chown().
      */
-    virtual int SetOwnership(const char *_path,
-                             unsigned _uid,
-                             unsigned _gid,
-                             const VFSCancelChecker &_cancel_checker = nullptr);
+    virtual std::expected<void, Error> SetOwnership(std::string_view _path,                        //
+                                                    unsigned _uid,                                 //
+                                                    unsigned _gid,                                 //
+                                                    const VFSCancelChecker &_cancel_checker = {}); //
 
     /***********************************************************************************************
      * Observation of changes
@@ -352,27 +342,25 @@ public:
     /**
      * Default implementation doesn't provide any observation functionality.
      */
-    virtual bool IsDirChangeObservingAvailable(const char *_path);
+    virtual bool IsDirectoryChangeObservationAvailable(std::string_view _path);
 
     /**
      * _handler can be called from any thread
      */
-    virtual HostDirObservationTicket DirChangeObserve(const char *_path,
-                                                      std::function<void()> _handler);
+    virtual HostDirObservationTicket ObserveDirectoryChanges(std::string_view _path, std::function<void()> _handler);
 
     /**
      * Will fire _handler whenever a file identified by '_path' is changed.
      * Can return an empty token if observation is unavailable.
      */
-    virtual FileObservationToken ObserveFileChanges(const char *_path,
-                                                    std::function<void()> _handler);
+    virtual FileObservationToken ObserveFileChanges(std::string_view _path, std::function<void()> _handler);
 
 protected:
     void SetFeatures(uint64_t _features_bitset);
     void AddFeatures(uint64_t _features_bitset);
 
     virtual void StopDirChangeObserving(unsigned long _ticket);
-    
+
     virtual void StopObservingFileChanges(unsigned long _token);
 
 private:

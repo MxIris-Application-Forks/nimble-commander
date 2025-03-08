@@ -1,6 +1,5 @@
 // Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ExternalEditorInfo.h"
-#include "../../../3rd_Party/NSFileManagerDirectoryLocations/NSFileManager+DirectoryLocations.h"
 #include <VFS/VFS.h>
 #include <Term/SingleTask.h>
 #include <Utility/FileMask.h>
@@ -108,7 +107,8 @@ struct ExternalEditorsPersistence {
 @synthesize max_size = m_MaxSize;
 - (id)init
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         self.name = @"";
         self.path = @"";
         self.arguments = @"";
@@ -135,7 +135,8 @@ struct ExternalEditorsPersistence {
 
 - (id)initWithCoder:(NSCoder *)decoder
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         // redundant, rewrite
         self.name = @"";
         self.path = @"";
@@ -223,22 +224,22 @@ bool ExternalEditorStartupInfo::OpenInTerminal() const noexcept
 
 bool ExternalEditorStartupInfo::IsValidForItem(const VFSListingItem &_item, bool _allow_terminal) const
 {
-    if( _allow_terminal == false && m_OpenInTerminal )
+    if( !_allow_terminal && m_OpenInTerminal )
         return false;
 
     if( m_Mask.empty() ) // why is this?
         return false;
 
-    if( m_OnlyFiles == true && _item.IsReg() == false )
+    if( m_OnlyFiles && !_item.IsReg() )
         return false;
 
     if( m_Mask != "*" ) {
-        nc::utility::FileMask mask{m_Mask};
+        const nc::utility::FileMask mask{m_Mask};
         if( !mask.MatchName(_item.Filename()) )
             return false;
     }
 
-    if( m_OnlyFiles == true && m_MaxFileSize > 0 && _item.Size() > m_MaxFileSize )
+    if( m_OnlyFiles && m_MaxFileSize > 0 && _item.Size() > m_MaxFileSize )
         return false;
 
     return true;
@@ -254,10 +255,9 @@ std::string ExternalEditorStartupInfo::SubstituteFileName(const std::string &_pa
         return esc_buf; // just return escaped file path
 
     std::string args = m_Arguments;
-    std::string path = " "s + esc_buf + " ";
+    const std::string path = " "s + esc_buf + " ";
 
-    size_t start_pos;
-    if( (start_pos = args.find("%%")) != std::string::npos )
+    if( const size_t start_pos = args.find("%%"); start_pos != std::string::npos )
         args.replace(start_pos, 2, path);
 
     return args;
@@ -293,7 +293,7 @@ void ExternalEditorsStorage::SaveToConfig()
 std::shared_ptr<ExternalEditorStartupInfo>
 ExternalEditorsStorage::ViableEditorForItem(const VFSListingItem &_item) const
 {
-    const auto has_terminal = nc::base::AmISandboxed() == false;
+    const auto has_terminal = !nc::base::AmISandboxed();
     for( auto &ed : m_ExternalEditors )
         if( ed->IsValidForItem(_item, has_terminal) )
             return ed;

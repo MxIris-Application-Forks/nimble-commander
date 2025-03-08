@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <VFSIcon/QLVFSThumbnailsCacheImpl.h>
 #include <Quartz/Quartz.h>
 #include <filesystem>
@@ -6,21 +6,16 @@
 namespace nc::vfsicon {
 
 static NSImage *ProduceThumbnailForTempFile(const std::string &_path, CGSize _px_size);
-static std::optional<std::vector<uint8_t>> ReadEntireFile(const std::string &_path, VFSHost &_host);
+static std::expected<std::vector<uint8_t>, Error> ReadEntireFile(const std::string &_path, VFSHost &_host);
 
-QLVFSThumbnailsCacheImpl::QLVFSThumbnailsCacheImpl(
-    const std::shared_ptr<utility::BriefOnDiskStorage> &_temp_storage)
+QLVFSThumbnailsCacheImpl::QLVFSThumbnailsCacheImpl(const std::shared_ptr<utility::BriefOnDiskStorage> &_temp_storage)
     : m_TempStorage(_temp_storage)
 {
 }
 
-QLVFSThumbnailsCacheImpl::~QLVFSThumbnailsCacheImpl()
-{
-}
+QLVFSThumbnailsCacheImpl::~QLVFSThumbnailsCacheImpl() = default;
 
-NSImage *QLVFSThumbnailsCacheImpl::ThumbnailIfHas(const std::string &_file_path,
-                                                  VFSHost &_host,
-                                                  int _px_size)
+NSImage *QLVFSThumbnailsCacheImpl::ThumbnailIfHas(const std::string &_file_path, VFSHost &_host, int _px_size)
 {
     auto key = MakeKey(_file_path, _host, _px_size);
 
@@ -33,9 +28,7 @@ NSImage *QLVFSThumbnailsCacheImpl::ThumbnailIfHas(const std::string &_file_path,
     return nil;
 }
 
-NSImage *QLVFSThumbnailsCacheImpl::ProduceThumbnail(const std::string &_file_path,
-                                                    VFSHost &_host,
-                                                    int _px_size)
+NSImage *QLVFSThumbnailsCacheImpl::ProduceThumbnail(const std::string &_file_path, VFSHost &_host, int _px_size)
 {
     auto key = MakeKey(_file_path, _host, _px_size);
 
@@ -64,20 +57,19 @@ NSImage *QLVFSThumbnailsCacheImpl::ProduceThumbnail(const std::string &_path,
                                                     CGSize _sz)
 {
     auto data = ReadEntireFile(_path, _host);
-    if( data.has_value() == false )
+    if( !data.has_value() )
         return nil;
 
     auto placement_result = m_TempStorage->PlaceWithExtension(data->data(), data->size(), _ext);
-    if( placement_result.has_value() == false )
+    if( !placement_result.has_value() )
         return nil;
 
     return ProduceThumbnailForTempFile(placement_result->Path(), _sz);
 }
 
-std::string
-QLVFSThumbnailsCacheImpl::MakeKey(const std::string &_file_path, VFSHost &_host, int _px_size)
+std::string QLVFSThumbnailsCacheImpl::MakeKey(const std::string &_file_path, VFSHost &_host, int _px_size)
 {
-    auto key = _host.MakePathVerbose(_file_path.c_str());
+    auto key = _host.MakePathVerbose(_file_path);
     key += "\x01";
     key += std::to_string(_px_size);
     return key;
@@ -90,9 +82,9 @@ static NSImage *ProduceThumbnailForTempFile(const std::string &_path, CGSize _px
         nullptr, reinterpret_cast<const UInt8 *>(_path.c_str()), _path.length(), false);
     const void *keys[] = {static_cast<const void *>(kQLThumbnailOptionIconModeKey)};
     const void *values[] = {static_cast<const void *>(kCFBooleanTrue)};
-    static CFDictionaryRef dict = CFDictionaryCreate(0, keys, values, 1, 0, 0);
-    NSImage *result = 0;
-    if( CGImageRef thumbnail = QLThumbnailImageCreate(0, url, _px_size, dict) ) {
+    static CFDictionaryRef dict = CFDictionaryCreate(nullptr, keys, values, 1, nullptr, nullptr);
+    NSImage *result = nullptr;
+    if( CGImageRef thumbnail = QLThumbnailImageCreate(nullptr, url, _px_size, dict) ) {
         result = [[NSImage alloc] initWithCGImage:thumbnail size:_px_size];
         CGImageRelease(thumbnail);
     }
@@ -100,17 +92,18 @@ static NSImage *ProduceThumbnailForTempFile(const std::string &_path, CGSize _px
     return result;
 }
 
-static std::optional<std::vector<uint8_t>> ReadEntireFile(const std::string &_path, VFSHost &_host)
+static std::expected<std::vector<uint8_t>, Error> ReadEntireFile(const std::string &_path, VFSHost &_host)
 {
-    VFSFilePtr vfs_file;
+    const std::expected<std::shared_ptr<VFSFile>, Error> file = _host.CreateFile(_path);
+    if( !file )
+        return std::unexpected(file.error());
 
-    if( _host.CreateFile(_path.c_str(), vfs_file, 0) < 0 )
-        return std::nullopt;
-
-    if( vfs_file->Open(VFSFlags::OF_Read) < 0 )
-        return std::nullopt;
-
-    return vfs_file->ReadFile();
+    if( const int rc = (*file)->Open(VFSFlags::OF_Read); rc == VFSError::Ok ) {
+        return (*file)->ReadFile();
+    }
+    else {
+        return std::unexpected(VFSError::ToError(rc));
+    }
 }
 
-}
+} // namespace nc::vfsicon

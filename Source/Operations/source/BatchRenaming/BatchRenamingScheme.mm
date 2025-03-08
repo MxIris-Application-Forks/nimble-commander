@@ -1,23 +1,26 @@
-// Copyright (C) 2015-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2015-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "BatchRenamingScheme.h"
 #include <Utility/StringExtras.h>
+#include <fmt/format.h>
+
+#include <algorithm>
 
 namespace nc::ops {
 
 std::optional<std::vector<BatchRenamingScheme::MaskDecomposition>>
 BatchRenamingScheme::DecomposeMaskIntoPlaceholders(NSString *_mask)
 {
-    static NSString *escaped_open_br = [NSString stringWithFormat:@"%C", 0xE001];
-    static NSString *escaped_closed_br = [NSString stringWithFormat:@"%C", 0xE002];
-    static NSCharacterSet *open_br = [NSCharacterSet characterSetWithCharactersInString:@"["];
-    static NSCharacterSet *close_br = [NSCharacterSet characterSetWithCharactersInString:@"]"];
+    static NSString *const escaped_open_br = [NSString stringWithFormat:@"%C", 0xE001];
+    static NSString *const escaped_closed_br = [NSString stringWithFormat:@"%C", 0xE002];
+    static NSCharacterSet *const open_br = [NSCharacterSet characterSetWithCharactersInString:@"["];
+    static NSCharacterSet *const close_br = [NSCharacterSet characterSetWithCharactersInString:@"]"];
 
     assert(_mask != nil);
     NSString *mask = _mask;
     if( [mask containsString:@"[["] || [mask containsString:@"]]"] ) {
         // Escape double brackets by converting them into private characters.
         // Thats's rather brute-force and stupid, but since the masks are normally very short it shouldn't be a problem
-        NSMutableString *tmp = [[NSMutableString alloc] initWithString:mask];
+        NSMutableString *const tmp = [[NSMutableString alloc] initWithString:mask];
         [tmp replaceOccurrencesOfString:@"[["
                              withString:escaped_open_br
                                 options:NSLiteralSearch
@@ -245,6 +248,8 @@ bool BatchRenamingScheme::ParsePlaceholder(NSString *_ph)
                 position += v->second;
                 continue;
             }
+            default:
+                break;
         }
         return false;
     }
@@ -349,7 +354,9 @@ BatchRenamingScheme::ParsePlaceholder_TextExtraction(NSString *_ph, unsigned lon
     if( l == _pos ) // [N]
         return std::make_pair(TextExtraction(), 0);
 
-    auto zero_flag = false, minus_flag = false, space_flag = false;
+    auto zero_flag = false;
+    auto minus_flag = false;
+    auto space_flag = false;
 
     auto n = 0;
     auto c = [_ph characterAtIndex:_pos + n];
@@ -537,9 +544,7 @@ BatchRenamingScheme::ParsePlaceholder_Counter(NSString *_ph,
         n += stripe->second;
     }
     if( auto width = EatIntWithPreffix(_ph, _pos + n, ':') ) {
-        counter.width = width->first;
-        if( counter.width > 30 )
-            counter.width = 30;
+        counter.width = std::min<unsigned int>(width->first, 30);
         n += width->second;
     }
 
@@ -562,8 +567,7 @@ NSString *BatchRenamingScheme::ExtractText(NSString *_from, const TextExtraction
         auto str = [_from substringWithRange:res.toNSRange()];
         if( (_te.zero_flag || _te.space_flag) && rr.length != Range::max_length() && str.length < rr.length ) {
             auto insufficient = rr.length - str.length;
-            if( insufficient > 300 )
-                insufficient = 300;
+            insufficient = std::min<NSUInteger>(insufficient, 300);
 
             auto padding = [@"" stringByPaddingToLength:insufficient
                                              withString:(_te.zero_flag ? @"0" : @" ")startingAtIndex:0];
@@ -590,8 +594,8 @@ NSString *BatchRenamingScheme::ExtractText(NSString *_from, const TextExtraction
     else {
         if( _te.to_last + 1 >= length )
             return @"";
-        unsigned start = _te.from_first;
-        unsigned end = length - _te.to_last - 1;
+        const unsigned start = _te.from_first;
+        const unsigned end = length - _te.to_last - 1;
         if( start > end )
             return @"";
 
@@ -610,8 +614,7 @@ NSString *BatchRenamingScheme::FormatCounter(const Counter &_c, int _file_number
     char *buf = static_cast<char *>(alloca(_c.width + 32)); // no heap allocs, for great justice!
     if( !buf )
         return @"";
-
-    snprintf(buf, sizeof(buf), "%0*ld", _c.width, _c.start + _c.step * (_file_number / _c.stripe));
+    *fmt::format_to(buf, "{:0{}}", _c.start + (_c.step * (_file_number / _c.stripe)), _c.width) = 0;
     return [NSString stringWithUTF8String:buf];
 }
 
@@ -668,12 +671,12 @@ static NSString *StringByTransform(NSString *_s, BatchRenamingScheme::CaseTransf
 
     static auto cs = [NSCharacterSet characterSetWithCharactersInString:@"."];
     auto r = [_s rangeOfCharacterFromSet:cs options:NSBackwardsSearch];
-    bool has_ext = (r.location != NSNotFound && r.location != 0 && r.location != _s.length - 1);
+    const bool has_ext = (r.location != NSNotFound && r.location != 0 && r.location != _s.length - 1);
     if( !has_ext )
         return StringByTransform(_s, _ct);
 
-    NSString *name = [_s substringWithRange:NSMakeRange(0, r.location)];
-    NSString *extension = [_s substringWithRange:NSMakeRange(r.location, _s.length - r.location)];
+    NSString *const name = [_s substringWithRange:NSMakeRange(0, r.location)];
+    NSString *const extension = [_s substringWithRange:NSMakeRange(r.location, _s.length - r.location)];
 
     return [StringByTransform(name, _ct) stringByAppendingString:extension];
 }
@@ -681,35 +684,35 @@ static NSString *StringByTransform(NSString *_s, BatchRenamingScheme::CaseTransf
 static NSString *FormatTimeSeconds(const struct tm &_t)
 {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%2.2d", _t.tm_sec);
+    *fmt::format_to(buf, "{:02}", _t.tm_sec) = 0;
     return [NSString stringWithUTF8String:buf];
 }
 
 static NSString *FormatTimeMinutes(const struct tm &_t)
 {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%2.2d", _t.tm_min);
+    *fmt::format_to(buf, "{:02}", _t.tm_min) = 0;
     return [NSString stringWithUTF8String:buf];
 }
 
 static NSString *FormatTimeHours(const struct tm &_t)
 {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%2.2d", _t.tm_hour);
+    *fmt::format_to(buf, "{:02}", _t.tm_hour) = 0;
     return [NSString stringWithUTF8String:buf];
 }
 
 static NSString *FormatTimeDay(const struct tm &_t)
 {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%2.2d", _t.tm_mday);
+    *fmt::format_to(buf, "{:02}", _t.tm_mday) = 0;
     return [NSString stringWithUTF8String:buf];
 }
 
 static NSString *FormatTimeMonth(const struct tm &_t)
 {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%2.2d", _t.tm_mon + 1);
+    *fmt::format_to(buf, "{:02}", _t.tm_mon + 1) = 0;
     return [NSString stringWithUTF8String:buf];
 }
 
@@ -717,29 +720,30 @@ static NSString *FormatTimeYear2(const struct tm &_t)
 {
     char buf[16];
     if( _t.tm_year >= 100 )
-        snprintf(buf, sizeof(buf), "%2.2d", _t.tm_year - 100);
+        *fmt::format_to(buf, "{:02}", _t.tm_year - 100) = 0;
     else
-        snprintf(buf, sizeof(buf), "%2.2d", _t.tm_year);
+        *fmt::format_to(buf, "{:02}", _t.tm_year) = 0;
     return [NSString stringWithUTF8String:buf];
 }
 
 static NSString *FormatTimeYear4(const struct tm &_t)
 {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%4.4d", _t.tm_year + 1900);
+    *fmt::format_to(buf, "{:04}", _t.tm_year + 1900) = 0;
     return [NSString stringWithUTF8String:buf];
 }
 
 static NSString *FormatDate(time_t _t)
 {
     static auto formatter = []() {
-        NSDateFormatter *fmt = [NSDateFormatter new];
+        NSDateFormatter *const fmt = [NSDateFormatter new];
         fmt.dateStyle = NSDateFormatterShortStyle;
         fmt.timeStyle = NSDateFormatterNoStyle;
         return fmt;
     }();
 
-    NSMutableString *str = [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:_t]].mutableCopy;
+    NSMutableString *const str =
+        [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:static_cast<double>(_t)]].mutableCopy;
     [str replaceOccurrencesOfString:@"/" withString:@"-" options:0 range:NSMakeRange(0, str.length)];
     [str replaceOccurrencesOfString:@"\\" withString:@"-" options:0 range:NSMakeRange(0, str.length)];
     [str replaceOccurrencesOfString:@":" withString:@"-" options:0 range:NSMakeRange(0, str.length)];
@@ -749,13 +753,14 @@ static NSString *FormatDate(time_t _t)
 static NSString *FormatTime(time_t _t)
 {
     static auto formatter = []() {
-        NSDateFormatter *fmt = [NSDateFormatter new];
+        NSDateFormatter *const fmt = [NSDateFormatter new];
         fmt.dateStyle = NSDateFormatterNoStyle;
         fmt.timeStyle = NSDateFormatterShortStyle;
         return fmt;
     }();
 
-    NSMutableString *str = [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:_t]].mutableCopy;
+    NSMutableString *const str =
+        [formatter stringFromDate:[NSDate dateWithTimeIntervalSince1970:static_cast<double>(_t)]].mutableCopy;
     [str replaceOccurrencesOfString:@"/" withString:@"." options:0 range:NSMakeRange(0, str.length)];
     [str replaceOccurrencesOfString:@"\\" withString:@"." options:0 range:NSMakeRange(0, str.length)];
     [str replaceOccurrencesOfString:@":" withString:@"." options:0 range:NSMakeRange(0, str.length)];
@@ -778,7 +783,7 @@ NSString *BatchRenamingScheme::DoSearchReplace(const ReplaceOptions &_opts, NSSt
     if( !_opts.search_in_ext ) {
         static auto cs = [NSCharacterSet characterSetWithCharactersInString:@"."];
         auto r = [_source rangeOfCharacterFromSet:cs options:NSBackwardsSearch];
-        bool has_ext = (r.location != NSNotFound && r.location != 0 && r.location != _source.length - 1);
+        const bool has_ext = (r.location != NSNotFound && r.location != 0 && r.location != _source.length - 1);
         if( has_ext )
             range = NSMakeRange(0, r.location);
     }
@@ -843,7 +848,7 @@ void BatchRenamingScheme::AddInsertGrandparent(const TextExtraction &t)
 
 NSString *BatchRenamingScheme::Rename(const FileInfo &_fi, int _number) const
 {
-    NSMutableString *str = [[NSMutableString alloc] initWithCapacity:64];
+    NSMutableString *const str = [[NSMutableString alloc] initWithCapacity:64];
 
     CaseTransform case_transform = CaseTransform::Unchanged;
 
@@ -915,6 +920,7 @@ NSString *BatchRenamingScheme::Rename(const FileInfo &_fi, int _number) const
                 break;
             case ActionType::Capitalized:
                 case_transform = CaseTransform::Capitalized;
+                break;
             default:
                 break;
         }
@@ -925,8 +931,8 @@ NSString *BatchRenamingScheme::Rename(const FileInfo &_fi, int _number) const
         }
     }
 
-    NSString *after_replacing = DoSearchReplace(m_SearchReplace, str);
-    NSString *after_case_trans = StringByTransform(after_replacing, m_CaseTransform, m_CaseTransformWithExt);
+    NSString *const after_replacing = DoSearchReplace(m_SearchReplace, str);
+    NSString *const after_case_trans = StringByTransform(after_replacing, m_CaseTransform, m_CaseTransformWithExt);
     return after_case_trans;
 }
 
@@ -951,7 +957,7 @@ NSString *BatchRenamingScheme::FileInfo::ParentFilename() const
 {
     std::filesystem::path parent_path(item.Directory());
     if( parent_path.filename().empty() ) { // play around trailing slash
-        if( parent_path.has_parent_path() == false )
+        if( !parent_path.has_parent_path() )
             return @""; // wtf?
         parent_path = parent_path.parent_path();
     }
@@ -962,7 +968,7 @@ NSString *BatchRenamingScheme::FileInfo::GrandparentFilename() const
 {
     std::filesystem::path parent_path(item.Directory());
     if( parent_path.filename().empty() ) { // play around trailing slash
-        if( parent_path.has_parent_path() == false )
+        if( !parent_path.has_parent_path() )
             return @""; // wtf?
         parent_path = parent_path.parent_path();
     }
@@ -970,4 +976,4 @@ NSString *BatchRenamingScheme::FileInfo::GrandparentFilename() const
     return [NSString stringWithUTF8StdString:parent_path.filename().native()];
 }
 
-}
+} // namespace nc::ops

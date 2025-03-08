@@ -61,6 +61,7 @@ struct Theme::Internals {
     NSColor *m_FilePanelsBriefFocusedActiveItemBackgroundColor;
     NSColor *m_FilePanelsBriefFocusedInactiveItemBackgroundColor;
     NSColor *m_FilePanelsBriefSelectedItemBackgroundColor;
+
     NSFont *m_TerminalFont;
     NSColor *m_TerminalOverlayColor;
     NSColor *m_TerminalForegroundColor;
@@ -84,9 +85,17 @@ struct Theme::Internals {
     NSColor *m_TerminalAnsiColorD;
     NSColor *m_TerminalAnsiColorE;
     NSColor *m_TerminalAnsiColorF;
+
     NSFont *m_ViewerFont;
     NSColor *m_ViewerOverlayColor;
     NSColor *m_ViewerTextColor;
+    NSColor *m_ViewerTextSyntaxCommentColor;
+    NSColor *m_ViewerTextSyntaxPreprocessorColor;
+    NSColor *m_ViewerTextSyntaxKeywordColor;
+    NSColor *m_ViewerTextSyntaxOperatorColor;
+    NSColor *m_ViewerTextSyntaxIdentifierColor;
+    NSColor *m_ViewerTextSyntaxNumberColor;
+    NSColor *m_ViewerTextSyntaxStringColor;
     NSColor *m_ViewerSelectionColor;
     NSColor *m_ViewerBackgroundColor;
 };
@@ -103,6 +112,13 @@ Theme::Theme(const nc::config::Value &_theme_data, const nc::config::Value &_bac
         if( auto v = ThemePersistence::ExtractColor(backup, _path) )
             return v;
         return NSColor.blackColor;
+    };
+    const auto ExtractSyntaxColor = [&](const char *_path) {
+        if( auto v = ThemePersistence::ExtractColor(doc, _path) )
+            return v;
+        if( auto v = ThemePersistence::ExtractColor(backup, _path) )
+            return v;
+        return I->m_ViewerTextColor;
     };
     const auto ExtractFont = [&](const char *_path) {
         if( auto v = ThemePersistence::ExtractFont(doc, _path) )
@@ -121,7 +137,7 @@ Theme::Theme(const nc::config::Value &_theme_data, const nc::config::Value &_bac
     if( const auto rules_it = doc.FindMember("filePanelsColoringRules_v1"); rules_it != doc.MemberEnd() ) {
         if( const auto &cr = rules_it->value; cr.IsArray() ) {
             for( auto i = cr.Begin(), e = cr.End(); i != e; ++i ) {
-                auto rule = nc::panel::PresentationItemsColoringRulePersistence{}.FromJSON(*i);
+                auto rule = nc::panel::PresentationItemsColoringRulePersistence::FromJSON(*i);
                 I->m_ColoringRules.emplace_back(std::move(rule));
             }
         }
@@ -216,6 +232,13 @@ Theme::Theme(const nc::config::Value &_theme_data, const nc::config::Value &_bac
     I->m_ViewerFont = ExtractFont("viewerFont");
     I->m_ViewerOverlayColor = ExtractColor("viewerOverlayColor");
     I->m_ViewerTextColor = ExtractColor("viewerTextColor");
+    I->m_ViewerTextSyntaxCommentColor = ExtractSyntaxColor("viewerTextSyntaxCommentColor");
+    I->m_ViewerTextSyntaxPreprocessorColor = ExtractSyntaxColor("viewerTextSyntaxPreprocessorColor");
+    I->m_ViewerTextSyntaxKeywordColor = ExtractSyntaxColor("viewerTextSyntaxKeywordColor");
+    I->m_ViewerTextSyntaxOperatorColor = ExtractSyntaxColor("viewerTextSyntaxOperatorColor");
+    I->m_ViewerTextSyntaxIdentifierColor = ExtractSyntaxColor("viewerTextSyntaxIdentifierColor");
+    I->m_ViewerTextSyntaxNumberColor = ExtractSyntaxColor("viewerTextSyntaxNumberColor");
+    I->m_ViewerTextSyntaxStringColor = ExtractSyntaxColor("viewerTextSyntaxStringColor");
     I->m_ViewerSelectionColor = ExtractColor("viewerSelectionColor");
     I->m_ViewerBackgroundColor = ExtractColor("viewerBackgroundColor");
 }
@@ -567,6 +590,41 @@ NSColor *Theme::ViewerTextColor() const noexcept
     return I->m_ViewerTextColor;
 }
 
+NSColor *Theme::ViewerTextSyntaxCommentColor() const noexcept
+{
+    return I->m_ViewerTextSyntaxCommentColor;
+}
+
+NSColor *Theme::ViewerTextSyntaxPreprocessorColor() const noexcept
+{
+    return I->m_ViewerTextSyntaxPreprocessorColor;
+}
+
+NSColor *Theme::ViewerTextSyntaxKeywordColor() const noexcept
+{
+    return I->m_ViewerTextSyntaxKeywordColor;
+}
+
+NSColor *Theme::ViewerTextSyntaxOperatorColor() const noexcept
+{
+    return I->m_ViewerTextSyntaxOperatorColor;
+}
+
+NSColor *Theme::ViewerTextSyntaxIdentifierColor() const noexcept
+{
+    return I->m_ViewerTextSyntaxIdentifierColor;
+}
+
+NSColor *Theme::ViewerTextSyntaxNumberColor() const noexcept
+{
+    return I->m_ViewerTextSyntaxNumberColor;
+}
+
+NSColor *Theme::ViewerTextSyntaxStringColor() const noexcept
+{
+    return I->m_ViewerTextSyntaxStringColor;
+}
+
 NSColor *Theme::ViewerSelectionColor() const noexcept
 {
     return I->m_ViewerSelectionColor;
@@ -602,4 +660,4 @@ NSColor *Theme::FilePanelsBriefGridColor() const noexcept
     return I->m_FilePanelsBriefGridColor;
 }
 
-}
+} // namespace nc

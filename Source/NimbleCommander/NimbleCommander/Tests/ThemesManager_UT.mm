@@ -9,6 +9,8 @@
 
 #include <rapidjson/error/en.h>
 
+#include <algorithm>
+
 using nc::ThemeAppearance;
 using nc::ThemesManager;
 using nc::config::ConfigImpl;
@@ -24,7 +26,7 @@ static std::shared_ptr<NonPersistentOverwritesStorage> MakeDummyStorage()
 static std::string ReplQuotes(std::string_view src)
 {
     std::string s(src);
-    std::replace(s.begin(), s.end(), '\'', '\"');
+    std::ranges::replace(s, '\'', '\"');
     return s;
 }
 
@@ -39,7 +41,7 @@ static nc::config::Value JSONToObj(std::string_view _json)
         return nc::config::Value(rapidjson::kNullType);
 
     rapidjson::Document doc;
-    rapidjson::ParseResult ok = doc.Parse<rapidjson::kParseCommentsFlag>(_json.data(), _json.length());
+    const rapidjson::ParseResult ok = doc.Parse<rapidjson::kParseCommentsFlag>(_json.data(), _json.length());
     if( !ok ) {
         throw std::invalid_argument{rapidjson::GetParseError_En(ok.Code())};
     }
@@ -62,7 +64,7 @@ TEST_CASE(PREFIX "Constructs from config")
     }\
     ";
     ConfigImpl config{ReplQuotes(json), MakeDummyStorage()};
-    ThemesManager man(config, "current", "themes");
+    const ThemesManager man(config, "current", "themes");
 
     // Now query some of the read-only API entrypoints to verify this dummy state
     CHECK(man.SelectedThemeName() == "first");
@@ -196,7 +198,7 @@ TEST_CASE(PREFIX "API for themes switching")
     {
         SECTION("Original")
         {
-            ThemesManager man(config, "current", "themes");
+            const ThemesManager man(config, "current", "themes");
             auto as = man.AutomaticSwitching();
             CHECK(as.enabled == true);
             CHECK(as.light == "first");
@@ -205,7 +207,7 @@ TEST_CASE(PREFIX "API for themes switching")
         SECTION("Disabled")
         {
             config.Set("themes.automaticSwitching.enabled", false);
-            ThemesManager man(config, "current", "themes");
+            const ThemesManager man(config, "current", "themes");
             auto as = man.AutomaticSwitching();
             CHECK(as.enabled == false);
             CHECK(as.light == "first");
@@ -214,7 +216,7 @@ TEST_CASE(PREFIX "API for themes switching")
         SECTION("Light")
         {
             config.Set("themes.automaticSwitching.light", "Foo");
-            ThemesManager man(config, "current", "themes");
+            const ThemesManager man(config, "current", "themes");
             auto as = man.AutomaticSwitching();
             CHECK(as.enabled == true);
             CHECK(as.light == "Foo");
@@ -223,7 +225,7 @@ TEST_CASE(PREFIX "API for themes switching")
         SECTION("Dark")
         {
             config.Set("themes.automaticSwitching.dark", "Bar");
-            ThemesManager man(config, "current", "themes");
+            const ThemesManager man(config, "current", "themes");
             auto as = man.AutomaticSwitching();
             CHECK(as.enabled == true);
             CHECK(as.light == "first");
@@ -314,7 +316,7 @@ TEST_CASE(PREFIX "Picking a new name for a duplicate theme")
     }\
     ";
     ConfigImpl config{ReplQuotes(json), MakeDummyStorage()};
-    ThemesManager man(config, "current", "themes");
+    const ThemesManager man(config, "current", "themes");
 
     CHECK(man.SuitableNameForNewTheme("name") == "name 3");
     CHECK(man.SuitableNameForNewTheme("name ") == "name ");
@@ -326,7 +328,7 @@ TEST_CASE(PREFIX "Picking a new name for a duplicate theme")
     CHECK(man.SuitableNameForNewTheme("1") == "1");
     CHECK(man.SuitableNameForNewTheme(" 1") == " 1");
     CHECK(man.SuitableNameForNewTheme("1 ") == "1 ");
-    CHECK(man.SuitableNameForNewTheme("") == "");
+    CHECK(man.SuitableNameForNewTheme("").empty());
     CHECK(man.SuitableNameForNewTheme(" ") == " ");
 }
 
@@ -344,7 +346,7 @@ TEST_CASE(PREFIX "Renames 'Modern' to 'Light'")
     }\
     ";
     ConfigImpl config{ReplQuotes(json), MakeDummyStorage()};
-    ThemesManager man(config, "current", "themes");
+    const ThemesManager man(config, "current", "themes");
     CHECK(man.ThemeNames() == std::vector<std::string>{"Light", "second"});
     CHECK(man.SelectedThemeName() == "Light");
 }

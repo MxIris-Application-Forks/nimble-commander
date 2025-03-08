@@ -4,15 +4,14 @@
 #include <cassert>
 #include <vector>
 #include <variant>
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 
 namespace nc::base {
 
 namespace detail {
 
 struct variable_container_base {
-    enum class type : unsigned char
-    {
+    enum class type : unsigned char {
         dense = 0,
         sparse = 1,
         common = 2
@@ -112,7 +111,7 @@ public:
 
 private:
     using common_type = value_type;
-    using sparse_type = robin_hood::unordered_flat_map<size_t, T>;
+    using sparse_type = ankerl::unordered_dense::map<size_t, T>;
     using dense_type = std::vector<T>;
     using StorageT = std::variant<dense_type, sparse_type, common_type>;
 

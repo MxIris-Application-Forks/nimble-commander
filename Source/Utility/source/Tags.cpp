@@ -1,27 +1,34 @@
 // Copyright (C) 2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Tags.h"
-#include <string_view>
-#include <bit>
-#include <utility>
-#include <fmt/printf.h>
-#include <assert.h>
-#include <Base/RobinHoodUtil.h>
-#include <mutex>
-#include <optional>
+#include <Base/CFPtr.h>
+#include <Base/CFStackAllocator.h>
+#include <Base/CFString.h>
+#include <Base/UnorderedUtil.h>
+#include <Base/algo.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreServices/CoreServices.h>
-#include <Base/CFStackAllocator.h>
-#include <Base/CFPtr.h>
-#include <Base/CFString.h>
-#include <memory_resource>
-#include <sys/xattr.h>
-#include <frozen/unordered_map.h>
+#include <algorithm>
+#include <bit>
+#include <cassert>
+#include <fmt/format.h>
+#include <fmt/printf.h>
 #include <frozen/string.h>
+#include <frozen/unordered_map.h>
+#include <memory_resource>
+#include <mutex>
+#include <optional>
+#include <pstld/pstld.h>
 #include <ranges>
+#include <string_view>
+#include <sys/xattr.h>
+#include <utility>
 
 namespace nc::utility {
 
 // RTFM: https://opensource.apple.com/source/CF/CF-1153.18/CFBinaryPList.c
+
+static_assert(std::is_trivially_copyable_v<Tags::Tag>);
+static_assert(std::is_trivially_destructible_v<Tags::Tag>);
 
 static constexpr std::string_view g_Prologue = "bplist00";
 static constexpr const char *g_MDItemUserTags = "com.apple.metadata:_kMDItemUserTags";
@@ -163,13 +170,11 @@ static uint64_t GetSizedInt(const std::byte *_ptr, uint64_t _sz) noexcept
 
 static const std::string *InternalizeString(std::string_view _str) noexcept
 {
-    [[clang::no_destroy]] static //
-        robin_hood::unordered_node_set<std::string, RHTransparentStringHashEqual, RHTransparentStringHashEqual>
-            strings;
-    [[clang::no_destroy]] static //
-        std::mutex mut;
+    using Set = ankerl::unordered_dense::segmented_set<std::string, UnorderedStringHashEqual, UnorderedStringHashEqual>;
+    [[clang::no_destroy]] static Set strings;
+    [[clang::no_destroy]] static std::mutex mut;
 
-    std::lock_guard lock{mut};
+    const std::lock_guard lock{mut};
     if( auto it = strings.find(_str); it != strings.end() ) {
         return &*it;
     }
@@ -208,7 +213,7 @@ static std::optional<Tags::Tag> ParseTag(std::u16string_view _tag_rep) noexcept
         _tag_rep.remove_suffix(2);
     }
 
-    base::CFStackAllocator alloc;
+    const base::CFStackAllocator alloc;
     auto cf_str =
         base::CFPtr<CFStringRef>::adopt(CFStringCreateWithBytesNoCopy(alloc,
                                                                       reinterpret_cast<const UInt8 *>(_tag_rep.data()),
@@ -268,10 +273,10 @@ static std::optional<VarLen> ExtractVarLen(const std::byte *_byte_marker_ptr) no
         const uint64_t len_size = 1 << (len_marker & 0x0F);
         const std::byte *const len_ptr = len_marker_ptr + 1;
         const uint64_t len = GetSizedInt(len_ptr, len_size);
-        return VarLen{len, len_ptr + len_size};
+        return VarLen{.length = len, .start = len_ptr + len_size};
     }
     else {
-        return VarLen{builtin_length, _byte_marker_ptr + 1};
+        return VarLen{.length = builtin_length, .start = _byte_marker_ptr + 1};
     }
 }
 
@@ -344,8 +349,9 @@ std::vector<Tags::Tag> Tags::ParseFinderInfo(std::span<const std::byte> _bytes) 
             return {Tag{&g_LabelRed, Color::Red}};
         case 7:
             return {Tag{&g_LabelOrange, Color::Orange}};
+        default:
+            return {};
     }
-    return {};
 }
 
 static void SetFinderInfoLabel(std::span<uint8_t, 32> _bytes, Tags::Color _color) noexcept
@@ -476,7 +482,7 @@ static std::pmr::vector<std::byte> WritePListObject(const Tags::Tag &_tag, std::
     }
     else {
         // Build CF strings out of our label
-        base::CFStackAllocator alloc;
+        const base::CFStackAllocator alloc;
         auto cf_str =
             base::CFPtr<CFStringRef>::adopt(CFStringCreateWithBytesNoCopy(alloc,
                                                                           reinterpret_cast<const UInt8 *>(label.data()),
@@ -497,7 +503,7 @@ static std::pmr::vector<std::byte> WritePListObject(const Tags::Tag &_tag, std::
 
         assert(target_size % 2 == 0);
         const size_t len_color = _tag.Color() == Tags::Color::None ? 0 : 2;
-        const size_t len = target_size / 2 + len_color;
+        const size_t len = (target_size / 2) + len_color;
 
         // write the byte marker and size
         WriteVarSize(0x60, len, dst);
@@ -569,8 +575,8 @@ std::vector<std::byte> Tags::BuildMDItemUserTags(const std::span<const Tag> _tag
     }
 
     // Deduce the stride of the offset table
-    size_t offset_int_size = 1;
-    if( const size_t max = *std::max_element(offsets.begin(), offsets.end()); max > 255 ) {
+    const size_t offset_int_size = 1;
+    if( const size_t max = *std::ranges::max_element(offsets); max > 255 ) {
         abort(); // TODO: implement
     }
 
@@ -579,7 +585,7 @@ std::vector<std::byte> Tags::BuildMDItemUserTags(const std::span<const Tag> _tag
     memset(&trailer, 0, sizeof(trailer));
     trailer.offset_int_size = static_cast<uint8_t>(offset_int_size);
     trailer.object_ref_size = 1;
-    trailer.num_objects = std::byteswap(static_cast<uint64_t>(objects.size() + 1));
+    trailer.num_objects = std::byteswap(static_cast<uint64_t>(objects.size()) + 1);
     trailer.offset_table_offset = std::byteswap(static_cast<uint64_t>(plist.size()));
 
     // Write the offset table
@@ -659,15 +665,12 @@ bool Tags::WriteTags(int _fd, std::span<const Tag> _tags) noexcept
     }
     SetFinderInfoLabel(finder_info, _tags.front().Color());
 
-    if( fsetxattr(_fd, g_FinderInfo, finder_info.data(), finder_info.size(), 0, 0) != 0 )
-        return false;
-
-    return true;
+    return fsetxattr(_fd, g_FinderInfo, finder_info.data(), finder_info.size(), 0, 0) == 0;
 }
 
 bool Tags::WriteTags(const std::filesystem::path &_path, std::span<const Tag> _tags) noexcept
 {
-    const int fd = open(_path.c_str(), O_RDWR | O_NONBLOCK); // TODO: is read-write required to change xattr??
+    const int fd = open(_path.c_str(), O_RDONLY | O_NONBLOCK);
     if( fd < 0 )
         return false;
 
@@ -694,7 +697,49 @@ std::vector<std::filesystem::path> Tags::GatherAllItemsWithTags() noexcept
     std::vector<std::filesystem::path> result;
     for( long i = 0, e = MDQueryGetResultCount(query.get()); i < e; ++i ) {
         const MDItemRef item = static_cast<MDItemRef>(const_cast<void *>(MDQueryGetResultAtIndex(query.get(), i)));
-        base::CFPtr<CFStringRef> item_path =
+        const base::CFPtr<CFStringRef> item_path =
+            base::CFPtr<CFStringRef>::adopt(static_cast<CFStringRef>(MDItemCopyAttribute(item, kMDItemPath)));
+        if( item_path ) {
+            result.emplace_back(base::CFStringGetUTF8StdString(item_path.get()));
+        }
+    }
+
+    return result;
+}
+
+static std::string EscapeForMD(std::string_view _tag) noexcept
+{
+    constexpr char to_esc[] = {'\'', '\\', '\"'};
+    std::string escaped_tag;
+    for( auto c : _tag ) {
+        if( std::ranges::any_of(to_esc, [=](auto e) { return c == e; }) )
+            escaped_tag += '\\';
+        escaped_tag += c;
+    }
+    return escaped_tag;
+}
+
+std::vector<std::filesystem::path> Tags::GatherAllItemsWithTag(std::string_view _tag) noexcept
+{
+    if( _tag.empty() )
+        return {};
+
+    const base::CFPtr<CFStringRef> query_string = base::CFPtr<CFStringRef>::adopt(
+        base::CFStringCreateWithUTF8StdString(fmt::format("kMDItemUserTags=='{}'", EscapeForMD(_tag))));
+
+    const base::CFPtr<MDQueryRef> query =
+        base::CFPtr<MDQueryRef>::adopt(MDQueryCreate(nullptr, query_string.get(), nullptr, nullptr));
+    if( !query )
+        return {};
+
+    const bool query_result = MDQueryExecute(query.get(), kMDQuerySynchronous);
+    if( !query_result )
+        return {};
+
+    std::vector<std::filesystem::path> result;
+    for( long i = 0, e = MDQueryGetResultCount(query.get()); i < e; ++i ) {
+        const MDItemRef item = static_cast<MDItemRef>(const_cast<void *>(MDQueryGetResultAtIndex(query.get(), i)));
+        const base::CFPtr<CFStringRef> item_path =
             base::CFPtr<CFStringRef>::adopt(static_cast<CFStringRef>(MDItemCopyAttribute(item, kMDItemPath)));
         if( item_path ) {
             result.emplace_back(base::CFStringGetUTF8StdString(item_path.get()));
@@ -706,22 +751,126 @@ std::vector<std::filesystem::path> Tags::GatherAllItemsWithTags() noexcept
 
 std::vector<Tags::Tag> Tags::GatherAllItemsTags() noexcept
 {
-    auto files = GatherAllItemsWithTags();
+    const std::vector<std::filesystem::path> files = GatherAllItemsWithTags();
+    std::vector<std::vector<Tag>> files_tags(files.size());
 
-    robin_hood::unordered_flat_set<Tags::Tag> tags;
-    for( auto &file : files ) {
-        auto file_tags = ReadTags(file); // this can be actually done in multiple threads...
+    // Read all the tags in multiple threads
+    pstld::transform(files.begin(),
+                     files.end(),
+                     files_tags.begin(),
+                     [](const std::filesystem::path &_path) -> std::vector<Tag> { return ReadTags(_path); });
+
+    // And the consolidate them in a single dictionary
+    ankerl::unordered_dense::set<Tags::Tag> tags;
+    for( const auto &file_tags : files_tags ) {
         for( auto &file_tag : file_tags )
             tags.emplace(file_tag);
     }
 
-    // any sort???
-    return {tags.begin(), tags.end()};
+    std::vector<Tag> res{tags.begin(), tags.end()};
+    std::ranges::sort(res, [](const Tag &_lhs, const Tag &_rhs) {
+        const auto &ll = _lhs.Label();
+        const auto &rl = _rhs.Label();
+        if( ll != rl )
+            return ll < rl;
+        return _lhs.Color() < _rhs.Color();
+    });
+    return res;
+}
+
+void Tags::ChangeColorOfAllItemsWithTag(std::string_view _tag, Color _color) noexcept
+{
+    const std::vector<std::filesystem::path> paths = GatherAllItemsWithTag(_tag);
+    auto change = [_tag, _color](const std::filesystem::path &_path) {
+        if( const int fd = open(_path.c_str(), O_RDONLY | O_NONBLOCK); fd >= 0 ) {
+            if( auto tags = ReadTags(fd); !tags.empty() ) {
+                for( auto &tag : tags ) {
+                    if( tag.Label() == _tag ) {
+                        tag = Tag{&tag.Label(), _color};
+                        break;
+                    }
+                }
+                WriteTags(fd, tags);
+            }
+            close(fd);
+        }
+    };
+    pstld::for_each(paths.begin(), paths.end(), change);
+}
+
+void Tags::ChangeLabelOfAllItemsWithTag(std::string_view _tag, std::string_view _new_name) noexcept
+{
+    if( _new_name == _tag || _new_name.empty() )
+        return;
+    const std::string *const internalized = Tags::Tag::Internalize(_new_name);
+    const std::vector<std::filesystem::path> paths = GatherAllItemsWithTag(_tag);
+    auto change = [_tag, internalized](const std::filesystem::path &_path) {
+        if( const int fd = open(_path.c_str(), O_RDONLY | O_NONBLOCK); fd >= 0 ) {
+            if( auto tags = ReadTags(fd); !tags.empty() ) {
+                for( auto &tag : tags ) {
+                    if( tag.Label() == _tag ) {
+                        tag = Tag{internalized, tag.Color()};
+                        break;
+                    }
+                }
+                // TODO: this currently allows to end up with duplicated labels...
+                WriteTags(fd, tags);
+            }
+            close(fd);
+        }
+    };
+    pstld::for_each(paths.begin(), paths.end(), change);
+}
+
+bool Tags::AddTag(const std::filesystem::path &_path, const Tag &_new_tag) noexcept
+{
+    const int fd = open(_path.c_str(), O_RDONLY | O_NONBLOCK);
+    if( fd < 0 )
+        return false;
+    auto cleanup = at_scope_end([fd] { close(fd); });
+
+    auto tags = ReadTags(fd);
+    if( std::ranges::find_if(tags, [&](const Tag &_tag) { return _tag == _new_tag; }) != tags.end() ) {
+        return true; // an exact tag is already present in this item, so there's nothing to do
+    }
+
+    if( auto it = std::ranges::find_if(tags, [&](const Tag &_tag) { return _tag.Label() == _new_tag.Label(); });
+        it != tags.end() ) {
+        // there's a tag with the same name, but with a different color - override it
+        *it = _new_tag;
+    }
+    else {
+        // add a new tag at the end
+        tags.push_back(_new_tag);
+    }
+
+    return WriteTags(fd, tags);
+}
+
+bool Tags::RemoveTag(const std::filesystem::path &_path, std::string_view _label) noexcept
+{
+    const int fd = open(_path.c_str(), O_RDONLY | O_NONBLOCK);
+    if( fd < 0 )
+        return false;
+    auto cleanup = at_scope_end([fd] { close(fd); });
+    auto tags = ReadTags(fd);
+    auto it = std::ranges::find_if(tags, [_label](const Tag &_tag) { return _tag.Label() == _label; });
+    if( it == tags.end() )
+        return true; // nothing to do - there's no tag with this label in the fs item
+    tags.erase(it);
+    return WriteTags(fd, tags);
+}
+
+void Tags::RemoveTagFromAllItems(std::string_view _tag) noexcept
+{
+    const std::vector<std::filesystem::path> paths = GatherAllItemsWithTag(_tag);
+    auto change = [_tag](const std::filesystem::path &_path) { RemoveTag(_path, _tag); };
+    pstld::for_each(paths.begin(), paths.end(), change);
 }
 
 Tags::Tag::Tag(const std::string *const _label, const Tags::Color _color) noexcept
-    : m_TaggedPtr{reinterpret_cast<const std::string *>(reinterpret_cast<uint64_t>(_label) |
-                                                        static_cast<uint64_t>(std::to_underlying(_color)))}
+    : m_TaggedPtr{
+          reinterpret_cast<const std::string *>(reinterpret_cast<const char *>(_label) + std::to_underlying(_color))}
 {
     assert(_label != nullptr);
     assert(std::to_underlying(_color) < 8);
@@ -730,7 +879,8 @@ Tags::Tag::Tag(const std::string *const _label, const Tags::Color _color) noexce
 
 const std::string &Tags::Tag::Label() const noexcept
 {
-    return *reinterpret_cast<const std::string *>(reinterpret_cast<uint64_t>(m_TaggedPtr) & ~0x7);
+    return *reinterpret_cast<const std::string *>(reinterpret_cast<const char *>(m_TaggedPtr) -
+                                                  (reinterpret_cast<uint64_t>(m_TaggedPtr) & 0x7));
 }
 
 Tags::Color Tags::Tag::Color() const noexcept
@@ -746,6 +896,11 @@ bool Tags::Tag::operator==(const Tag &_rhs) const noexcept
 bool Tags::Tag::operator!=(const Tag &_rhs) const noexcept
 {
     return !(*this == _rhs);
+}
+
+const std::string *Tags::Tag::Internalize(std::string_view _label) noexcept
+{
+    return InternalizeString(_label);
 }
 
 } // namespace nc::utility

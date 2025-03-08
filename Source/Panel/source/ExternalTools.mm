@@ -1,5 +1,6 @@
-// Copyright (C) 2022-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2022-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ExternalTools.h"
+#include "Internal.h"
 #include <Config/Config.h>
 #include <Config/RapidJSON.h>
 #include <Foundation/Foundation.h>
@@ -7,11 +8,13 @@
 #include <Utility/PathManip.h>
 #include <Term/Task.h>
 #include <Base/dispatch_cpp.h>
+#include <Base/UnorderedUtil.h>
 #include <VFS/VFSError.h>
 #include <fmt/core.h>
 #include <any>
 #include <atomic>
 #include <filesystem>
+#include <algorithm>
 #include <sys/stat.h>
 
 namespace nc::panel {
@@ -23,8 +26,10 @@ static const auto g_PathKey = "path";
 static const auto g_ParametersKey = "parameters";
 static const auto g_ShortcutKey = "shortcut";
 static const auto g_StartupKey = "startup";
+static const auto g_UUIDKey = "uuid";
 
-ExternalToolsParameters::Step::Step(ActionType t, uint16_t i, bool _partial) : type(t), index(i), partial(_partial)
+ExternalToolsParameters::Step::Step(ActionType _type, uint16_t _index, bool _partial)
+    : type(_type), index(_index), partial(_partial)
 {
 }
 
@@ -43,13 +48,13 @@ void ExternalToolsParameters::InsertValueRequirement(EnterValue _ev, bool _parti
 void ExternalToolsParameters::InsertCurrentItem(CurrentItem _ci, bool _partial)
 {
     m_Steps.emplace_back(ActionType::CurrentItem, m_CurrentItems.size(), _partial);
-    m_CurrentItems.emplace_back(std::move(_ci));
+    m_CurrentItems.emplace_back(_ci);
 }
 
 void ExternalToolsParameters::InsertSelectedItem(SelectedItems _si, bool _partial)
 {
     m_Steps.emplace_back(ActionType::SelectedItems, m_SelectedItems.size(), _partial);
-    m_SelectedItems.emplace_back(std::move(_si));
+    m_SelectedItems.emplace_back(_si);
 }
 
 std::span<const ExternalToolsParameters::Step> ExternalToolsParameters::Steps() const noexcept
@@ -159,7 +164,7 @@ Eat(const std::string_view _source) noexcept
             source.remove_prefix(1);
         }
 
-        if( user_defined != std::nullopt && (c == '%' || c == ' ') && escaped == false ) {
+        if( user_defined != std::nullopt && (c == '%' || c == ' ') && !escaped ) {
             // flush existing arg and continue parsing
             result.emplace_back(ExternalToolsParameters::UserDefined{std::move(*user_defined)}, true);
             user_defined.reset();
@@ -191,7 +196,7 @@ Eat(const std::string_view _source) noexcept
 
         if( placeholder ) {
             if( c >= '0' && c <= '9' ) {
-                number = number.value_or(0) * 10 + c - '0';
+                number = (number.value_or(0) * 10) + c - '0';
                 continue;
             }
 
@@ -229,7 +234,8 @@ Eat(const std::string_view _source) noexcept
                 if( prompt || number || list )
                     return error(); // malformed string, aborting
                 result.emplace_back(
-                    ExternalToolsParameters::CurrentItem{location(), ExternalToolsParameters::FileInfo::DirectoryPath},
+                    ExternalToolsParameters::CurrentItem{.location = location(),
+                                                         .what = ExternalToolsParameters::FileInfo::DirectoryPath},
                     true);
                 reset_placeholder();
                 continue;
@@ -238,7 +244,9 @@ Eat(const std::string_view _source) noexcept
                 if( prompt || number || list )
                     return error(); // malformed string, aborting
                 result.emplace_back(
-                    ExternalToolsParameters::CurrentItem{location(), ExternalToolsParameters::FileInfo::Path}, true);
+                    ExternalToolsParameters::CurrentItem{.location = location(),
+                                                         .what = ExternalToolsParameters::FileInfo::Path},
+                    true);
                 reset_placeholder();
                 continue;
             }
@@ -246,7 +254,8 @@ Eat(const std::string_view _source) noexcept
                 if( prompt || number || list )
                     return error(); // malformed string, aborting
                 result.emplace_back(
-                    ExternalToolsParameters::CurrentItem{location(), ExternalToolsParameters::FileInfo::Filename},
+                    ExternalToolsParameters::CurrentItem{.location = location(),
+                                                         .what = ExternalToolsParameters::FileInfo::Filename},
                     true);
                 reset_placeholder();
                 continue;
@@ -255,8 +264,8 @@ Eat(const std::string_view _source) noexcept
                 if( prompt || number || list )
                     return error(); // malformed string, aborting
                 result.emplace_back(
-                    ExternalToolsParameters::CurrentItem{location(),
-                                                         ExternalToolsParameters::FileInfo::FilenameWithoutExtension},
+                    ExternalToolsParameters::CurrentItem{
+                        .location = location(), .what = ExternalToolsParameters::FileInfo::FilenameWithoutExtension},
                     true);
                 reset_placeholder();
                 continue;
@@ -265,7 +274,8 @@ Eat(const std::string_view _source) noexcept
                 if( prompt || number || list )
                     return error(); // malformed string, aborting
                 result.emplace_back(
-                    ExternalToolsParameters::CurrentItem{location(), ExternalToolsParameters::FileInfo::FileExtension},
+                    ExternalToolsParameters::CurrentItem{.location = location(),
+                                                         .what = ExternalToolsParameters::FileInfo::FileExtension},
                     true);
                 reset_placeholder();
                 continue;
@@ -274,8 +284,10 @@ Eat(const std::string_view _source) noexcept
                 if( prompt )
                     return error(); // malformed string, aborting
                 result.emplace_back(
-                    ExternalToolsParameters::SelectedItems{
-                        location(), ExternalToolsParameters::FileInfo::Filename, number.value_or(0), !list},
+                    ExternalToolsParameters::SelectedItems{.location = location(),
+                                                           .what = ExternalToolsParameters::FileInfo::Filename,
+                                                           .max = number.value_or(0),
+                                                           .as_parameters = !list},
                     true);
                 reset_placeholder();
                 continue;
@@ -284,8 +296,10 @@ Eat(const std::string_view _source) noexcept
                 if( prompt )
                     return error(); // malformed string, aborting
                 result.emplace_back(
-                    ExternalToolsParameters::SelectedItems{
-                        location(), ExternalToolsParameters::FileInfo::Path, number.value_or(0), !list},
+                    ExternalToolsParameters::SelectedItems{.location = location(),
+                                                           .what = ExternalToolsParameters::FileInfo::Path,
+                                                           .max = number.value_or(0),
+                                                           .as_parameters = !list},
                     true);
                 reset_placeholder();
                 continue;
@@ -344,10 +358,10 @@ std::expected<ExternalToolsParameters, std::string> ExternalToolsParametersParse
             result.InsertValueRequirement(std::move(*val), partial);
         }
         if( auto val = std::get_if<ExternalToolsParameters::CurrentItem>(&param) ) {
-            result.InsertCurrentItem(std::move(*val), partial);
+            result.InsertCurrentItem(*val, partial);
         }
         if( auto val = std::get_if<ExternalToolsParameters::SelectedItems>(&param) ) {
-            result.InsertSelectedItem(std::move(*val), partial);
+            result.InsertSelectedItem(*val, partial);
         }
         if( auto val = std::get_if<SetMaximumFilesFlag>(&param) ) {
             result.m_MaximumTotalFiles = val->maximum;
@@ -371,6 +385,7 @@ static nc::config::Value SaveTool(const ExternalTool &_et)
         MakeStandaloneString(g_ShortcutKey), MakeStandaloneString(_et.m_Shorcut.ToPersString()), g_CrtAllocator);
     v.AddMember(
         MakeStandaloneString(g_StartupKey), nc::config::Value(static_cast<int>(_et.m_StartupMode)), g_CrtAllocator);
+    v.AddMember(MakeStandaloneString(g_UUIDKey), MakeStandaloneString(_et.m_UUID.ToString()), g_CrtAllocator);
 
     // TODO: save m_GUIArgumentInterpretation
     return v;
@@ -400,16 +415,22 @@ static std::optional<ExternalTool> LoadTool(const nc::config::Value &_from)
     if( _from.HasMember(g_StartupKey) && _from[g_StartupKey].IsInt() )
         et.m_StartupMode = static_cast<ExternalTool::StartupMode>(_from[g_StartupKey].GetInt());
 
+    if( _from.HasMember(g_UUIDKey) && _from[g_UUIDKey].IsString() &&
+        nc::base::UUID::FromString(_from[g_UUIDKey].GetString()) )
+        et.m_UUID = nc::base::UUID::FromString(_from[g_UUIDKey].GetString()).value();
+
     // TODO: load m_GUIArgumentInterpretation
     return et;
 }
 
-ExternalToolsStorage::ExternalToolsStorage(const char *_config_path, nc::config::Config &_config)
-    : m_ConfigPath(_config_path), m_Config(_config)
+ExternalToolsStorage::ExternalToolsStorage(const char *_config_path,
+                                           nc::config::Config &_config,
+                                           WriteChanges _write_changes)
+    : m_ConfigPath(_config_path), m_Config(_config), m_WriteChanges(_write_changes)
 {
     LoadToolsFromConfig();
 
-    m_ConfigObservations.emplace_back(m_Config.Observe(_config_path, [=] {
+    m_ConfigObservations.emplace_back(m_Config.Observe(_config_path, [this] {
         LoadToolsFromConfig();
         FireObservers();
     }));
@@ -421,11 +442,35 @@ void ExternalToolsStorage::LoadToolsFromConfig()
     if( !tools.IsArray() )
         return;
 
-    auto lock = std::lock_guard{m_ToolsLock};
-    m_Tools.clear();
-    for( auto i = tools.Begin(), e = tools.End(); i != e; ++i )
-        if( auto et = LoadTool(*i) )
-            m_Tools.emplace_back(std::make_shared<ExternalTool>(std::move(*et)));
+    bool did_invent_any_uuids = false;
+
+    {
+        auto lock = std::lock_guard{m_ToolsLock};
+        m_Tools.clear();
+
+        ankerl::unordered_dense::set<base::UUID> uuids;
+        for( auto i = tools.Begin(), e = tools.End(); i != e; ++i ) {
+            if( std::optional<ExternalTool> et = LoadTool(*i) ) {
+                if( et->m_UUID == nc::base::UUID{} ) {
+                    et->m_UUID = nc::base::UUID::Generate(); // Provide any "old" tool with a new uuid
+                    did_invent_any_uuids = true;
+                }
+
+                // Ensure that all uuids are unique
+                if( uuids.contains(et->m_UUID) ) {
+                    et->m_UUID = base::UUID::Generate();
+                    did_invent_any_uuids = true;
+                }
+                uuids.emplace(et->m_UUID);
+
+                m_Tools.emplace_back(std::make_shared<ExternalTool>(std::move(*et)));
+            }
+        }
+    }
+
+    if( did_invent_any_uuids ) {
+        CommitChanges();
+    }
 }
 
 size_t ExternalToolsStorage::ToolsCount() const
@@ -438,6 +483,14 @@ std::shared_ptr<const ExternalTool> ExternalToolsStorage::GetTool(size_t _no) co
 {
     auto guard = std::lock_guard{m_ToolsLock};
     return _no < m_Tools.size() ? m_Tools[_no] : nullptr;
+}
+
+std::shared_ptr<const ExternalTool> ExternalToolsStorage::GetTool(const base::UUID &_uuid) const
+{
+    auto guard = std::lock_guard{m_ToolsLock};
+
+    auto it = std::ranges::find_if(m_Tools, [&](auto &_tool) { return _tool->m_UUID == _uuid; });
+    return it == m_Tools.end() ? nullptr : *it;
 }
 
 std::vector<std::shared_ptr<const ExternalTool>> ExternalToolsStorage::GetAllTools() const
@@ -468,7 +521,12 @@ void ExternalToolsStorage::WriteToolsToConfig() const
 void ExternalToolsStorage::CommitChanges()
 {
     FireObservers();
-    dispatch_to_background([=] { WriteToolsToConfig(); });
+    if( m_WriteChanges == WriteChanges::Background ) {
+        dispatch_to_background([=, this] { WriteToolsToConfig(); });
+    }
+    else {
+        WriteToolsToConfig();
+    }
 }
 
 void ExternalToolsStorage::ReplaceTool(ExternalTool _tool, size_t _at_index)
@@ -488,6 +546,9 @@ void ExternalToolsStorage::InsertTool(ExternalTool _tool)
 {
     {
         auto lock = std::lock_guard{m_ToolsLock};
+        if( std::ranges::any_of(m_Tools, [&](auto &_existing) { return _existing->m_UUID == _tool.m_UUID; }) ) {
+            throw std::invalid_argument("Duplicate UUID");
+        }
         m_Tools.emplace_back(std::make_shared<ExternalTool>(std::move(_tool)));
     }
     CommitChanges();
@@ -522,13 +583,31 @@ void ExternalToolsStorage::RemoveTool(size_t _at_index)
     CommitChanges();
 }
 
+std::string ExternalToolsStorage::NewTitle() const
+{
+    auto lock = std::lock_guard{m_ToolsLock};
+    ankerl::unordered_dense::set<std::string> names;
+    for( const auto &et : m_Tools ) {
+        names.emplace(et->m_Title);
+    }
+
+    size_t idx = 0;
+    const std::string prefix = NSLocalizedString(@"New Tool", "A placeholder title for a new external tool").UTF8String;
+    while( true ) {
+        const std::string name = idx == 0 ? prefix : fmt::format("{} {}", prefix, idx + 1);
+        if( !names.contains(name) )
+            return name;
+        ++idx;
+    }
+}
+
 ExternalToolExecution::ExternalToolExecution(const Context &_ctx, const ExternalTool &_et) : m_Ctx(_ctx), m_ET(_et)
 {
     assert(m_Ctx.left_data);
     assert(m_Ctx.right_data);
     assert(m_Ctx.temp_storage);
 
-    if( auto params = ExternalToolsParametersParser().Parse(m_ET.m_Parameters) )
+    if( auto params = ExternalToolsParametersParser::Parse(m_ET.m_Parameters) )
         m_Params = std::move(params.value());
     else
         throw std::invalid_argument(params.error());
@@ -615,7 +694,7 @@ std::vector<std::string> ExternalToolExecution::BuildArguments() const
         if( step.type == ExternalToolsParameters::ActionType::CurrentItem && num_files < max_files ) {
             const auto v = m_Params.GetCurrentItem(step.index);
             const auto [panel, idx] = panel_cursor_for_location(v.location);
-            if( VFSListingItem item = panel->EntryAtSortPosition(idx) ) {
+            if( const VFSListingItem item = panel->EntryAtSortPosition(idx) ) {
                 commit(info_from_item(item, v.what));
                 ++num_files;
             }
@@ -668,7 +747,7 @@ std::vector<std::string> ExternalToolExecution::BuildArguments() const
 
 bool ExternalToolExecution::IsBundle() const
 {
-    NSBundle *b = [NSBundle bundleWithPath:[NSString stringWithUTF8StdString:m_ET.m_ExecutablePath]];
+    NSBundle *const b = [NSBundle bundleWithPath:[NSString stringWithUTF8StdString:m_ET.m_ExecutablePath]];
     return b != nil;
 }
 
@@ -694,8 +773,8 @@ static bool IsRunnableExecutable(const std::string &_path)
 
 static std::filesystem::path GetExecutablePathForBundle(const std::string &_path)
 {
-    if( NSBundle *b = [NSBundle bundleWithPath:[NSString stringWithUTF8StdString:_path]] )
-        if( NSURL *u = b.executableURL )
+    if( NSBundle *const b = [NSBundle bundleWithPath:[NSString stringWithUTF8StdString:_path]] )
+        if( NSURL *const u = b.executableURL )
             if( const char *fsr = u.fileSystemRepresentation )
                 return fsr;
     return "";
@@ -707,16 +786,11 @@ std::filesystem::path ExternalToolExecution::ExecutablePath() const
         if( IsRunnableExecutable(m_ET.m_ExecutablePath) ) {
             return m_ET.m_ExecutablePath;
         }
-        else if( auto p = GetExecutablePathForBundle(m_ET.m_ExecutablePath); !p.empty() ) {
+        if( auto p = GetExecutablePathForBundle(m_ET.m_ExecutablePath); !p.empty() ) {
             return p;
         }
-        else {
-            return m_ET.m_ExecutablePath; // fallback - not actually found
-        }
     }
-    else {
-        return m_ET.m_ExecutablePath; // TODO: whereis?
-    }
+    return m_ET.m_ExecutablePath; // TODO: whereis?
 }
 
 std::expected<pid_t, std::string> ExternalToolExecution::StartDetached()
@@ -728,11 +802,11 @@ std::expected<pid_t, std::string> ExternalToolExecution::StartDetached()
         return StartDetachedFork();
 }
 
-std::expected<pid_t, std::string> ExternalToolExecution::StartDetachedFork()
+std::expected<pid_t, std::string> ExternalToolExecution::StartDetachedFork() const
 {
     auto args = BuildArguments();
 
-    int pid = nc::term::Task::RunDetachedProcess(m_ET.m_ExecutablePath, args);
+    const int pid = nc::term::Task::RunDetachedProcess(m_ET.m_ExecutablePath, args);
     if( pid < 0 ) {
         return std::unexpected(VFSError::FormatErrorCode(VFSError::FromErrno()));
     }
@@ -742,12 +816,12 @@ std::expected<pid_t, std::string> ExternalToolExecution::StartDetachedFork()
 
 std::expected<pid_t, std::string> ExternalToolExecution::StartDetachedUI()
 {
-    NSURL *app_url = [NSURL fileURLWithPath:[NSString stringWithUTF8StdString:m_ET.m_ExecutablePath]];
+    NSURL *const app_url = [NSURL fileURLWithPath:[NSString stringWithUTF8StdString:m_ET.m_ExecutablePath]];
 
     const auto args = BuildArguments();
 
-    NSMutableArray *params_urls = [NSMutableArray new];
-    NSMutableArray *params_args = [NSMutableArray new];
+    NSMutableArray *const params_urls = [NSMutableArray new];
+    NSMutableArray *const params_args = [NSMutableArray new];
     const bool allow_urls =
         m_ET.m_GUIArgumentInterpretation == ExternalTool::GUIArgumentInterpretation::PassExistingPathsAsURLs;
     for( auto &s : args ) {
@@ -761,7 +835,7 @@ std::expected<pid_t, std::string> ExternalToolExecution::StartDetachedUI()
         }
     }
 
-    NSWorkspaceOpenConfiguration *config = [NSWorkspaceOpenConfiguration new];
+    NSWorkspaceOpenConfiguration *const config = [NSWorkspaceOpenConfiguration new];
     config.promptsUserIfNeeded = false;
     config.arguments = params_args;
 
@@ -794,7 +868,7 @@ std::expected<pid_t, std::string> ExternalToolExecution::StartDetachedUI()
     }
 
     std::unique_lock lk(ctx->mut);
-    bool done = ctx->cv.wait_for(lk, std::chrono::seconds{10}, [&] { return ctx->done; });
+    const bool done = ctx->cv.wait_for(lk, std::chrono::seconds{10}, [&] { return ctx->done; });
 
     if( !done ) {
         return std::unexpected<std::string>(

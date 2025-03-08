@@ -32,17 +32,17 @@ void Job::Execute()
     const auto thread_title = "com.magnumbytes.nimblecommander." + boost::core::demangle(typeid(*this).name());
     pthread_setname_np(thread_title.c_str());
 
-    const auto sleep_preventer = base::IdleSleepPreventer::Instance().GetPromise();
+    const auto sleep_preventer = base::IdleSleepPreventer::GetPromise();
     m_Stats.StartTiming();
 
     try {
         Perform();
     } catch( const std::exception &e ) {
         std::cerr << "Error: operation " << typeid(*this).name() << " has thrown an exeption: " << e.what() << "."
-                  << std::endl;
+                  << '\n';
         Stop();
     } catch( ... ) {
-        std::cerr << "Error: operation " << typeid(*this).name() << " has thrown an unknown exeption." << std::endl;
+        std::cerr << "Error: operation " << typeid(*this).name() << " has thrown an unknown exeption." << '\n';
         Stop();
     }
 

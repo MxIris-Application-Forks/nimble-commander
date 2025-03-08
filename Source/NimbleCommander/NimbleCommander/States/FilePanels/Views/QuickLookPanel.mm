@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "QuickLookPanel.h"
 #include <Quartz/Quartz.h>
 #include "../MainWindowFilePanelState.h"
@@ -19,7 +19,8 @@ static const std::chrono::nanoseconds g_Delay = std::chrono::milliseconds{100};
 
 - (instancetype)initWithBridge:(nc::panel::QuickLookVFSBridge &)_vfs_bridge
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         m_CurrentTicket = 0;
         m_VFSBridge = &_vfs_bridge;
     }
@@ -32,8 +33,7 @@ static const std::chrono::nanoseconds g_Delay = std::chrono::milliseconds{100};
     return nil;
 }
 
-- (void)previewVFSItem:(const nc::vfs::VFSPath &)_path
-              forPanel:(PanelController *) [[maybe_unused]] _panel
+- (void)previewVFSItem:(const nc::vfs::VFSPath &)_path forPanel:(PanelController *) [[maybe_unused]] _panel
 {
     dispatch_assert_main_queue();
 
@@ -59,9 +59,7 @@ static const std::chrono::nanoseconds g_Delay = std::chrono::milliseconds{100};
         [self setPreviewURL:[NSURL fileURLWithPath:path]];
 }
 
-- (void)doVFSPreview:(const std::string &)_path
-                host:(const VFSHostPtr &)_host
-              ticket:(uint64_t)_ticket
+- (void)doVFSPreview:(const std::string &)_path host:(const VFSHostPtr &)_host ticket:(uint64_t)_ticket
 {
     auto refresh = [=] {
         if( _ticket != m_CurrentTicket )
@@ -79,13 +77,12 @@ static const std::chrono::nanoseconds g_Delay = std::chrono::milliseconds{100};
         });
     };
 
-    dispatch_after(
-        g_Delay, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), std::move(refresh));
+    dispatch_after(g_Delay, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), std::move(refresh));
 }
 
 - (bool)registerExistingQLPreviewPanelFor:(id)_controller
 {
-    if( QLPreviewPanel.sharedPreviewPanelExists == false )
+    if( !QLPreviewPanel.sharedPreviewPanelExists )
         return false;
     auto ql_panel = QLPreviewPanel.sharedPreviewPanel;
 
@@ -126,8 +123,7 @@ static const std::chrono::nanoseconds g_Delay = std::chrono::milliseconds{100};
     return m_URL ? 1 : 0;
 }
 
-- (id<QLPreviewItem>)previewPanel:(QLPreviewPanel *) [[maybe_unused]] _panel
-               previewItemAtIndex:(NSInteger)index
+- (id<QLPreviewItem>)previewPanel:(QLPreviewPanel *) [[maybe_unused]] _panel previewItemAtIndex:(NSInteger)index
 {
     return index == 0 ? m_URL : nil;
 }

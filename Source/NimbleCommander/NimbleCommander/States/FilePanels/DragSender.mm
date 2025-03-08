@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "DragSender.h"
 #include "FilesDraggingSource.h"
 #include "PanelController.h"
@@ -40,25 +40,21 @@ namespace nc::panel {
 
 static NSArray *BuildImageComponentsForItem(PanelDraggingItem *_item);
 
-DragSender::DragSender(PanelController *_panel,
-                       IconCallback _icon_callback,
-                       nc::vfs::NativeHost &_native_vfs)
+DragSender::DragSender(PanelController *_panel, IconCallback _icon_callback, nc::vfs::NativeHost &_native_vfs)
     : m_Panel(_panel), m_IconCallback(std::move(_icon_callback)), m_NativeHost(_native_vfs)
 {
     assert(m_Panel != nullptr);
     assert(m_IconCallback != nullptr);
 }
 
-DragSender::~DragSender()
-{
-}
+DragSender::~DragSender() = default;
 
-void DragSender::Start(NSView *_from_view, NSEvent *_via_event, int _dragged_panel_item_index)
+void DragSender::Start(NSView *_from_view, NSEvent *_via_event, int _dragged_panel_item_sorted_index)
 {
     static const auto pasteboard_types =
         @[FilesDraggingSource.fileURLsPromiseDragUTI, FilesDraggingSource.privateDragUTI];
 
-    const auto vfs_items = Impl::ComposeItemsForDragging(_dragged_panel_item_index, m_Panel.data);
+    const auto vfs_items = Impl::ComposeItemsForDragging(_dragged_panel_item_sorted_index, m_Panel.data);
     if( vfs_items.empty() )
         return;
 
@@ -66,8 +62,7 @@ void DragSender::Start(NSView *_from_view, NSEvent *_via_event, int _dragged_pan
     position.x -= 16;
     position.y -= 16;
 
-    const auto dragging_source =
-        [[FilesDraggingSource alloc] initWithSourceController:m_Panel nativeHost:m_NativeHost];
+    const auto dragging_source = [[FilesDraggingSource alloc] initWithSourceController:m_Panel nativeHost:m_NativeHost];
     const auto drag_items = [[NSMutableArray alloc] initWithCapacity:vfs_items.size()];
     for( const auto &item : vfs_items ) {
         // dragging item itself
@@ -79,8 +74,7 @@ void DragSender::Start(NSView *_from_view, NSEvent *_via_event, int _dragged_pan
 
         // visual appearance of a dragging item
         auto drag_item = [[NSDraggingItem alloc] initWithPasteboardWriter:pasterboard_item];
-        drag_item.draggingFrame =
-            NSMakeRect(std::floor(position.x), std::floor(position.y), 32, 32);
+        drag_item.draggingFrame = NSMakeRect(std::floor(position.x), std::floor(position.y), 32, 32);
 
         __weak PanelDraggingItem *weak_pb_item = pasterboard_item;
         drag_item.imageComponentsProvider = ^{
@@ -91,17 +85,14 @@ void DragSender::Start(NSView *_from_view, NSEvent *_via_event, int _dragged_pan
         position.y -= 16;
     }
 
-    const auto session = [_from_view beginDraggingSessionWithItems:drag_items
-                                                             event:_via_event
-                                                            source:dragging_source];
+    const auto session = [_from_view beginDraggingSessionWithItems:drag_items event:_via_event source:dragging_source];
     if( session ) {
         [dragging_source writeURLsPBoard:session.draggingPasteboard];
         [NSApp preventWindowOrdering];
     }
 }
 
-std::vector<VFSListingItem> DragSender::Impl::ComposeItemsForDragging(int _sorted_pos,
-                                                                      const data::Model &_data)
+std::vector<VFSListingItem> DragSender::Impl::ComposeItemsForDragging(int _sorted_pos, const data::Model &_data)
 {
     const auto dragged_item = _data.EntryAtSortPosition(_sorted_pos);
     if( !dragged_item || dragged_item.IsDotDot() )
@@ -111,7 +102,7 @@ std::vector<VFSListingItem> DragSender::Impl::ComposeItemsForDragging(int _sorte
 
     std::vector<VFSListingItem> items;
 
-    if( dragged_item_vd.is_selected() == false )
+    if( !dragged_item_vd.is_selected() )
         items.emplace_back(dragged_item); // drag only clicked item
     else
         items = _data.SelectedEntriesSorted(); // drag all selected items
@@ -152,7 +143,7 @@ BuildLabelComponent(PanelDraggingItem *_item, NSFont *_font, const utility::Font
     const auto height = _fi.LineHeight();
 
     static const auto attributes = [&] {
-        NSMutableParagraphStyle *item_text_pstyle = [NSMutableParagraphStyle new];
+        NSMutableParagraphStyle *const item_text_pstyle = [NSMutableParagraphStyle new];
         item_text_pstyle.alignment = NSTextAlignmentLeft;
         item_text_pstyle.lineBreakMode = NSLineBreakByTruncatingMiddle;
         const auto attrs = @{
@@ -164,21 +155,18 @@ BuildLabelComponent(PanelDraggingItem *_item, NSFont *_font, const utility::Font
     }();
 
     const auto filename = _item.item.FilenameNS();
-    const auto estimated_label_bounds =
-        [filename boundingRectWithSize:NSMakeSize(max_label_width, 0)
-                               options:0
-                            attributes:attributes];
-    const auto label_width =
-        std::min(max_label_width, std::ceil(estimated_label_bounds.size.width)) + height;
+    const auto estimated_label_bounds = [filename boundingRectWithSize:NSMakeSize(max_label_width, 0)
+                                                               options:0
+                                                            attributes:attributes];
+    const auto label_width = std::min(max_label_width, std::ceil(estimated_label_bounds.size.width)) + height;
 
     const auto label_image = [[NSImage alloc] initWithSize:CGSizeMake(label_width, height)];
 
     [label_image lockFocus];
     DrawRoundedRect(label_image);
-    [filename
-        drawWithRect:NSMakeRect(std::floor(height / 2), _fi.Descent(), label_width - height, 0)
-             options:0
-          attributes:attributes];
+    [filename drawWithRect:NSMakeRect(std::floor(height / 2), _fi.Descent(), label_width - height, 0)
+                   options:0
+                attributes:attributes];
     [label_image unlockFocus];
 
     const auto label_component = [NSDraggingImageComponent draggingImageComponentWithKey:key];
@@ -191,7 +179,7 @@ BuildLabelComponent(PanelDraggingItem *_item, NSFont *_font, const utility::Font
 static NSArray *BuildImageComponentsForItem(PanelDraggingItem *_item)
 {
     static const auto font = [NSFont systemFontOfSize:13];
-    static utility::FontGeometryInfo font_info{(__bridge CTFontRef)font};
+    static const utility::FontGeometryInfo font_info{(__bridge CTFontRef)font};
 
     if( _item == nil || !_item.item )
         return nil;
@@ -206,4 +194,4 @@ static NSArray *BuildImageComponentsForItem(PanelDraggingItem *_item)
         return @[label_component];
 }
 
-}
+} // namespace nc::panel

@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2019-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include "ViewerImplementationProtocol.h"
@@ -11,14 +11,19 @@
 namespace nc::viewer {
 class TextModeWorkingSet;
 class TextModeFrame;
+namespace hl {
+class SettingsStorage;
 }
+} // namespace nc::viewer
 
 @interface NCViewerTextModeView : NSView <NCViewerImplementationProtocol>
 
 - (instancetype)initWithFrame:(NSRect)_frame NS_UNAVAILABLE;
 - (instancetype)initWithFrame:(NSRect)_frame
                       backend:(std::shared_ptr<const nc::viewer::DataBackend>)_backend
-                        theme:(const nc::viewer::Theme &)_theme;
+                        theme:(const nc::viewer::Theme &)_theme
+         highlightingSettings:(nc::viewer::hl::SettingsStorage &)_hl_settings
+           enableHighlighting:(bool)_highlighting_enabled;
 
 @property(nonatomic) id<NCViewerTextModeViewDelegate> delegate;
 @property(nonatomic, readonly) const nc::viewer::TextModeWorkingSet &workingSet;

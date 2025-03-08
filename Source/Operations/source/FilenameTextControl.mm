@@ -1,10 +1,11 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "FilenameTextControl.h"
 #include <AppKit/AppKit.h>
-#include <Utility/ObjCpp.h>
 #include <Utility/FilenameTextNavigation.h>
-#include <Utility/StringExtras.h>
+#include <Utility/ObjCpp.h>
 #include <Utility/PathManip.h>
+#include <Utility/StringExtras.h>
+#include <algorithm>
 #include <filesystem>
 
 @interface NCFilenameTextStorage ()
@@ -14,9 +15,13 @@
 
 @implementation NCFilenameTextStorage
 
+@synthesize backingStore;
+@synthesize attributes;
+
 - (instancetype)init
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         self.backingStore = [NSMutableAttributedString new];
         self.attributes = [@{} mutableCopy];
     }
@@ -69,7 +74,7 @@
 - (NSTextView *)fieldEditorForView:(NSView *)aControlView
 {
     if( !m_FieldEditor ) {
-        if( m_IsBuilding == true )
+        if( m_IsBuilding )
             return nil;
         m_IsBuilding = true;
 
@@ -80,9 +85,8 @@
         const auto archived_fe = [NSKeyedArchiver archivedDataWithRootObject:default_fe
                                                        requiringSecureCoding:false
                                                                        error:nil];
-        const id copied_fe = [NSKeyedUnarchiver unarchivedObjectOfClass:NSTextView.class
-                                                               fromData:archived_fe
-                                                                  error:nil];
+        const id copied_fe =
+            [NSKeyedUnarchiver unarchivedObjectOfClass:NSTextView.class fromData:archived_fe error:nil];
         m_FieldEditor = nc::objc_cast<NSTextView>(copied_fe);
         [m_FieldEditor.layoutManager replaceTextStorage:[[NCFilenameTextStorage alloc] init]];
     }
@@ -98,10 +102,9 @@
 }
 
 @synthesize completion = m_Completion;
+@synthesize isNativeVFS;
 
-- (BOOL)control:(NSControl *)_control
-               textView:(NSTextView *)_text_view
-    doCommandBySelector:(SEL)_command_selector
+- (BOOL)control:(NSControl *)_control textView:(NSTextView *)_text_view doCommandBySelector:(SEL)_command_selector
 {
     assert(m_Completion);
 
@@ -109,8 +112,7 @@
         return false;
     }
 
-    const auto completions =
-        m_Completion->PossibleCompletions(_text_view.string.fileSystemRepresentationSafe);
+    const auto completions = m_Completion->PossibleCompletions(_text_view.string.fileSystemRepresentationSafe);
 
     if( completions.empty() ) {
         NSBeep();
@@ -125,8 +127,7 @@
         m_Menu = [self buildMenuWithSuggestions:completions
                                  forCurrentPath:_text_view.string.fileSystemRepresentationSafe];
         [m_Menu popUpMenuPositioningItem:nil
-                              atLocation:NSMakePoint(_control.frame.origin.x,
-                                                     _control.frame.origin.y - 10)
+                              atLocation:NSMakePoint(_control.frame.origin.x, _control.frame.origin.y - 10)
                                   inView:_control.superview];
         return true;
     }
@@ -136,12 +137,12 @@
                       forCurrentPath:(const std::string &)_current_path
 {
     std::vector<NSString *> directories;
+    directories.reserve(_suggestions.size());
     for( const auto &suggestion : _suggestions )
         directories.emplace_back([NSString stringWithUTF8StdString:suggestion]);
 
-    std::sort(std::begin(directories), std::end(directories), [](auto _1st, auto _2nd) {
-        const auto opts = NSCaseInsensitiveSearch | NSNumericSearch | NSWidthInsensitiveSearch |
-                          NSForcedOrderingSearch;
+    std::ranges::sort(directories, [](auto _1st, auto _2nd) {
+        const auto opts = NSCaseInsensitiveSearch | NSNumericSearch | NSWidthInsensitiveSearch | NSForcedOrderingSearch;
         return [_1st compare:_2nd options:opts] < 0;
     });
 
@@ -158,8 +159,7 @@
         NSImage *image = nil;
         if( self.isNativeVFS ) {
             const auto path = m_Completion->Complete(_current_path, directory.UTF8String);
-            image =
-                [NSWorkspace.sharedWorkspace iconForFile:[NSString stringWithUTF8StdString:path]];
+            image = [NSWorkspace.sharedWorkspace iconForFile:[NSString stringWithUTF8StdString:path]];
         }
         else
             image = [NSImage imageNamed:NSImageNameFolder];
@@ -189,8 +189,7 @@
     [self updateTextView:view withAutocompetion:directory.fileSystemRepresentationSafe];
 }
 
-- (void)updateTextView:(NSTextView *)_text_view
-     withAutocompetion:(const std::string &)_directory_name
+- (void)updateTextView:(NSTextView *)_text_view withAutocompetion:(const std::string &)_directory_name
 {
     const auto current = std::string(_text_view.string.fileSystemRepresentationSafe);
     const auto updated = m_Completion->Complete(current, _directory_name);
@@ -201,15 +200,13 @@
 
 namespace nc::ops {
 
-DirectoryPathAutoCompletionImpl::DirectoryPathAutoCompletionImpl(VFSHostPtr _vfs)
-    : m_VFS(std::move(_vfs))
+DirectoryPathAutoCompletionImpl::DirectoryPathAutoCompletionImpl(VFSHostPtr _vfs) : m_VFS(std::move(_vfs))
 {
     if( m_VFS == nullptr )
         throw std::invalid_argument("DirectoryPathAutoCompletionImpl: no vfs");
 }
 
-std::vector<std::string>
-DirectoryPathAutoCompletionImpl::PossibleCompletions(const std::string &_path)
+std::vector<std::string> DirectoryPathAutoCompletionImpl::PossibleCompletions(const std::string &_path)
 {
     const auto directory = ExtractDirectory(_path);
     if( const auto listing = ListingForDir(directory) ) {
@@ -217,18 +214,18 @@ DirectoryPathAutoCompletionImpl::PossibleCompletions(const std::string &_path)
         const auto indices = ListDirsWithPrefix(*listing, filename);
 
         std::vector<std::string> directories;
+        directories.reserve(indices.size());
         for( auto index : indices )
             directories.emplace_back(listing->Filename(index));
 
-        std::sort(std::begin(directories), std::end(directories));
+        std::ranges::sort(directories);
 
         return directories;
     }
     return {};
 }
 
-std::string DirectoryPathAutoCompletionImpl::Complete(const std::string &_path,
-                                                      const std::string &_completion)
+std::string DirectoryPathAutoCompletionImpl::Complete(const std::string &_path, const std::string &_completion)
 {
     std::filesystem::path path = _path;
 
@@ -240,7 +237,7 @@ std::string DirectoryPathAutoCompletionImpl::Complete(const std::string &_path,
     return EnsureTrailingSlash(path.native());
 }
 
-std::string DirectoryPathAutoCompletionImpl::ExtractDirectory(const std::string &_path) const
+std::string DirectoryPathAutoCompletionImpl::ExtractDirectory(const std::string &_path)
 {
     const std::filesystem::path path = _path;
     if( path == "/" )
@@ -252,7 +249,7 @@ std::string DirectoryPathAutoCompletionImpl::ExtractDirectory(const std::string 
     return path.native();
 }
 
-std::string DirectoryPathAutoCompletionImpl::ExtractFilename(const std::string &_path) const
+std::string DirectoryPathAutoCompletionImpl::ExtractFilename(const std::string &_path)
 {
     const std::filesystem::path path = _path;
 
@@ -273,25 +270,23 @@ VFSListingPtr DirectoryPathAutoCompletionImpl::ListingForDir(const std::string &
     if( m_LastListing && m_LastListing->Directory() == path )
         return m_LastListing;
 
-    VFSListingPtr listing;
-    const int rc = m_VFS->FetchDirectoryListing(path.c_str(), listing, VFSFlags::F_NoDotDot);
-    if( rc == VFSError::Ok ) {
-        m_LastListing = listing;
+    const std::expected<VFSListingPtr, Error> listing = m_VFS->FetchDirectoryListing(path, VFSFlags::F_NoDotDot);
+    if( listing ) {
+        m_LastListing = *listing;
         return m_LastListing;
     }
-    return nullptr;
+    return {};
 }
 
-std::vector<unsigned>
-DirectoryPathAutoCompletionImpl::ListDirsWithPrefix(const VFSListing &_listing,
-                                                    const std::string &_prefix)
+std::vector<unsigned> DirectoryPathAutoCompletionImpl::ListDirsWithPrefix(const VFSListing &_listing,
+                                                                          const std::string &_prefix)
 {
     std::vector<unsigned> result;
 
     const auto prefix = [NSString stringWithUTF8StdString:_prefix];
     const auto range = NSMakeRange(0, prefix.length);
 
-    for( auto i : _listing ) {
+    for( const auto &i : _listing ) {
 
         if( !i.IsDir() )
             continue;
@@ -310,4 +305,4 @@ DirectoryPathAutoCompletionImpl::ListDirsWithPrefix(const VFSListing &_listing,
     return result;
 }
 
-}
+} // namespace nc::ops

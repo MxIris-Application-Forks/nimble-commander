@@ -12,12 +12,30 @@ MACOSX_DEPLOYMENT_TARGET = 10.15
 SDKROOT = macosx
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Preprocessor
+// C++ standard library
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-RAPIDJSON_PP_FLAGS[arch=x86_64] = RAPIDJSON_HAS_STDSTRING=1 RAPIDJSON_HAS_CXX11_NOEXCEPT=1 RAPIDJSON_HAS_CXX11_RVALUE_REFS=1 RAPIDJSON_48BITPOINTER_OPTIMIZATION=1 RAPIDJSON_SSE2=1 RAPIDJSON_SSE42=1
-RAPIDJSON_PP_FLAGS[arch=arm64]  = RAPIDJSON_HAS_STDSTRING=1 RAPIDJSON_HAS_CXX11_NOEXCEPT=1 RAPIDJSON_HAS_CXX11_RVALUE_REFS=1
-// disabled RAPIDJSON_NEON=1 for now, after a weird crash on ARM64 during MAS review...
-GCC_PREPROCESSOR_DEFINITIONS = SPDLOG_COMPILED_LIB SPDLOG_FMT_EXTERNAL $(RAPIDJSON_PP_FLAGS)
+CLANG_CXX_STANDARD_LIBRARY_HARDENING[config=Debug]   = debug
+CLANG_CXX_STANDARD_LIBRARY_HARDENING[config=Release] = fast
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// C++ Preprocessor
+////////////////////////////////////////////////////////////////////////////////////////////////////
+RAPIDJSON_PP_FLAGS_x86_64 = RAPIDJSON_HAS_STDSTRING=1 RAPIDJSON_HAS_CXX11_NOEXCEPT=1 RAPIDJSON_HAS_CXX11_RVALUE_REFS=1 RAPIDJSON_48BITPOINTER_OPTIMIZATION=1 RAPIDJSON_SSE2=1 RAPIDJSON_SSE42=1
+RAPIDJSON_PP_FLAGS_arm64  = RAPIDJSON_HAS_STDSTRING=1 RAPIDJSON_HAS_CXX11_NOEXCEPT=1 RAPIDJSON_HAS_CXX11_RVALUE_REFS=1
+
+COMMON_PREPROCESSOR_FLAGS = SPDLOG_COMPILED_LIB SPDLOG_FMT_EXTERNAL GTEST_DONT_DEFINE_FAIL=1 GTEST_DONT_DEFINE_SUCCEED=1
+
+GCC_PREPROCESSOR_DEFINITIONS[config=Debug]   = $(COMMON_PREPROCESSOR_FLAGS) $(RAPIDJSON_PP_FLAGS_$(CURRENT_ARCH))
+GCC_PREPROCESSOR_DEFINITIONS[config=Release] = $(COMMON_PREPROCESSOR_FLAGS) $(RAPIDJSON_PP_FLAGS_$(CURRENT_ARCH)) NDEBUG=1
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Swift
+////////////////////////////////////////////////////////////////////////////////////////////////////
+SWIFT_OBJC_INTEROP_MODE = objcxx
+SWIFT_VERSION = 6.0
+
+SWIFT_OPTIMIZATION_LEVEL[config=Debug]   = -Onone
+SWIFT_OPTIMIZATION_LEVEL[config=Release] = -O
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Code generation
@@ -26,7 +44,19 @@ CLANG_X86_VECTOR_INSTRUCTIONS[arch=x86_64] = sse4.2
 GCC_NO_COMMON_BLOCKS = YES
 ENABLE_STRICT_OBJC_MSGSEND = YES
 CLANG_ENABLE_OBJC_ARC = YES
-DEBUG_INFORMATION_FORMAT = dwarf
+
+DEBUG_INFORMATION_FORMAT[config=Debug]   = dwarf
+DEBUG_INFORMATION_FORMAT[config=Release] = dwarf-with-dsym
+
+GCC_OPTIMIZATION_LEVEL[config=Debug]   = 0
+GCC_OPTIMIZATION_LEVEL[config=Release] = s
+
+// comment these to allow meaningful assembly view:
+LLVM_LTO[config=Debug]   = NO
+LLVM_LTO[config=Release] = YES
+
+COPY_PHASE_STRIP[config=Debug]   = NO
+COPY_PHASE_STRIP[config=Release] = YES
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Linker
@@ -41,27 +71,30 @@ DEAD_CODE_STRIPPING = YES
 OTHER_CFLAGS = -fvisibility=hidden -Wframe-larger-than=32768 -fbracket-depth=512
 
 // C++
-OTHER_CPLUSPLUSFLAGS = $(OTHER_CFLAGS) -std=c++2b -Wall -Wextra -Wold-style-cast -Werror -cxx-isystem$(THRDPTY)/boost/include -cxx-isystem$(THRDPTY)/spdlog/include -cxx-isystem$(THRDPTY)/libarchive/include -cxx-isystem$(THRDPTY)/googletest/include -cxx-isystem$(THRDPTY)/robin_hood/include -cxx-isystem$(THRDPTY)/frozen/include
+OTHER_CPLUSPLUSFLAGS = $(OTHER_CFLAGS) -std=c++2b -Wall -Wextra -Wold-style-cast -Werror -cxx-isystem$(THRDPTY)/boost/include -cxx-isystem$(THRDPTY)/spdlog/include -cxx-isystem$(THRDPTY)/libarchive/include -cxx-isystem$(THRDPTY)/googletest/include -cxx-isystem$(THRDPTY)/frozen/include
+
+// Abseil is a special snowflake that ships 90 static libraries...
+ABSL_LIBS = -labsl_bad_any_cast_impl -labsl_bad_optional_access -labsl_bad_variant_access -labsl_base -labsl_city -labsl_civil_time -labsl_cord -labsl_cord_internal -labsl_cordz_functions -labsl_cordz_handle -labsl_cordz_info -labsl_cordz_sample_token -labsl_crc32c -labsl_crc_cord_state -labsl_crc_cpu_detect -labsl_crc_internal -labsl_debugging_internal -labsl_decode_rust_punycode -labsl_demangle_internal -labsl_demangle_rust -labsl_die_if_null -labsl_examine_stack -labsl_exponential_biased -labsl_failure_signal_handler -labsl_flags_commandlineflag -labsl_flags_commandlineflag_internal -labsl_flags_config -labsl_flags_internal -labsl_flags_marshalling -labsl_flags_parse -labsl_flags_private_handle_accessor -labsl_flags_program_name -labsl_flags_reflection -labsl_flags_usage -labsl_flags_usage_internal -labsl_graphcycles_internal -labsl_hash -labsl_hashtablez_sampler -labsl_int128 -labsl_kernel_timeout_internal -labsl_leak_check -labsl_log_entry -labsl_log_flags -labsl_log_globals -labsl_log_initialize -labsl_log_internal_check_op -labsl_log_internal_conditions -labsl_log_internal_fnmatch -labsl_log_internal_format -labsl_log_internal_globals -labsl_log_internal_log_sink_set -labsl_log_internal_message -labsl_log_internal_nullguard -labsl_log_internal_proto -labsl_log_severity -labsl_log_sink -labsl_low_level_hash -labsl_malloc_internal -labsl_periodic_sampler -labsl_poison -labsl_random_distributions -labsl_random_internal_distribution_test_util -labsl_random_internal_platform -labsl_random_internal_pool_urbg -labsl_random_internal_randen -labsl_random_internal_randen_hwaes -labsl_random_internal_randen_hwaes_impl -labsl_random_internal_randen_slow -labsl_random_internal_seed_material -labsl_random_seed_gen_exception -labsl_random_seed_sequences -labsl_raw_hash_set -labsl_raw_logging_internal -labsl_scoped_set_env -labsl_spinlock_wait -labsl_stacktrace -labsl_status -labsl_statusor -labsl_str_format_internal -labsl_strerror -labsl_string_view -labsl_strings -labsl_strings_internal -labsl_symbolize -labsl_synchronization -labsl_throw_delegate -labsl_time -labsl_time_zone -labsl_utf8_for_code_point -labsl_vlog_config_internal
 
 // Linker
-OTHER_LDFLAGS = -ObjC -framework Foundation -framework Cocoa -framework SystemConfiguration -framework IOKit -framework Quartz -framework QuartzCore -framework DiskArbitration -framework OpenDirectory -framework ServiceManagement -framework Security -framework Carbon -framework StoreKit -framework NetFS -weak_framework UniformTypeIdentifiers -lxml2 -larchive -lspdlog -lgmock -lgtest -lz -lssl -lcrypto -llzma -lbz2 -lssh2 -lcurl -lpugixml -liconv -lAppAuth-macOS -lpstld -lzstd -llz4 -llzo2 -lre2 -lfmt -lcxxbackport -v -ld_classic
+OTHER_LDFLAGS = -v -ld_classic -ObjC -framework Foundation -framework Cocoa -framework SystemConfiguration -framework IOKit -framework Quartz -framework QuartzCore -framework DiskArbitration -framework OpenDirectory -framework ServiceManagement -framework Security -framework Carbon -framework NetFS -weak_framework UniformTypeIdentifiers -weak_framework QuickLookUI -lxml2 -larchive -lspdlog -lgmock -lgtest -lz -lssl -lcrypto -llzma -lbz2 -lssh2 -lcurl -lpugixml -liconv -lAppAuth-macOS -lpstld -lzstd -llz4 -llzo2 -lre2 -lfmt -lcxxbackport -llexilla $(ABSL_LIBS)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Search paths
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Path to 3rd-Party dependencies
-THRDPTY=../../3rd_Party
+THRDPTY=$(SRCROOT)/../../3rd_Party
 
 // Path to NC's own libraries
-LIBS=..
+LIBS=$(SRCROOT)/..
 
 // Paths - headers
 USE_HEADERMAP = NO
-HEADER_SEARCH_PATHS = $(THRDPTY)/magic_enum/include $(THRDPTY)/Catch2/include $(THRDPTY)/rapidjson/include $(THRDPTY)/libssh2/include $(THRDPTY)/pugixml/include $(THRDPTY)/zlib/include $(THRDPTY)/bz2/include $(THRDPTY)/libcurl/include $(THRDPTY)/MMTabBarView $(THRDPTY)/AppAuth/include $(THRDPTY)/pstld/include $(THRDPTY)/re2/include $(THRDPTY)/fmt/include
+HEADER_SEARCH_PATHS = $(TOOLCHAIN_DIR)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/include $(THRDPTY)/magic_enum/include $(THRDPTY)/Catch2/include $(THRDPTY)/rapidjson/include $(THRDPTY)/libssh2/include $(THRDPTY)/pugixml/include $(THRDPTY)/zlib/include $(THRDPTY)/bz2/include $(THRDPTY)/libcurl/include $(THRDPTY)/MMTabBarView $(THRDPTY)/AppAuth/include $(THRDPTY)/pstld/include $(THRDPTY)/re2/include $(THRDPTY)/fmt/include $(THRDPTY)/lexilla/include $(THRDPTY)/nlohmann/include $(THRDPTY)/unordered_dense/include $(THRDPTY)/abseil/include
 
 // Paths - libraries
- LIBRARY_SEARCH_PATHS = $(THRDPTY)/spdlog/lib $(THRDPTY)/googletest/lib $(THRDPTY)/z/lib $(THRDPTY)/OpenSSL/lib $(THRDPTY)/libarchive/lib $(THRDPTY)/lzma/lib $(THRDPTY)/bz2/lib $(THRDPTY)/libssh2/lib  $(THRDPTY)/libcurl/lib $(THRDPTY)/pugixml/lib $(THRDPTY)/AppAuth/built $(THRDPTY)/pstld/lib $(THRDPTY)/zstd/lib $(THRDPTY)/lz4/lib $(THRDPTY)/lzo/lib $(THRDPTY)/re2/lib $(THRDPTY)/fmt/lib $(THRDPTY)/libcxxbackport/lib
+LIBRARY_SEARCH_PATHS = $(THRDPTY)/spdlog/lib $(THRDPTY)/googletest/lib $(THRDPTY)/z/lib $(THRDPTY)/OpenSSL/lib $(THRDPTY)/libarchive/lib $(THRDPTY)/lzma/lib $(THRDPTY)/bz2/lib $(THRDPTY)/libssh2/lib  $(THRDPTY)/libcurl/lib $(THRDPTY)/pugixml/lib $(THRDPTY)/AppAuth/built $(THRDPTY)/pstld/lib $(THRDPTY)/zstd/lib $(THRDPTY)/lz4/lib $(THRDPTY)/lzo/lib $(THRDPTY)/re2/lib $(THRDPTY)/fmt/lib $(THRDPTY)/libcxxbackport/lib $(THRDPTY)/lexilla/lib $(THRDPTY)/abseil/lib $(THRDPTY)/Catch2/lib
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Warnings
@@ -113,6 +146,7 @@ GCC_WARN_UNUSED_LABEL = YES
 GCC_WARN_UNUSED_PARAMETER = YES
 GCC_WARN_UNUSED_VALUE = YES
 GCC_WARN_UNUSED_VARIABLE = YES
+CLANG_WARN_IMPLICIT_FALLTHROUGH = YES
 
 // Warnings - C++
 CLANG_WARN_VEXING_PARSE = YES
@@ -131,7 +165,6 @@ CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES
 CLANG_WARN__DUPLICATE_METHOD_MATCH = YES
 CLANG_WARN_OBJC_IMPLICIT_ATOMIC_PROPERTIES = YES
 CLANG_WARN_OBJC_LITERAL_CONVERSION = YES
-CLANG_WARN_OBJC_MISSING_PROPERTY_SYNTHESIS = NO // not sure what this brings to the table
 GCC_WARN_ALLOW_INCOMPLETE_PROTOCOL = YES
 CLANG_WARN_OBJC_INTERFACE_IVARS = YES
 CLANG_WARN_MISSING_NOESCAPE = YES
@@ -140,3 +173,23 @@ GCC_WARN_STRICT_SELECTOR_MATCH = YES
 GCC_WARN_UNDECLARED_SELECTOR = YES
 CLANG_WARN_OBJC_ROOT_CLASS = YES
 CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES
+CLANG_WARN_COMPLETION_HANDLER_MISUSE = YES
+CLANG_WARN_OBJC_MISSING_PROPERTY_SYNTHESIS = YES
+CLANG_WARN_OBJC_REPEATED_USE_OF_WEAK = NO // causes too many false positives...
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Testability
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//ENABLE_TESTABILITY = YES
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Localization
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+STRINGS_FILE_OUTPUT_ENCODING = binary // binary representation of the localizable content is smaller, thus pick it
+CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES
+LOCALIZATION_PREFERS_STRING_CATALOGS = YES
+SWIFT_EMIT_LOC_STRINGS = YES

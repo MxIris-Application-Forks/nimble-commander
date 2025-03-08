@@ -7,7 +7,7 @@
 
 namespace nc::vfs::webdav {
 
-const char *HostConfiguration::Tag() const
+const char *HostConfiguration::Tag()
 {
     return WebDAVHost::UniqueTag;
 }
@@ -24,8 +24,8 @@ const char *HostConfiguration::VerboseJunction() const
 
 bool HostConfiguration::operator==(const HostConfiguration &_rhs) const
 {
-    return server_url == _rhs.server_url && user == _rhs.user && passwd == _rhs.passwd &&
-           path == _rhs.path && port == _rhs.port;
+    return server_url == _rhs.server_url && user == _rhs.user && passwd == _rhs.passwd && path == _rhs.path &&
+           port == _rhs.port;
 }
 
 void HTTPRequests::Print(const Mask _mask)
@@ -63,7 +63,7 @@ void HTTPRequests::Print(const Mask _mask)
         std::cout << "PROPPATCH ";
     if( _mask & HTTPRequests::Unlock )
         std::cout << "UNLOCK ";
-    std::cout << std::endl;
+    std::cout << '\n';
 }
 
 static bool IsOkHTTPRC(const int _rc)
@@ -127,7 +127,6 @@ int HTTPRCToVFSError(int _http_rc) noexcept
         case 400:
             return VFSError::FromErrno(EINVAL);
         case 401:
-            return VFSError::FromErrno(EAUTH);
         case 402:
             return VFSError::FromErrno(EAUTH);
         case 403:
@@ -147,7 +146,6 @@ int HTTPRCToVFSError(int _http_rc) noexcept
         case 410:
             return VFSError::FromErrno(ENOENT);
         case 411:
-            return VFSError::FromErrno(EINVAL);
         case 412:
             return VFSError::FromErrno(EINVAL);
         case 413:
@@ -155,9 +153,7 @@ int HTTPRCToVFSError(int _http_rc) noexcept
         case 414:
             return VFSError::FromErrno(ENAMETOOLONG);
         case 415:
-            return VFSError::FromErrno(EINVAL);
         case 416:
-            return VFSError::FromErrno(EINVAL);
         case 417:
             return VFSError::FromErrno(EINVAL);
         case 421:
@@ -167,7 +163,6 @@ int HTTPRCToVFSError(int _http_rc) noexcept
         case 423:
             return VFSError::FromErrno(EPERM);
         case 424:
-            return VFSError::FromErrno(EINVAL);
         case 428:
             return VFSError::FromErrno(EINVAL);
         case 429:

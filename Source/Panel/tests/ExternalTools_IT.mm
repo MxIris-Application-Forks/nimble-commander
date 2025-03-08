@@ -1,4 +1,4 @@
-// Copyright (C) 2023-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2023-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 // TODO: add a PanelIT target
 
 #include "ExternalTools.h"
@@ -39,7 +39,7 @@ static bool WaitForChildProcess(int _pid, std::chrono::nanoseconds _deadline, st
 
 TEST_CASE(PREFIX "execute a detached console app")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto basedir = dir.directory;
     const auto echopars_src = "#include <stdio.h>                     \n"  //
                               "int main(int argc, char **argv) {      \n"  //
@@ -53,8 +53,8 @@ TEST_CASE(PREFIX "execute a detached console app")
     std::ofstream(basedir / "z z") << "aaa";
 
     auto &root = dir.directory;
-    VFSListingPtr listing;
-    REQUIRE(TestEnv().vfs_native->FetchDirectoryListing(root.c_str(), listing, VFSFlags::F_NoDotDot, {}) == 0);
+    const VFSListingPtr listing =
+        TestEnv().vfs_native->FetchDirectoryListing(root.c_str(), VFSFlags::F_NoDotDot).value();
     data::Model model;
     model.Load(listing, data::Model::PanelType::Directory);
     nc::utility::TemporaryFileStorageImpl temp_storage(root.native(), "temp");
@@ -72,23 +72,23 @@ TEST_CASE(PREFIX "execute a detached console app")
     struct TC {
         std::string params;
         std::string expected;
-    } tcs[] = {
-        {basedir / "test.txt",                                                          //
-         "echopars\n" + (basedir / "test.txt").string() + "\n"},                        //
-        {(basedir / "test.txt").string() + " Hello!",                                   //
-         "echopars\n" + (basedir / "test.txt").string() + "\nHello!\n"},                //
-        {(basedir / "test.txt").string() + " Hello, World!",                            //
-         "echopars\n" + (basedir / "test.txt").string() + "\nHello,\nWorld!\n"},        //
-        {(basedir / "test.txt").string() + " first second",                             //
-         "echopars\n" + (basedir / "test.txt").string() + "\nfirst\nsecond\n"},         //
-        {(basedir / "test.txt").string() + " \"first\" \"second\"",                     //
-         "echopars\n" + (basedir / "test.txt").string() + "\n\"first\"\n\"second\"\n"}, //
-        {(basedir / "test.txt").string() + " first\\ second",                           //
-         "echopars\n" + (basedir / "test.txt").string() + "\nfirst second\n"},          //
-        {(basedir / "test.txt").string() + " %f",                                       //
-         "echopars\n" + (basedir / "test.txt").string() + "\na.c\n"},                   //
-        {(basedir / "test.txt").string() + " %-f",                                      //
-         "echopars\n" + (basedir / "test.txt").string() + "\nz z\n"},                   //
+    } const tcs[] = {
+        {.params = basedir / "test.txt",                                                            //
+         .expected = "echopars\n" + (basedir / "test.txt").string() + "\n"},                        //
+        {.params = (basedir / "test.txt").string() + " Hello!",                                     //
+         .expected = "echopars\n" + (basedir / "test.txt").string() + "\nHello!\n"},                //
+        {.params = (basedir / "test.txt").string() + " Hello, World!",                              //
+         .expected = "echopars\n" + (basedir / "test.txt").string() + "\nHello,\nWorld!\n"},        //
+        {.params = (basedir / "test.txt").string() + " first second",                               //
+         .expected = "echopars\n" + (basedir / "test.txt").string() + "\nfirst\nsecond\n"},         //
+        {.params = (basedir / "test.txt").string() + R"( "first" "second")",                        //
+         .expected = "echopars\n" + (basedir / "test.txt").string() + "\n\"first\"\n\"second\"\n"}, //
+        {.params = (basedir / "test.txt").string() + " first\\ second",                             //
+         .expected = "echopars\n" + (basedir / "test.txt").string() + "\nfirst second\n"},          //
+        {.params = (basedir / "test.txt").string() + " %f",                                         //
+         .expected = "echopars\n" + (basedir / "test.txt").string() + "\na.c\n"},                   //
+        {.params = (basedir / "test.txt").string() + " %-f",                                        //
+         .expected = "echopars\n" + (basedir / "test.txt").string() + "\nz z\n"},                   //
     };
 
     auto run = [&] {
@@ -109,10 +109,9 @@ TEST_CASE(PREFIX "execute a detached console app")
 
 TEST_CASE(PREFIX "execute a non-existing app")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
 
-    VFSListingPtr listing;
-    REQUIRE(TestEnv().vfs_native->FetchDirectoryListing("/", listing, VFSFlags::F_NoDotDot, {}) == 0);
+    const VFSListingPtr listing = TestEnv().vfs_native->FetchDirectoryListing("/", VFSFlags::F_NoDotDot).value();
     data::Model model;
     model.Load(listing, data::Model::PanelType::Directory);
     nc::utility::TemporaryFileStorageImpl temp_storage(dir.directory.native(), "temp");
@@ -129,7 +128,7 @@ TEST_CASE(PREFIX "execute a non-existing app")
     et.m_ExecutablePath = "/i/do/no/exist/hi";
 
     {
-        ExternalToolExecution ex{ctx, et};
+        const ExternalToolExecution ex{ctx, et};
         auto pid = ex.StartDetachedFork();
         CHECK(pid.has_value() == false);
         CHECK(pid.error().empty() == false);
@@ -144,7 +143,7 @@ TEST_CASE(PREFIX "execute a non-existing app")
 
 TEST_CASE(PREFIX "execute a ui app", "[!mayfail]")
 {
-    TempTestDir dir;
+    const TempTestDir dir;
     const auto basedir = dir.directory;
 
     const auto minimal_src = "#include <Cocoa/Cocoa.h>                                                           \n" //
@@ -182,8 +181,8 @@ TEST_CASE(PREFIX "execute a ui app", "[!mayfail]")
                        .c_str()) == 0);
 
     auto &root = dir.directory;
-    VFSListingPtr listing;
-    REQUIRE(TestEnv().vfs_native->FetchDirectoryListing(root.c_str(), listing, VFSFlags::F_NoDotDot, {}) == 0);
+    const VFSListingPtr listing =
+        TestEnv().vfs_native->FetchDirectoryListing(root.c_str(), VFSFlags::F_NoDotDot).value();
     data::Model model;
     model.Load(listing, data::Model::PanelType::Directory);
     nc::utility::TemporaryFileStorageImpl temp_storage(root.native(), "temp");
@@ -203,33 +202,33 @@ TEST_CASE(PREFIX "execute a ui app", "[!mayfail]")
         std::string expected;
         ExternalTool::GUIArgumentInterpretation interp =
             ExternalTool::GUIArgumentInterpretation::PassExistingPathsAsURLs;
-    } tcs[] = {
+    } const tcs[] = {
         // one argument
-        {basedir / "test.txt",
-         fmt::format("A-{}\nA-{}\n",
-                     (basedir / "minimal.app/Contents/MacOS/minimal").string(),
-                     (basedir / "test.txt").string())},
+        {.params = basedir / "test.txt",
+         .expected = fmt::format("A-{}\nA-{}\n",
+                                 (basedir / "minimal.app/Contents/MacOS/minimal").string(),
+                                 (basedir / "test.txt").string())},
         // two arguments
-        {(basedir / "test.txt").string() + " Hello!",
-         fmt::format("A-{}\nA-{}\nA-Hello!\n",
-                     (basedir / "minimal.app/Contents/MacOS/minimal").string(),
-                     (basedir / "test.txt").string())},
+        {.params = (basedir / "test.txt").string() + " Hello!",
+         .expected = fmt::format("A-{}\nA-{}\nA-Hello!\n",
+                                 (basedir / "minimal.app/Contents/MacOS/minimal").string(),
+                                 (basedir / "test.txt").string())},
         // one argument and an url
-        {basedir / "test.txt /bin",
-         fmt::format("A-{}\nA-{}\nU-/bin\n",
-                     (basedir / "minimal.app/Contents/MacOS/minimal").string(),
-                     (basedir / "test.txt").string())},
+        {.params = basedir / "test.txt /bin",
+         .expected = fmt::format("A-{}\nA-{}\nU-/bin\n",
+                                 (basedir / "minimal.app/Contents/MacOS/minimal").string(),
+                                 (basedir / "test.txt").string())},
         // one argument and two urls
-        {basedir / "test.txt /bin /System",
-         fmt::format("A-{}\nA-{}\nU-/bin\nU-/System\n",
-                     (basedir / "minimal.app/Contents/MacOS/minimal").string(),
-                     (basedir / "test.txt").string())},
+        {.params = basedir / "test.txt /bin /System",
+         .expected = fmt::format("A-{}\nA-{}\nU-/bin\nU-/System\n",
+                                 (basedir / "minimal.app/Contents/MacOS/minimal").string(),
+                                 (basedir / "test.txt").string())},
         // one argument and two path, but paths are interpreted as arguments
-        {basedir / "test.txt /bin /System",
-         fmt::format("A-{}\nA-{}\nA-/bin\nA-/System\n",
-                     (basedir / "minimal.app/Contents/MacOS/minimal").string(),
-                     (basedir / "test.txt").string()),
-         ExternalTool::GUIArgumentInterpretation::PassAllAsArguments},
+        {.params = basedir / "test.txt /bin /System",
+         .expected = fmt::format("A-{}\nA-{}\nA-/bin\nA-/System\n",
+                                 (basedir / "minimal.app/Contents/MacOS/minimal").string(),
+                                 (basedir / "test.txt").string()),
+         .interp = ExternalTool::GUIArgumentInterpretation::PassAllAsArguments},
     };
 
     auto run = [&] {

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="22505" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23504" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
     <dependencies>
         <deployment identifier="macosx"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="22505"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23504"/>
     </dependencies>
     <objects>
         <customObject id="-2" userLabel="File's Owner" customClass="NSApplication">
@@ -17,7 +17,7 @@
                 <menuItem title="Nimble Commander" id="56">
                     <menu key="submenu" title="Nimble Commander" systemMenu="apple" id="57">
                         <items>
-                            <menuItem title="About {AppName}" tag="10000" id="58">
+                            <menuItem title="About Nimble Commander" tag="10000" id="58">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="orderFrontStandardAboutPanel:" target="-2" id="142"/>
@@ -29,12 +29,6 @@
                             <menuItem title="Preferences…" tag="10010" keyEquivalent="," id="129">
                                 <connections>
                                     <action selector="OnPreferencesCommand:" target="-1" id="890"/>
-                                </connections>
-                            </menuItem>
-                            <menuItem title="Email the Developer..." toolTip="Questions? Comments? Send me an email!" id="891">
-                                <modifierMask key="keyEquivalentModifierMask"/>
-                                <connections>
-                                    <action selector="OnMenuSendFeedback:" target="-1" id="893"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="fPr-eP-snC">
@@ -52,7 +46,7 @@
                             <menuItem isSeparatorItem="YES" id="144">
                                 <modifierMask key="keyEquivalentModifierMask" command="YES"/>
                             </menuItem>
-                            <menuItem title="Hide {AppName}" tag="10020" keyEquivalent="h" id="134">
+                            <menuItem title="Hide Nimble Commander" tag="10020" keyEquivalent="h" id="134">
                                 <connections>
                                     <action selector="hide:" target="-1" id="367"/>
                                 </connections>
@@ -71,7 +65,7 @@
                             <menuItem isSeparatorItem="YES" id="149">
                                 <modifierMask key="keyEquivalentModifierMask" command="YES"/>
                             </menuItem>
-                            <menuItem title="Quit {AppName}" tag="10050" keyEquivalent="q" id="136">
+                            <menuItem title="Quit Nimble Commander" tag="10050" keyEquivalent="q" id="136">
                                 <connections>
                                     <action selector="terminate:" target="-3" id="449"/>
                                 </connections>
@@ -182,12 +176,6 @@ DQ
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="OnCalculateAllSizes:" target="-1" id="c5x-U6-Pr8"/>
-                                </connections>
-                            </menuItem>
-                            <menuItem title="Calculate Checksum" tag="11080" id="mz4-ml-xw1">
-                                <modifierMask key="keyEquivalentModifierMask"/>
-                                <connections>
-                                    <action selector="OnCalculateChecksum:" target="-1" id="eOO-mt-7dI"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="eqE-pe-FZi">
@@ -454,16 +442,23 @@ DQ
                                                 <action selector="ToggleExtensionlessFolders:" target="-1" id="b3R-nn-XVz"/>
                                             </connections>
                                         </menuItem>
-                                        <menuItem title="Case-Sensitive Comparison" tag="13160" id="902">
+                                        <menuItem isSeparatorItem="YES" id="boy-z1-zRc"/>
+                                        <menuItem title="Natural Comparison" tag="13161" id="TCl-Dh-lAh">
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
-                                                <action selector="ToggleCaseSensitiveComparison:" target="-1" id="904"/>
+                                                <action selector="onToggleNaturalCollation:" target="-1" id="kcg-hy-6Gr"/>
                                             </connections>
                                         </menuItem>
-                                        <menuItem title="Numeric Comparison" tag="13170" id="923">
+                                        <menuItem title="Case-Insensitive Comparison" tag="13162" id="902">
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
-                                                <action selector="ToggleNumericComparison:" target="-1" id="925"/>
+                                                <action selector="onToggleCaseInsensitiveCollation:" target="-1" id="4LO-dV-Wkg"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Case-Sensitive Comparison" tag="13163" id="ES4-0D-t9Y">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="onToggleCaseSensitiveCollation:" target="-1" id="peQ-Xu-oLM"/>
                                             </connections>
                                         </menuItem>
                                     </items>
@@ -701,6 +696,12 @@ DQ
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
                                                 <action selector="OnGoToQuickListsConnections:" target="-1" id="uCn-9Y-BfF"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Tags" tag="14310" id="ANW-0c-qGJ">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="OnGoToQuickListsTags:" target="-1" id="LwE-Ex-cgd"/>
                                             </connections>
                                         </menuItem>
                                     </items>
@@ -1008,14 +1009,6 @@ CQ
                             <menuItem isSeparatorItem="YES" id="tbS-FY-UXh">
                                 <modifierMask key="keyEquivalentModifierMask" command="YES"/>
                             </menuItem>
-                            <menuItem title="Show VFS List" tag="16060" id="Pid-lQ-zTt">
-                                <connections>
-                                    <action selector="onMainMenuPerformShowVFSListAction:" target="-1" id="A3e-AT-4ge"/>
-                                </connections>
-                            </menuItem>
-                            <menuItem isSeparatorItem="YES" id="sNS-Lp-aK2">
-                                <modifierMask key="keyEquivalentModifierMask" command="YES"/>
-                            </menuItem>
                             <menuItem title="Bring All to Front" tag="16030" id="5">
                                 <connections>
                                     <action selector="arrangeInFront:" target="-1" id="39"/>
@@ -1028,7 +1021,7 @@ CQ
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Help" systemMenu="help" id="491">
                         <items>
-                            <menuItem title="{AppName} Help" tag="17000" keyEquivalent="?" id="iBP-LD-aNS">
+                            <menuItem title="Nimble Commander Help" tag="17000" keyEquivalent="?" id="iBP-LD-aNS">
                                 <connections>
                                     <action selector="OnShowHelp:" target="-1" id="mbF-jF-ZMK"/>
                                 </connections>

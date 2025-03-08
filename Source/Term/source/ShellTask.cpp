@@ -1,34 +1,35 @@
-// Copyright (C) 2013-2023 Michael Kazakov. Subject to GNU General Public License version 3.
-#include <sys/select.h>
-#include <sys/ioctl.h>
-#include <sys/sysctl.h>
-#include <sys/stat.h>
-#include <stdlib.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <termios.h>
-#include <string.h>
-#include <libproc.h>
-#include <dirent.h>
-#include <signal.h>
-#include <Utility/SystemInformation.h>
-#include <Utility/PathManip.h>
-#include <Base/algo.h>
-#include <Base/mach_time.h>
-#include <Base/CommonPaths.h>
-#include <Base/dispatch_cpp.h>
-#include <Base/CloseFrom.h>
-#include <Base/spinlock.h>
-#include <iostream>
-#include <queue>
-#include <signal.h>
+// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ShellTask.h"
 #include "Log.h"
-#include <fmt/std.h>
+#include <Base/CloseFrom.h>
+#include <Base/CommonPaths.h>
+#include <Base/algo.h>
+#include <Base/dispatch_cpp.h>
+#include <Base/mach_time.h>
+#include <Base/spinlock.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <Utility/PathManip.h>
+#include <Utility/SystemInformation.h>
+#include <algorithm>
+#include <cerrno>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <dirent.h>
+#include <fcntl.h>
+#include <fmt/format.h>
+#include <fmt/std.h>
+#include <iostream>
+#include <libproc.h>
 #include <memory_resource>
+#include <queue>
+#include <sys/ioctl.h>
+#include <sys/select.h>
+#include <sys/stat.h>
+#include <sys/sysctl.h>
+#include <termios.h>
+#include <unistd.h>
 
 namespace nc::term {
 
@@ -36,9 +37,9 @@ static const int g_PromptPipe = 20;
 static const int g_SemaphorePipe = 21;
 static int g_TCSHPipeGeneration = 0;
 
-static char *g_BashParams[3] = {const_cast<char *>("bash"), const_cast<char *>("--login"), 0};
-static char *g_ZSHParams[3] = {const_cast<char *>("-Z"), const_cast<char *>("-g"), 0};
-static char *g_TCSH[2] = {const_cast<char *>("tcsh"), 0};
+static char *g_BashParams[3] = {const_cast<char *>("bash"), const_cast<char *>("--login"), nullptr};
+static char *g_ZSHParams[3] = {const_cast<char *>("-Z"), const_cast<char *>("-g"), nullptr};
+static char *g_TCSH[2] = {const_cast<char *>("tcsh"), nullptr};
 static char **g_ShellParams[3] = {g_BashParams, g_ZSHParams, g_TCSH};
 
 static char g_BashHistControlEnv[] = "HISTCONTROL=ignorespace";
@@ -166,7 +167,7 @@ static void KillAndReap(int _pid, std::chrono::nanoseconds _gentle_deadline, std
                 // I have no idea what to do with the marvelous MacOS thing called
                 // "E - The process is trying to exit". Subprocesses can fall into this state
                 // with some low propability, deadlocking a blocking waitpid() forever.
-                std::cerr << "Letting go a child at PID " << _pid << std::endl;
+                std::cerr << "Letting go a child at PID " << _pid << '\n';
                 break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -181,7 +182,7 @@ static std::optional<std::filesystem::path> TryToResolve(const std::filesystem::
     if( ec == std::error_code{} && exists ) {
         const bool is_symlink = std::filesystem::is_symlink(_path, ec);
         if( ec == std::error_code{} && is_symlink ) {
-            const auto symlink = std::filesystem::read_symlink(_path, ec);
+            auto symlink = std::filesystem::read_symlink(_path, ec);
             if( ec != std::error_code{} )
                 return {};
             if( symlink.is_absolute() )
@@ -217,8 +218,8 @@ struct ShellTask::Impl {
     std::string tcsh_semaphore_path;
 
     bool temporary_suppressed = false; // will give no output until a next bash prompt will show the requested_cwd path
-    std::string requested_cwd = "";
-    std::string cwd = "";
+    std::string requested_cwd;
+    std::string cwd;
 
     // accessible from main thread only (presumably)
     int term_sx = 80;
@@ -236,9 +237,9 @@ struct ShellTask::Impl {
     std::shared_ptr<OnPwdPrompt> on_pwd_prompt;
     std::shared_ptr<OnStateChange> on_state_changed;
     std::shared_ptr<OnChildOutput> on_child_output;
-    
+
     void OnMasterSourceData();
-    void OnMasterSourceCancellation();
+    void OnMasterSourceCancellation() const;
     void OnCwdSourceData();
     void OnCwdSourceCancellation();
     void OnShellDied();
@@ -286,68 +287,68 @@ bool ShellTask::Launch(const std::filesystem::path &_work_dir)
         return false;
 
     I->cwd = _work_dir.generic_string();
-    Log::Info(SPDLOC, "Starting a new shell: {}", I->shell_path);
+    Log::Info("Starting a new shell: {}", I->shell_path);
     if( I->shell_resolved_path != I->shell_path )
-        Log::Info(SPDLOC, "{} -> {}", I->shell_path, I->shell_resolved_path);
-    Log::Info(SPDLOC, "Initial work directory: {}", I->cwd);
+        Log::Info("{} -> {}", I->shell_path, I->shell_resolved_path);
+    Log::Info("Initial work directory: {}", I->cwd);
 
     // remember current locale and stuff
     const auto env = BuildEnv();
-    Log::Debug(SPDLOC, "Environment:");
+    Log::Debug("Environment:");
     for( auto &env_record : env )
-        Log::Debug(SPDLOC, "\t{} = {}", env_record.first, env_record.second);
+        Log::Debug("\t{} = {}", env_record.first, env_record.second);
 
     // open a pseudo-terminal device
     const int openpt_rc = posix_openpt(O_RDWR);
     if( openpt_rc < 0 ) {
-        Log::Warn(SPDLOC, "posix_openpt() returned a negative value");
+        Log::Warn("posix_openpt() returned a negative value");
         throw std::runtime_error("posix_openpt() returned a negative value");
     }
-    Log::Debug(SPDLOC, "posix_openpt(O_RDWR) returned {} (master_fd)", openpt_rc);
+    Log::Debug("posix_openpt(O_RDWR) returned {} (master_fd)", openpt_rc);
     I->master_fd = openpt_rc;
 
     // grant access to the slave pseudo-terminal device
     const int graptpt_rc = grantpt(I->master_fd);
     if( graptpt_rc != 0 ) {
-        Log::Warn(SPDLOC, "graptpt_rc() failed");
+        Log::Warn("graptpt_rc() failed");
         throw std::runtime_error("graptpt_rc() failed");
     }
 
     // unlock a pseudo-terminal master/slave pair
     const int unlockpt_rc = unlockpt(I->master_fd);
     if( unlockpt_rc != 0 ) {
-        Log::Warn(SPDLOC, "unlockpt() failed");
+        Log::Warn("unlockpt() failed");
         throw std::runtime_error("unlockpt() failed");
     }
 
     // get name of the slave pseudo-terminal device
     const char *const ptsname = ::ptsname(I->master_fd);
     if( ptsname == nullptr ) {
-        Log::Warn(SPDLOC, "ptsname() failed");
+        Log::Warn("ptsname() failed");
         throw std::runtime_error("ptsname() failed");
     }
-    Log::Debug(SPDLOC, "ptsname: {}", ptsname);
+    Log::Debug("ptsname: {}", ptsname);
 
     // opening a slave fd for the pseudo-terminal
     const int slave_fd = open(ptsname, O_RDWR);
     if( openpt_rc < 0 ) {
-        Log::Warn(SPDLOC, "open() returned a negative value");
+        Log::Warn("open() returned a negative value");
         throw std::runtime_error("open() returned a negative value");
     }
-    Log::Debug(SPDLOC, "slave_fd: {}", slave_fd);
+    Log::Debug("slave_fd: {}", slave_fd);
 
     // init FIFO stuff for Shell's CWD
     if( I->shell_type == ShellType::Bash || I->shell_type == ShellType::ZSH ) {
         // for Bash and ZSH use a regular pipe handle
         const int cwd_pipe_rc = pipe(I->cwd_pipe);
         if( cwd_pipe_rc != 0 ) {
-            Log::Warn(SPDLOC, "pipe(I->cwd_pipe) failed");
+            Log::Warn("pipe(I->cwd_pipe) failed");
             throw std::runtime_error("pipe(I->cwd_pipe) failed");
         }
 
         const int semaphore_pipe_rc = pipe(I->semaphore_pipe);
         if( semaphore_pipe_rc != 0 ) {
-            Log::Warn(SPDLOC, "pipe(I->semaphore_pipe) failed");
+            Log::Warn("pipe(I->semaphore_pipe) failed");
             throw std::runtime_error("pipe(I->semaphore_pipe) failed");
         }
     }
@@ -359,52 +360,52 @@ bool ShellTask::Launch(const std::filesystem::path &_work_dir)
 
         // open the cwd channel first
         I->tcsh_cwd_path = dir + "nimble_commander.tcsh.cwd_pipe." + mypid + "." + gen;
-        Log::Debug(SPDLOC, "tcsh_cwd_path: {}", I->tcsh_cwd_path);
+        Log::Debug("tcsh_cwd_path: {}", I->tcsh_cwd_path);
 
         const int cwd_fifo_rc = mkfifo(I->tcsh_cwd_path.c_str(), 0600);
         if( cwd_fifo_rc != 0 ) {
-            Log::Warn(SPDLOC, "mkfifo(I->tcsh_cwd_path.c_str(), 0600) failed");
+            Log::Warn("mkfifo(I->tcsh_cwd_path.c_str(), 0600) failed");
             throw std::runtime_error("mkfifo(I->tcsh_cwd_path.c_str(), 0600) failed");
         }
 
         const int cwd_open_rc = open(I->tcsh_cwd_path.c_str(), O_RDWR);
         if( cwd_open_rc < 0 ) {
-            Log::Warn(SPDLOC, "open(I->tcsh_cwd_path.c_str(), O_RDWR) failed");
+            Log::Warn("open(I->tcsh_cwd_path.c_str(), O_RDWR) failed");
             throw std::runtime_error("open(I->tcsh_cwd_path.c_str(), O_RDWR) failed");
         }
         I->cwd_pipe[0] = cwd_open_rc;
 
         // and then open the semaphore channel
         I->tcsh_semaphore_path = dir + "nimble_commander.tcsh.semaphore_pipe." + mypid + "." + gen;
-        Log::Debug(SPDLOC, "tcsh_semaphore_path: {}", I->tcsh_semaphore_path);
+        Log::Debug("tcsh_semaphore_path: {}", I->tcsh_semaphore_path);
 
         const int semaphore_fifo_rc = mkfifo(I->tcsh_semaphore_path.c_str(), 0600);
         if( semaphore_fifo_rc != 0 ) {
-            Log::Warn(SPDLOC, "mkfifo(I->tcsh_semaphore_path.c_str(), 0600) failed");
+            Log::Warn("mkfifo(I->tcsh_semaphore_path.c_str(), 0600) failed");
             throw std::runtime_error("mkfifo(I->tcsh_semaphore_path.c_str(), 0600) failed");
         }
 
         const int semaphore_open_rc = open(I->tcsh_semaphore_path.c_str(), O_RDWR);
         if( semaphore_open_rc < 0 ) {
-            Log::Warn(SPDLOC, "open(I->tcsh_semaphore_path.c_str(), O_RDWR) failed");
+            Log::Warn("open(I->tcsh_semaphore_path.c_str(), O_RDWR) failed");
             throw std::runtime_error("open(I->tcsh_semaphore_path.c_str(), O_RDWR) failed");
         }
 
         I->semaphore_pipe[1] = semaphore_open_rc;
     }
 
-    Log::Debug(SPDLOC, "cwd_pipe: {}, {}", I->cwd_pipe[0], I->cwd_pipe[1]);
-    Log::Debug(SPDLOC, "semaphore_pipe: {}, {}", I->semaphore_pipe[0], I->semaphore_pipe[1]);
+    Log::Debug("cwd_pipe: {}, {}", I->cwd_pipe[0], I->cwd_pipe[1]);
+    Log::Debug("semaphore_pipe: {}, {}", I->semaphore_pipe[0], I->semaphore_pipe[1]);
 
     // Create the child process
     const auto fork_rc = fork();
     if( fork_rc < 0 ) {
         // error
-        std::cerr << "fork() failed with " << errno << "!" << std::endl;
+        std::cerr << "fork() failed with " << errno << "!" << '\n';
         return false;
     }
     else if( fork_rc > 0 ) {
-        Log::Debug(SPDLOC, "fork() returned {}", fork_rc);
+        Log::Debug("fork() returned {}", fork_rc);
 
         // master
         I->shell_pid = fork_rc;
@@ -416,13 +417,13 @@ bool ShellTask::Launch(const std::filesystem::path &_work_dir)
         // wait until either the forked process becomes an expected shell or dies
         const bool became_shell = WaitUntilBecomes(I->shell_pid, I->shell_resolved_path.native(), 5s, 1ms);
         if( !became_shell ) {
-            Log::Warn(SPDLOC, "forked process failed to become a shell!");
+            Log::Warn("forked process failed to become a shell!");
             I->CleanUp(); // Well, RIP
             return false;
         }
 
         if( !fd_is_valid(I->master_fd) ) {
-            Log::Warn(SPDLOC, "m_MasterFD is dead!");
+            Log::Warn("m_MasterFD is dead!");
             I->CleanUp(); // Well, RIP
             return false;
         }
@@ -451,7 +452,7 @@ bool ShellTask::Launch(const std::filesystem::path &_work_dir)
             const ssize_t write_res = write(I->master_fd, cmd.data(), cmd.length());
             I->master_write_lock.unlock();
             if( write_res != static_cast<ssize_t>(cmd.length()) ) {
-                Log::Warn(SPDLOC, "failed to write histctrl cmd, errno: {} ({})", errno, strerror(errno));
+                Log::Warn("failed to write histctrl cmd, errno: {} ({})", errno, strerror(errno));
                 I->CleanUp(); // Well, RIP
                 return false;
             }
@@ -459,12 +460,12 @@ bool ShellTask::Launch(const std::filesystem::path &_work_dir)
 
         // write prompt setup to the shell
         const std::string prompt_setup = ComposePromptCommand();
-        Log::Debug(SPDLOC, "prompt_setup: {}", prompt_setup);
+        Log::Debug("prompt_setup: {}", prompt_setup);
         I->master_write_lock.lock();
         const ssize_t write_res = write(I->master_fd, prompt_setup.data(), prompt_setup.size());
         I->master_write_lock.unlock();
         if( write_res != static_cast<ssize_t>(prompt_setup.size()) ) {
-            Log::Warn(SPDLOC, "failed to write command prompt, errno: {} ({})", errno, strerror(errno));
+            Log::Warn("failed to write command prompt, errno: {} ({})", errno, strerror(errno));
             I->CleanUp(); // Well, RIP
             return false;
         }
@@ -527,7 +528,7 @@ void ShellTask::Impl::OnMasterSourceData()
 {
     dispatch_assert_background_queue();
     const size_t estimated_size = dispatch_source_get_data(master_source);
-    Log::Trace(SPDLOC, "OnMasterSourceData() estimated {} bytes available", estimated_size);
+    Log::Trace("OnMasterSourceData() estimated {} bytes available", estimated_size);
     if( estimated_size == 0 ) {
         // GCD reports dead FDs as zero available data
         OnShellDied();
@@ -551,7 +552,7 @@ void ShellTask::Impl::OnCwdSourceData()
 {
     dispatch_assert_background_queue(); // must be called on io_queue
     const size_t estimated_size = dispatch_source_get_data(master_source);
-    Log::Trace(SPDLOC, "OnCwdSourceData() estimated {} bytes available", estimated_size);
+    Log::Trace("OnCwdSourceData() estimated {} bytes available", estimated_size);
     if( estimated_size == 0 ) {
         // GCD reports dead FDs as zero available data
         OnShellDied();
@@ -566,17 +567,17 @@ void ShellTask::Impl::OnCwdSourceData()
     }
 }
 
-void ShellTask::Impl::OnMasterSourceCancellation()
+void ShellTask::Impl::OnMasterSourceCancellation() const
 {
     dispatch_assert_background_queue(); // must be called on io_queue
-    Log::Trace(SPDLOC, "ShellTask::Impl::OnMasterSourceCancellation() called");
+    Log::Trace("ShellTask::Impl::OnMasterSourceCancellation() called");
     assert(master_fd >= 0); // shall be closed later in DoCleanUp() but must be alive by now
 }
 
 void ShellTask::Impl::OnCwdSourceCancellation()
 {
     dispatch_assert_background_queue(); // must be called on io_queue
-    Log::Trace(SPDLOC, "ShellTask::Impl::OnCwdSourceCancellation() called");
+    Log::Trace("ShellTask::Impl::OnCwdSourceCancellation() called");
     assert(cwd_pipe[0] >= 0); // shall be closed later in DoCleanUp() but must be alive by now
 }
 
@@ -598,10 +599,10 @@ void ShellTask::Impl::ProcessPwdPrompt(const void *_d, int _sz)
     bool current_wd_changed = false;
 
     std::string new_cwd(static_cast<const char *>(_d), _sz);
-    while( new_cwd.empty() == false && (new_cwd.back() == '\n' || new_cwd.back() == '\r') )
+    while( !new_cwd.empty() && (new_cwd.back() == '\n' || new_cwd.back() == '\r') )
         new_cwd.pop_back();
     new_cwd = EnsureTrailingSlash(new_cwd);
-    Log::Info(SPDLOC, "pwd prompt from shell_pid={}: {}", shell_pid.load(), new_cwd);
+    Log::Info("pwd prompt from shell_pid={}: {}", shell_pid.load(), new_cwd);
 
     {
         const auto lock_g = std::lock_guard{lock};
@@ -654,9 +655,9 @@ void ShellTask::WriteChildInput(std::string_view _data)
 
     {
         const auto lock = std::lock_guard{I->master_write_lock};
-        ssize_t rc = write(I->master_fd, _data.data(), _data.size());
+        const ssize_t rc = write(I->master_fd, _data.data(), _data.size());
         if( rc < 0 || rc != static_cast<ssize_t>(_data.size()) )
-            std::cerr << "write( m_MasterFD, _data.data(), _data.size() ) returned " << rc << std::endl;
+            std::cerr << "write( m_MasterFD, _data.data(), _data.size() ) returned " << rc << '\n';
     }
 
     if( (_data.back() == '\n' || _data.back() == '\r') && I->state == TaskState::Shell ) {
@@ -680,8 +681,7 @@ void ShellTask::Impl::CleanUp()
     dispatch_group_wait(io_group, DISPATCH_TIME_FOREVER);
 
     // next dispatch a request for the cleanup and wait until it completes
-    dispatch_group_async_f(
-        io_group, io_queue, this, +[](void *_ctx) { static_cast<Impl *>(_ctx)->DoCleanUp(); });
+    dispatch_group_async_f(io_group, io_queue, this, +[](void *_ctx) { static_cast<Impl *>(_ctx)->DoCleanUp(); });
     dispatch_group_wait(io_group, DISPATCH_TIME_FOREVER);
 }
 
@@ -689,16 +689,13 @@ void ShellTask::Impl::DoCleanUp()
 {
     // this method shall be called only on the io_queue.
     dispatch_assert_background_queue();
-    std::lock_guard lockg{lock};
+    const std::lock_guard lockg{lock};
 
     if( shell_pid > 0 ) {
         const int pid = shell_pid;
         shell_pid = -1;
-        const auto task = +[](void *_ctx) {
-            const int pid = static_cast<int>(reinterpret_cast<intptr_t>(_ctx));
-            KillAndReap(pid, std::chrono::milliseconds(400), std::chrono::milliseconds(1000));
-        };
-        dispatch_async_f(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), reinterpret_cast<void *>(pid), task);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0),
+                       [pid] { KillAndReap(pid, std::chrono::milliseconds(400), std::chrono::milliseconds(1000)); });
     }
 
     if( master_source != nullptr ) {
@@ -761,8 +758,7 @@ void ShellTask::Impl::OnShellDied()
 
     dispatch_source_cancel(master_source);
     dispatch_source_cancel(cwd_source);
-    dispatch_group_async_f(
-        io_group, io_queue, this, +[](void *_ctx) { static_cast<Impl *>(_ctx)->DoCleanUp(); });
+    dispatch_group_async_f(io_group, io_queue, this, +[](void *_ctx) { static_cast<Impl *>(_ctx)->DoCleanUp(); });
 }
 
 void ShellTask::Impl::SetState(TaskState _new_state)
@@ -821,7 +817,7 @@ bool ShellTask::IsCurrentWD(const char *_what) const
     char cwd[MAXPATHLEN];
     strcpy(cwd, _what);
 
-    if( !IsPathWithTrailingSlash(cwd) )
+    if( !utility::PathManip::HasTrailingSlash(cwd) )
         strcat(cwd, "/");
 
     return I->cwd == cwd;
@@ -832,14 +828,14 @@ void ShellTask::Execute(const char *_short_fn, const char *_at, const char *_par
     if( I->state != TaskState::Shell )
         return;
 
-    std::string cmd = EscapeShellFeed(_short_fn);
+    const std::string cmd = EscapeShellFeed(_short_fn);
 
     // process cwd stuff if any
     char cwd[MAXPATHLEN];
     cwd[0] = 0;
-    if( _at != 0 ) {
+    if( _at != nullptr ) {
         strcpy(cwd, _at);
-        if( IsPathWithTrailingSlash(cwd) && strlen(cwd) > 1 ) // cd command don't like trailing slashes
+        if( utility::PathManip::HasTrailingSlash(cwd) && strlen(cwd) > 1 ) // cd command don't like trailing slashes
             cwd[strlen(cwd) - 1] = 0;
 
         if( IsCurrentWD(cwd) ) {
@@ -851,22 +847,16 @@ void ShellTask::Execute(const char *_short_fn, const char *_at, const char *_par
         }
     }
 
-    char input[2048];
+    std::string input;
     if( cwd[0] != 0 )
-        snprintf(input,
-                 sizeof(input),
-                 "cd '%s'; ./%s%s%s\n",
-                 cwd,
-                 cmd.c_str(),
-                 _parameters != nullptr ? " " : "",
-                 _parameters != nullptr ? _parameters : "");
+        input = fmt::format("cd '{}'; ./{}{}{}\n",
+                            cwd,
+                            cmd,
+                            _parameters != nullptr ? " " : "",
+                            _parameters != nullptr ? _parameters : "");
     else
-        snprintf(input,
-                 sizeof(input),
-                 "./%s%s%s\n",
-                 cmd.c_str(),
-                 _parameters != nullptr ? " " : "",
-                 _parameters != nullptr ? _parameters : "");
+        input = fmt::format(
+            "./{}{}{}\n", cmd, _parameters != nullptr ? " " : "", _parameters != nullptr ? _parameters : "");
 
     I->SetState(TaskState::ProgramExternal);
     WriteChildInput(input);
@@ -877,34 +867,28 @@ void ShellTask::ExecuteWithFullPath(const char *_path, const char *_parameters)
     if( I->state != TaskState::Shell )
         return;
 
-    std::string cmd = EscapeShellFeed(_path);
-
-    char input[2048];
-    snprintf(input,
-             sizeof(input),
-             "%s%s%s\n",
-             cmd.c_str(),
-             _parameters != nullptr ? " " : "",
-             _parameters != nullptr ? _parameters : "");
+    const std::string cmd = EscapeShellFeed(_path);
+    const std::string input =
+        fmt::format("{}{}{}\n", cmd, _parameters != nullptr ? " " : "", _parameters != nullptr ? _parameters : "");
 
     I->SetState(TaskState::ProgramExternal);
     WriteChildInput(input);
 }
 
-void ShellTask::ExecuteWithFullPath(const std::filesystem::path& _binary_path, std::span<const std::string> _arguments)
+void ShellTask::ExecuteWithFullPath(const std::filesystem::path &_binary_path, std::span<const std::string> _arguments)
 {
     if( I->state != TaskState::Shell )
         return;
-    
+
     std::string cmd = EscapeShellFeed(_binary_path);
-    for( auto &arg: _arguments ) {
+    for( auto &arg : _arguments ) {
         cmd += ' ';
         cmd += EscapeShellFeed(arg);
     }
     cmd += "\n";
-    
+
     I->SetState(TaskState::ProgramExternal);
-    WriteChildInput(cmd.c_str());
+    WriteChildInput(cmd);
 }
 
 std::vector<std::string> ShellTask::ChildrenList() const
@@ -928,7 +912,9 @@ std::vector<std::string> ShellTask::ChildrenList() const
     };
     std::pmr::vector<Proc> procs(&mem_resource);
     for( size_t i = 0; i < proc_cnt; ++i ) {
-        procs.emplace_back(Proc{proc_list[i].kp_proc.p_pid, proc_list[i].kp_eproc.e_ppid, proc_list[i].kp_proc.p_comm});
+        procs.emplace_back(Proc{.pid = proc_list[i].kp_proc.p_pid,
+                                .ppid = proc_list[i].kp_eproc.e_ppid,
+                                .name = proc_list[i].kp_proc.p_comm});
     }
 
     struct PPidLess {
@@ -938,7 +924,7 @@ std::vector<std::string> ShellTask::ChildrenList() const
     };
 
     // sort by parent pid O(nlogn)
-    std::sort(procs.begin(), procs.end(), PPidLess{});
+    std::ranges::sort(procs, PPidLess{});
 
     // names of the sub-processes, sorted by depth
     std::vector<std::string> result;
@@ -952,7 +938,7 @@ std::vector<std::string> ShellTask::ChildrenList() const
 
         // find all processes with this specific ppid, O(logn), get their names and add their pids at the tail of the
         // queue
-        const auto range = std::equal_range(procs.begin(), procs.end(), ppid, PPidLess{});
+        const auto range = std::equal_range(procs.begin(), procs.end(), ppid, PPidLess{}); // NOLINT
         for( auto it = range.first; it != range.second; ++it ) {
             const pid_t pid = it->pid;
             char path_buffer[PROC_PIDPATHINFO_MAXSIZE] = {0};
@@ -993,8 +979,8 @@ int ShellTask::ShellChildPID() const
     int child_pid = -1;
 
     for( size_t i = 0; i < proc_cnt; ++i ) {
-        int pid = proc_list[i].kp_proc.p_pid;
-        int ppid = proc_list[i].kp_eproc.e_ppid;
+        const int pid = proc_list[i].kp_proc.p_pid;
+        const int ppid = proc_list[i].kp_eproc.e_ppid;
         if( ppid == I->shell_pid ) {
             child_pid = pid;
             break;
@@ -1007,7 +993,7 @@ int ShellTask::ShellChildPID() const
 
 std::string ShellTask::CWD() const
 {
-    std::lock_guard<std::mutex> lock(I->lock);
+    const std::lock_guard<std::mutex> lock(I->lock);
     return I->cwd;
 }
 
@@ -1115,28 +1101,18 @@ std::string ShellTask::ComposePromptCommand() const
     // 2.c) NC processes the pwd notification (hopefully) and writes into the semaphore pipe
     // 2.d) data from that semaphore is read and the shell is unblocked
     // 3) the shell resumes
-    char prompt_setup[1024] = {0};
     const int pid = I->shell_pid;
     if( I->shell_type == ShellType::Bash )
-        snprintf(prompt_setup,
-                 sizeof(prompt_setup),
-                 " PROMPT_COMMAND='if [ $$ -eq %d ]; then pwd>&20; read sema <&21; fi'\n",
-                 pid);
+        return fmt::format(" PROMPT_COMMAND='if [ $$ -eq {} ]; then pwd>&20; read sema <&21; fi'\n", pid);
     else if( I->shell_type == ShellType::ZSH )
-        snprintf(prompt_setup,
-                 sizeof(prompt_setup),
-                 " precmd(){ if [ $$ -eq %d ]; then pwd>&20; read sema <&21; fi; }\n",
-                 pid);
+        return fmt::format(" precmd(){{ if [ $$ -eq {} ]; then pwd>&20; read sema <&21; fi; }}\n", pid);
     else if( I->shell_type == ShellType::TCSH )
-        snprintf(prompt_setup,
-                 sizeof(prompt_setup),
-                 " alias precmd 'if ( $$ == %d ) pwd>>%s;dd if=%s of=/dev/null bs=4 count=1 "
-                 ">&/dev/null'\n",
-                 pid,
-                 I->tcsh_cwd_path.c_str(),
-                 I->tcsh_semaphore_path.c_str());
-
-    return prompt_setup;
+        return fmt::format(" alias precmd 'if ( $$ == {} ) pwd>>{};dd if={} of=/dev/null bs=4 count=1 >&/dev/null'\n",
+                           pid,
+                           I->tcsh_cwd_path,
+                           I->tcsh_semaphore_path);
+    else
+        return {};
 }
 
 } // namespace nc::term

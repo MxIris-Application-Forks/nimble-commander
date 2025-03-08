@@ -1,4 +1,4 @@
-// Copyright (C) 2016-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2016-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "TemporaryNativeFileChangesSentinel.h"
 #include <Base/algo.h>
 #include <Base/Hash.h>
@@ -8,15 +8,20 @@
 #include <Base/dispatch_cpp.h>
 #include <NimbleCommander/Bootstrap/NativeVFSHostInstance.h>
 
+#include <algorithm>
+
+using namespace nc;
+
 static std::optional<std::vector<uint8_t>> CalculateFileHash(const std::string &_path)
 {
     const int chunk_sz = 1 * 1024 * 1024;
-    VFSFilePtr file;
-    int rc = nc::bootstrap::NativeVFSHostInstance().CreateFile(_path.c_str(), file, nullptr);
-    if( rc != 0 )
+    const std::expected<std::shared_ptr<VFSFile>, Error> exp_file =
+        bootstrap::NativeVFSHostInstance().CreateFile(_path);
+    if( !exp_file )
         return std::nullopt;
 
-    rc = file->Open(VFSFlags::OF_Read | VFSFlags::OF_ShLock, nullptr);
+    VFSFile &file = **exp_file;
+    const int rc = file.Open(VFSFlags::OF_Read | VFSFlags::OF_ShLock, nullptr);
     if( rc != 0 )
         return std::nullopt;
 
@@ -24,7 +29,7 @@ static std::optional<std::vector<uint8_t>> CalculateFileHash(const std::string &
     nc::base::Hash h(nc::base::Hash::MD5);
 
     ssize_t rn = 0;
-    while( (rn = file->Read(buf.get(), chunk_sz)) > 0 )
+    while( (rn = file.Read(buf.get(), chunk_sz)) > 0 )
         h.Feed(buf.get(), rn);
 
     if( rn < 0 )
@@ -35,8 +40,8 @@ static std::optional<std::vector<uint8_t>> CalculateFileHash(const std::string &
 
 TemporaryNativeFileChangesSentinel &TemporaryNativeFileChangesSentinel::Instance()
 {
-    static auto inst = new TemporaryNativeFileChangesSentinel;
-    return *inst;
+    [[clang::no_destroy]] static TemporaryNativeFileChangesSentinel inst;
+    return inst;
 }
 
 bool TemporaryNativeFileChangesSentinel::WatchFile(const std::string &_path,
@@ -52,9 +57,8 @@ bool TemporaryNativeFileChangesSentinel::WatchFile(const std::string &_path,
     auto current = std::make_shared<Meta>();
     auto &dir_update = nc::utility::FSEventsDirUpdate::Instance();
     const auto path = std::filesystem::path(_path).parent_path();
-    uint64_t watch_ticket = dir_update.AddWatchPath(path.c_str(), [current] {
-        TemporaryNativeFileChangesSentinel::Instance().FSEventCallback(current);
-    });
+    const uint64_t watch_ticket = dir_update.AddWatchPath(
+        path.c_str(), [current] { TemporaryNativeFileChangesSentinel::Instance().FSEventCallback(current); });
     if( !watch_ticket )
         return false;
 
@@ -77,7 +81,7 @@ void TemporaryNativeFileChangesSentinel::ScheduleItemDrop(const std::shared_ptr<
     using namespace std::chrono;
     static const auto safety_backlash = 100ms;
     _meta->drop_time = duration_cast<milliseconds>(nc::base::machtime() + _meta->drop_delay);
-    dispatch_to_background_after(_meta->drop_delay + safety_backlash, [=] {
+    dispatch_to_background_after(_meta->drop_delay + safety_backlash, [=, this] {
         if( _meta->drop_time < nc::base::machtime() )
             StopFileWatch(_meta->path);
     });
@@ -87,10 +91,9 @@ bool TemporaryNativeFileChangesSentinel::StopFileWatch(const std::string &_path)
 {
     auto &dir_update = nc::utility::FSEventsDirUpdate::Instance();
     auto lock = std::lock_guard{m_WatchesLock};
-    auto it = find_if(
-        begin(m_Watches), end(m_Watches), [&](const auto &_i) { return _i->path == _path; });
+    auto it = std::ranges::find_if(m_Watches, [&](const auto &_i) { return _i->path == _path; });
     if( it != end(m_Watches) ) {
-        auto meta = *it;
+        const auto &meta = *it;
         dir_update.RemoveWatchPathWithTicket(meta->fswatch_ticket);
         meta->fswatch_ticket = 0;
         m_Watches.erase(it);
@@ -107,7 +110,7 @@ void TemporaryNativeFileChangesSentinel::FSEventCallback(std::shared_ptr<Meta> _
 
     _meta->checking_now = true;
 
-    dispatch_to_background_after(_meta->check_delay, [=] { BackgroundItemCheck(_meta); });
+    dispatch_to_background_after(_meta->check_delay, [=, this] { BackgroundItemCheck(_meta); });
 }
 
 void TemporaryNativeFileChangesSentinel::BackgroundItemCheck(std::shared_ptr<Meta> _meta)

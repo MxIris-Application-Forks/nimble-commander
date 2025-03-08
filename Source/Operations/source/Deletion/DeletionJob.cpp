@@ -1,32 +1,27 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "DeletionJob.h"
 #include <Utility/PathManip.h>
 #include <Utility/NativeFSManager.h>
 #include <dirent.h>
 #include <sys/param.h>
 #include <sys/stat.h>
+#include <algorithm>
 
 namespace nc::ops {
 
-static bool IsEAStorage(VFSHost &_host,
-                        const std::string &_directory,
-                        const char *_filename,
-                        uint8_t _unix_type);
+static bool IsEAStorage(VFSHost &_host, const std::string &_directory, const char *_filename, uint8_t _unix_type);
 
 DeletionJob::DeletionJob(std::vector<VFSListingItem> _items, DeletionType _type)
 {
     m_SourceItems = std::move(_items);
     m_Type = _type;
-    if( _type == DeletionType::Trash && !all_of(begin(m_SourceItems),
-                                                end(m_SourceItems),
-                                                [](auto &i) { return i.Host()->IsNativeFS(); }) )
+    if( _type == DeletionType::Trash &&
+        !std::ranges::all_of(m_SourceItems, [](auto &i) { return i.Host()->IsNativeFS(); }) )
         throw std::invalid_argument("DeletionJob: invalid work mode for the provided items");
     Statistics().SetPreferredSource(Statistics::SourceType::Items);
 }
 
-DeletionJob::~DeletionJob()
-{
-}
+DeletionJob::~DeletionJob() = default;
 
 void DeletionJob::Perform()
 {
@@ -55,14 +50,12 @@ void DeletionJob::DoScan()
             si.type = m_Type;
             m_Script.emplace(si);
 
-            const auto nonempty_rm =
-                bool(item.Host()->Features() & vfs::HostFeatures::NonEmptyRmDir);
-            if( m_Type == DeletionType::Permanent && nonempty_rm == false )
+            const auto nonempty_rm = bool(item.Host()->Features() & vfs::HostFeatures::NonEmptyRmDir);
+            if( m_Type == DeletionType::Permanent && !nonempty_rm )
                 ScanDirectory(item.Path(), i, si.filename);
         }
         else {
-            const auto is_ea_storage =
-                IsEAStorage(*item.Host(), item.Directory(), item.FilenameC(), item.UnixType());
+            const auto is_ea_storage = IsEAStorage(*item.Host(), item.Directory(), item.FilenameC(), item.UnixType());
             if( !is_ea_storage ) {
                 m_Paths.push_back(item.Filename(), nullptr);
                 SourceItem si;
@@ -90,14 +83,15 @@ void DeletionJob::ScanDirectory(const std::string &_path,
         if( BlockIfPaused(); IsStopped() )
             return;
 
-        if( auto rc = vfs.IterateDirectoryListing(_path.c_str(), it_callback); rc == VFSError::Ok )
+        if( const std::expected<void, Error> rc = vfs.IterateDirectoryListing(_path, it_callback); rc )
             break;
         else
-            switch( m_OnReadDirError(rc, _path, vfs) ) {
+            switch( m_OnReadDirError(rc.error(), _path, vfs) ) {
                 case ReadDirErrorResolution::Retry:
                     continue;
                 case ReadDirErrorResolution::Stop:
                     Stop();
+                    [[fallthrough]];
                 case ReadDirErrorResolution::Skip:
                     return;
             }
@@ -119,8 +113,7 @@ void DeletionJob::ScanDirectory(const std::string &_path,
             ScanDirectory(EnsureTrailingSlash(_path) + e.name, _listing_item_index, si.filename);
         }
         else {
-            const auto is_ea_storage =
-                IsEAStorage(vfs, _path, e.name, static_cast<uint8_t>(e.type));
+            const auto is_ea_storage = IsEAStorage(vfs, _path, e.name, static_cast<uint8_t>(e.type));
             if( !is_ea_storage ) {
                 m_Paths.push_back(e.name, _prefix);
                 SourceItem si;
@@ -142,13 +135,12 @@ void DeletionJob::DoDelete()
         const auto entry = m_Script.top();
         m_Script.pop();
 
-        const auto path = m_SourceItems[entry.listing_item_index].Directory() +
-                          entry.filename->to_str_with_pref();
+        const auto path = m_SourceItems[entry.listing_item_index].Directory() + entry.filename->to_str_with_pref();
         const auto &vfs = m_SourceItems[entry.listing_item_index].Host();
         const auto type = entry.type;
 
         if( type == DeletionType::Permanent ) {
-            const auto is_dir = IsPathWithTrailingSlash(path);
+            const auto is_dir = utility::PathManip::HasTrailingSlash(path);
             if( is_dir )
                 DoRmDir(path, *vfs);
             else
@@ -163,10 +155,10 @@ void DeletionJob::DoDelete()
 bool DeletionJob::DoUnlock(const std::string &_path, VFSHost &_vfs)
 {
     while( true ) {
-        const int unlock_rc = UnlockItem(_path, _vfs);
-        if( unlock_rc == VFSError::Ok )
+        const std::expected<void, Error> unlock_rc = UnlockItem(_path, _vfs);
+        if( unlock_rc )
             return true;
-        switch( m_OnUnlockError(unlock_rc, _path, _vfs) ) {
+        switch( m_OnUnlockError(unlock_rc.error(), _path, _vfs) ) {
             case DeletionJobCallbacks::UnlockErrorResolution::Retry:
                 continue;
             case DeletionJobCallbacks::UnlockErrorResolution::Skip:
@@ -183,15 +175,15 @@ bool DeletionJob::DoUnlock(const std::string &_path, VFSHost &_vfs)
 void DeletionJob::DoUnlink(const std::string &_path, VFSHost &_vfs)
 {
     while( true ) {
-        const auto rc = _vfs.Unlink(_path.c_str());
-        if( rc == VFSError::Ok ) {
+        const std::expected<void, Error> rc = _vfs.Unlink(_path);
+        if( rc ) {
             Statistics().CommitProcessed(Statistics::SourceType::Items, 1);
             break;
         }
-        else if( IsNativeLockedItem(rc, _path, _vfs) ) {
-            switch( m_OnLockedItem(rc, _path, _vfs, DeletionType::Permanent) ) {
+        else if( IsNativeLockedItem(rc.error(), _path, _vfs) ) {
+            switch( m_OnLockedItem(rc.error(), _path, _vfs, DeletionType::Permanent) ) {
                 case LockedItemResolution::Unlock: {
-                    if( DoUnlock(_path, _vfs) == false )
+                    if( !DoUnlock(_path, _vfs) )
                         return;
                     continue;
                 }
@@ -206,7 +198,7 @@ void DeletionJob::DoUnlink(const std::string &_path, VFSHost &_vfs)
             }
         }
         else {
-            switch( m_OnUnlinkError(rc, _path, _vfs) ) {
+            switch( m_OnUnlinkError(rc.error(), _path, _vfs) ) {
                 case UnlinkErrorResolution::Retry:
                     continue;
                 case UnlinkErrorResolution::Skip:
@@ -223,15 +215,15 @@ void DeletionJob::DoUnlink(const std::string &_path, VFSHost &_vfs)
 void DeletionJob::DoRmDir(const std::string &_path, VFSHost &_vfs)
 {
     while( true ) {
-        const auto rc = _vfs.RemoveDirectory(_path.c_str());
-        if( rc == VFSError::Ok ) {
+        const std::expected<void, Error> rc = _vfs.RemoveDirectory(_path);
+        if( rc ) {
             Statistics().CommitProcessed(Statistics::SourceType::Items, 1);
             break;
         }
-        else if( IsNativeLockedItem(rc, _path, _vfs) ) {
-            switch( m_OnLockedItem(rc, _path, _vfs, DeletionType::Permanent) ) {
+        else if( IsNativeLockedItem(rc.error(), _path, _vfs) ) {
+            switch( m_OnLockedItem(rc.error(), _path, _vfs, DeletionType::Permanent) ) {
                 case LockedItemResolution::Unlock: {
-                    if( DoUnlock(_path, _vfs) == false )
+                    if( !DoUnlock(_path, _vfs) )
                         return;
                     continue;
                 }
@@ -246,7 +238,7 @@ void DeletionJob::DoRmDir(const std::string &_path, VFSHost &_vfs)
             }
         }
         else {
-            switch( m_OnRmdirError(rc, _path, _vfs) ) {
+            switch( m_OnRmdirError(rc.error(), _path, _vfs) ) {
                 case RmdirErrorResolution::Retry:
                     continue;
                 case RmdirErrorResolution::Skip:
@@ -263,14 +255,14 @@ void DeletionJob::DoRmDir(const std::string &_path, VFSHost &_vfs)
 void DeletionJob::DoTrash(const std::string &_path, VFSHost &_vfs, SourceItem _src)
 {
     while( true ) {
-        const auto rc = _vfs.Trash(_path.c_str());
-        if( rc == VFSError::Ok ) {
+        const std::expected<void, nc::Error> result = _vfs.Trash(_path);
+        if( result ) {
             Statistics().CommitProcessed(Statistics::SourceType::Items, 1);
         }
-        else if( IsNativeLockedItem(rc, _path, _vfs) ) {
-            switch( m_OnLockedItem(rc, _path, _vfs, DeletionType::Trash) ) {
+        else if( IsNativeLockedItem(result.error(), _path, _vfs) ) {
+            switch( m_OnLockedItem(result.error(), _path, _vfs, DeletionType::Trash) ) {
                 case LockedItemResolution::Unlock: {
-                    if( DoUnlock(_path, _vfs) == false )
+                    if( !DoUnlock(_path, _vfs) )
                         return;
                     continue;
                 }
@@ -285,7 +277,7 @@ void DeletionJob::DoTrash(const std::string &_path, VFSHost &_vfs, SourceItem _s
             }
         }
         else {
-            const auto resolution = m_OnTrashError(rc, _path, _vfs);
+            const auto resolution = m_OnTrashError(result.error(), _path, _vfs);
             if( resolution == TrashErrorResolution::Retry ) {
                 continue;
             }
@@ -296,7 +288,7 @@ void DeletionJob::DoTrash(const std::string &_path, VFSHost &_vfs, SourceItem _s
                 SourceItem si = _src;
                 si.type = DeletionType::Permanent;
                 m_Script.emplace(si);
-                const auto is_dir = IsPathWithTrailingSlash(_path);
+                const auto is_dir = utility::PathManip::HasTrailingSlash(_path);
                 if( is_dir )
                     ScanDirectory(_path, si.listing_item_index, si.filename);
             }
@@ -313,48 +305,42 @@ int DeletionJob::ItemsInScript() const
     return static_cast<int>(m_Script.size());
 }
 
-bool DeletionJob::IsNativeLockedItem(int vfs_err, const std::string &_path, VFSHost &_vfs) const
+bool DeletionJob::IsNativeLockedItem(const nc::Error &_err, const std::string &_path, VFSHost &_vfs)
 {
-    if( vfs_err != VFSError::FromErrno(EPERM) )
+    if( _err != Error{Error::POSIX, EPERM} )
         return false;
 
-    if( _vfs.IsNativeFS() == false )
+    if( !_vfs.IsNativeFS() )
         return false;
 
-    VFSStat st;
-    const int stat_rc = _vfs.Stat(_path.c_str(), st, nc::vfs::Flags::F_NoFollow);
-    if( stat_rc != VFSError::Ok )
+    const std::expected<VFSStat, Error> st = _vfs.Stat(_path, nc::vfs::Flags::F_NoFollow);
+    if( !st )
         return false;
 
-    return st.flags & UF_IMMUTABLE;
+    return st->flags & UF_IMMUTABLE;
 }
 
-int DeletionJob::UnlockItem(const std::string &_path, VFSHost &_vfs) const
+std::expected<void, Error> DeletionJob::UnlockItem(std::string_view _path, VFSHost &_vfs)
 {
     // this is kind of stupid to call stat() essentially twice :-|
 
-    VFSStat st;
-    const int stat_rc = _vfs.Stat(_path.c_str(), st, nc::vfs::Flags::F_NoFollow);
-    if( stat_rc != VFSError::Ok )
-        return stat_rc;
+    const std::expected<VFSStat, Error> st = _vfs.Stat(_path, vfs::Flags::F_NoFollow);
+    if( !st )
+        return std::unexpected(st.error());
 
-    st.flags = (st.flags & ~UF_IMMUTABLE);
-    const int chflags_rc = _vfs.SetFlags(_path.c_str(), st.flags, vfs::Flags::F_NoFollow);
+    const uint32_t flags = (st->flags & ~UF_IMMUTABLE);
+    const std::expected<void, Error> chflags_rc = _vfs.SetFlags(_path, flags, vfs::Flags::F_NoFollow);
     return chflags_rc;
 }
 
-static bool IsEAStorage(VFSHost &_host,
-                        const std::string &_directory,
-                        const char *_filename,
-                        uint8_t _unix_type)
+static bool IsEAStorage(VFSHost &_host, const std::string &_directory, const char *_filename, uint8_t _unix_type)
 {
-    if( _unix_type != DT_REG || !_host.IsNativeFS() || _filename[0] != '.' || _filename[1] != '_' ||
-        _filename[2] == 0 )
+    if( _unix_type != DT_REG || !_host.IsNativeFS() || _filename[0] != '.' || _filename[1] != '_' || _filename[2] == 0 )
         return false;
 
     char origin_file_path[MAXPATHLEN];
     strcpy(origin_file_path, _directory.c_str());
-    if( !IsPathWithTrailingSlash(origin_file_path) )
+    if( !utility::PathManip::HasTrailingSlash(origin_file_path) )
         strcat(origin_file_path, "/");
     strcat(origin_file_path, _filename + 2);
     return _host.Exists(origin_file_path);

@@ -27,14 +27,14 @@ TEST_CASE(PREFIX "resizes screen only when allowed")
     {
         SECTION("80")
         {
-            const Command cmd{Type::change_mode, ModeChange{ModeChange::Kind::Column132, false}};
+            const Command cmd{Type::change_mode, ModeChange{.mode = ModeChange::Kind::Column132, .status = false}};
             interpreter.Interpret({&cmd, 1});
             CHECK(screen.Width() == 80);
             CHECK(screen.Height() == 6);
         }
         SECTION("132")
         {
-            const Command cmd{Type::change_mode, ModeChange{ModeChange::Kind::Column132, true}};
+            const Command cmd{Type::change_mode, ModeChange{.mode = ModeChange::Kind::Column132, .status = true}};
             interpreter.Interpret({&cmd, 1});
             CHECK(screen.Width() == 132);
             CHECK(screen.Height() == 6);
@@ -45,12 +45,12 @@ TEST_CASE(PREFIX "resizes screen only when allowed")
         interpreter.SetScreenResizeAllowed(false);
         SECTION("80")
         {
-            const Command cmd{Type::change_mode, ModeChange{ModeChange::Kind::Column132, false}};
+            const Command cmd{Type::change_mode, ModeChange{.mode = ModeChange::Kind::Column132, .status = false}};
             interpreter.Interpret({&cmd, 1});
         }
         SECTION("132")
         {
-            const Command cmd{Type::change_mode, ModeChange{ModeChange::Kind::Column132, true}};
+            const Command cmd{Type::change_mode, ModeChange{.mode = ModeChange::Kind::Column132, .status = true}};
             interpreter.Interpret({&cmd, 1});
         }
         CHECK(screen.Width() == 10);
@@ -109,23 +109,74 @@ TEST_CASE(PREFIX "setting foreground colors")
         CHECK(screen.Buffer().At(0, 0).foreground == Color{});
         CHECK(screen.Buffer().At(0, 0).customfg == false);
     }
-    SECTION("Black") { verify(Color::Black); }
-    SECTION("Red") { verify(Color::Red); }
-    SECTION("Green") { verify(Color::Green); }
-    SECTION("Yellow") { verify(Color::Yellow); }
-    SECTION("Blue") { verify(Color::Blue); }
-    SECTION("Magenta") { verify(Color::Magenta); }
-    SECTION("Cyan") { verify(Color::Cyan); }
-    SECTION("White") { verify(Color::White); }
-    SECTION("BlackBright") { verify(Color::BrightBlack); }
-    SECTION("RedBright") { verify(Color::BrightRed); }
-    SECTION("GreenBright") { verify(Color::BrightGreen); }
-    SECTION("YellowBright") { verify(Color::BrightYellow); }
-    SECTION("BlueBright") { verify(Color::BrightBlue); }
-    SECTION("MagentaBright") { verify(Color::BrightMagenta); }
-    SECTION("CyanBright") { verify(Color::BrightCyan); }
-    SECTION("WhiteBright") { verify(Color::BrightWhite); }
-    SECTION("Default") { verify(std::nullopt); }
+    SECTION("Black")
+    {
+        verify(Color::Black);
+    }
+    SECTION("Red")
+    {
+        verify(Color::Red);
+    }
+    SECTION("Green")
+    {
+        verify(Color::Green);
+    }
+    SECTION("Yellow")
+    {
+        verify(Color::Yellow);
+    }
+    SECTION("Blue")
+    {
+        verify(Color::Blue);
+    }
+    SECTION("Magenta")
+    {
+        verify(Color::Magenta);
+    }
+    SECTION("Cyan")
+    {
+        verify(Color::Cyan);
+    }
+    SECTION("White")
+    {
+        verify(Color::White);
+    }
+    SECTION("BlackBright")
+    {
+        verify(Color::BrightBlack);
+    }
+    SECTION("RedBright")
+    {
+        verify(Color::BrightRed);
+    }
+    SECTION("GreenBright")
+    {
+        verify(Color::BrightGreen);
+    }
+    SECTION("YellowBright")
+    {
+        verify(Color::BrightYellow);
+    }
+    SECTION("BlueBright")
+    {
+        verify(Color::BrightBlue);
+    }
+    SECTION("MagentaBright")
+    {
+        verify(Color::BrightMagenta);
+    }
+    SECTION("CyanBright")
+    {
+        verify(Color::BrightCyan);
+    }
+    SECTION("WhiteBright")
+    {
+        verify(Color::BrightWhite);
+    }
+    SECTION("Default")
+    {
+        verify(std::nullopt);
+    }
     // TODO: 8-bit colors
 }
 
@@ -149,23 +200,74 @@ TEST_CASE(PREFIX "setting background colors")
         CHECK(screen.Buffer().At(0, 0).background == Color{});
         CHECK(screen.Buffer().At(0, 0).custombg == false);
     }
-    SECTION("Black") { verify(Color::Black); }
-    SECTION("Red") { verify(Color::Red); }
-    SECTION("Green") { verify(Color::Green); }
-    SECTION("Yellow") { verify(Color::Yellow); }
-    SECTION("Blue") { verify(Color::Blue); }
-    SECTION("Magenta") { verify(Color::Magenta); }
-    SECTION("Cyan") { verify(Color::Cyan); }
-    SECTION("White") { verify(Color::White); }
-    SECTION("BlackBright") { verify(Color::BrightBlack); }
-    SECTION("RedBright") { verify(Color::BrightRed); }
-    SECTION("GreenBright") { verify(Color::BrightGreen); }
-    SECTION("YellowBright") { verify(Color::BrightYellow); }
-    SECTION("BlueBright") { verify(Color::BrightBlue); }
-    SECTION("MagentaBright") { verify(Color::BrightMagenta); }
-    SECTION("CyanBright") { verify(Color::BrightCyan); }
-    SECTION("WhiteBright") { verify(Color::BrightWhite); }
-    SECTION("Default") { verify(std::nullopt); }
+    SECTION("Black")
+    {
+        verify(Color::Black);
+    }
+    SECTION("Red")
+    {
+        verify(Color::Red);
+    }
+    SECTION("Green")
+    {
+        verify(Color::Green);
+    }
+    SECTION("Yellow")
+    {
+        verify(Color::Yellow);
+    }
+    SECTION("Blue")
+    {
+        verify(Color::Blue);
+    }
+    SECTION("Magenta")
+    {
+        verify(Color::Magenta);
+    }
+    SECTION("Cyan")
+    {
+        verify(Color::Cyan);
+    }
+    SECTION("White")
+    {
+        verify(Color::White);
+    }
+    SECTION("BlackBright")
+    {
+        verify(Color::BrightBlack);
+    }
+    SECTION("RedBright")
+    {
+        verify(Color::BrightRed);
+    }
+    SECTION("GreenBright")
+    {
+        verify(Color::BrightGreen);
+    }
+    SECTION("YellowBright")
+    {
+        verify(Color::BrightYellow);
+    }
+    SECTION("BlueBright")
+    {
+        verify(Color::BrightBlue);
+    }
+    SECTION("MagentaBright")
+    {
+        verify(Color::BrightMagenta);
+    }
+    SECTION("CyanBright")
+    {
+        verify(Color::BrightCyan);
+    }
+    SECTION("WhiteBright")
+    {
+        verify(Color::BrightWhite);
+    }
+    SECTION("Default")
+    {
+        verify(std::nullopt);
+    }
     // TODO: 8-bit colors
 }
 
@@ -185,9 +287,18 @@ TEST_CASE(PREFIX "setting faint")
         interpreter.Interpret(Command(Type::text, UTF8Text{"A"}));
         CHECK(screen.Buffer().At(0, 0).faint == false);
     }
-    SECTION("Normal") { verify(CA::Normal, false); }
-    SECTION("Faint") { verify(CA::Faint, true); }
-    SECTION("Not Bold Not Faint") { verify(CA::NotBoldNotFaint, false); }
+    SECTION("Normal")
+    {
+        verify(CA::Normal, false);
+    }
+    SECTION("Faint")
+    {
+        verify(CA::Faint, true);
+    }
+    SECTION("Not Bold Not Faint")
+    {
+        verify(CA::NotBoldNotFaint, false);
+    }
 }
 
 TEST_CASE(PREFIX "setting inverse")
@@ -206,8 +317,14 @@ TEST_CASE(PREFIX "setting inverse")
         interpreter.Interpret(Command(Type::text, UTF8Text{"A"}));
         CHECK(screen.Buffer().At(0, 0).reverse == false);
     }
-    SECTION("Inverse") { verify(CA::Inverse, true); }
-    SECTION("Not inverse") { verify(CA::NotInverse, false); }
+    SECTION("Inverse")
+    {
+        verify(CA::Inverse, true);
+    }
+    SECTION("Not inverse")
+    {
+        verify(CA::NotInverse, false);
+    }
 }
 
 TEST_CASE(PREFIX "setting bold")
@@ -226,8 +343,14 @@ TEST_CASE(PREFIX "setting bold")
         interpreter.Interpret(Command(Type::text, UTF8Text{"A"}));
         CHECK(screen.Buffer().At(0, 0).bold == false);
     }
-    SECTION("Bold") { verify(CA::Bold, true); }
-    SECTION("Not bold") { verify(CA::NotBoldNotFaint, false); }
+    SECTION("Bold")
+    {
+        verify(CA::Bold, true);
+    }
+    SECTION("Not bold")
+    {
+        verify(CA::NotBoldNotFaint, false);
+    }
 }
 
 TEST_CASE(PREFIX "setting italic")
@@ -246,8 +369,14 @@ TEST_CASE(PREFIX "setting italic")
         interpreter.Interpret(Command(Type::text, UTF8Text{"A"}));
         CHECK(screen.Buffer().At(0, 0).italic == false);
     }
-    SECTION("Italic") { verify(CA::Italicized, true); }
-    SECTION("Not italic") { verify(CA::NotItalicized, false); }
+    SECTION("Italic")
+    {
+        verify(CA::Italicized, true);
+    }
+    SECTION("Not italic")
+    {
+        verify(CA::NotItalicized, false);
+    }
 }
 
 TEST_CASE(PREFIX "setting invisible")
@@ -266,8 +395,14 @@ TEST_CASE(PREFIX "setting invisible")
         interpreter.Interpret(Command(Type::text, UTF8Text{"A"}));
         CHECK(screen.Buffer().At(0, 0).invisible == false);
     }
-    SECTION("Invisible") { verify(CA::Invisible, true); }
-    SECTION("Not invsible") { verify(CA::NotInvisible, false); }
+    SECTION("Invisible")
+    {
+        verify(CA::Invisible, true);
+    }
+    SECTION("Not invsible")
+    {
+        verify(CA::NotInvisible, false);
+    }
 }
 
 TEST_CASE(PREFIX "setting blink")
@@ -286,8 +421,14 @@ TEST_CASE(PREFIX "setting blink")
         interpreter.Interpret(Command(Type::text, UTF8Text{"A"}));
         CHECK(screen.Buffer().At(0, 0).blink == false);
     }
-    SECTION("Blink") { verify(CA::Blink, true); }
-    SECTION("Not blink") { verify(CA::NotBlink, false); }
+    SECTION("Blink")
+    {
+        verify(CA::Blink, true);
+    }
+    SECTION("Not blink")
+    {
+        verify(CA::NotBlink, false);
+    }
 }
 
 TEST_CASE(PREFIX "setting underline")
@@ -306,9 +447,18 @@ TEST_CASE(PREFIX "setting underline")
         interpreter.Interpret(Command(Type::text, UTF8Text{"A"}));
         CHECK(screen.Buffer().At(0, 0).underline == false);
     }
-    SECTION("Underline") { verify(CA::Underlined, true); }
-    SECTION("Doubly Underline") { verify(CA::DoublyUnderlined, true); }
-    SECTION("Not underlined") { verify(CA::NotUnderlined, false); }
+    SECTION("Underline")
+    {
+        verify(CA::Underlined, true);
+    }
+    SECTION("Doubly Underline")
+    {
+        verify(CA::DoublyUnderlined, true);
+    }
+    SECTION("Not underlined")
+    {
+        verify(CA::NotUnderlined, false);
+    }
 }
 
 TEST_CASE(PREFIX "setting crossed")
@@ -327,8 +477,14 @@ TEST_CASE(PREFIX "setting crossed")
         interpreter.Interpret(Command(Type::text, UTF8Text{"A"}));
         CHECK(screen.Buffer().At(0, 0).crossed == false);
     }
-    SECTION("Crossed") { verify(CA::Crossed, true); }
-    SECTION("Not crossed") { verify(CA::NotCrossed, false); }
+    SECTION("Crossed")
+    {
+        verify(CA::Crossed, true);
+    }
+    SECTION("Not crossed")
+    {
+        verify(CA::NotCrossed, false);
+    }
 }
 
 TEST_CASE(PREFIX "G0 - DEC Special Graphics")
@@ -359,7 +515,8 @@ TEST_CASE(PREFIX "Save/restore")
     SECTION("Coordinates")
     {
         interpreter.Interpret(Command{Type::save_state});
-        interpreter.Interpret(Command(Type::move_cursor, CursorMovement{CursorMovement::Absolute, 1, 1}));
+        interpreter.Interpret(
+            Command(Type::move_cursor, CursorMovement{.positioning = CursorMovement::Absolute, .x = 1, .y = 1}));
         interpreter.Interpret(Command{Type::restore_state});
         CHECK(screen.CursorX() == 0);
         CHECK(screen.CursorY() == 0);
@@ -420,7 +577,7 @@ TEST_CASE(PREFIX "Change title")
 
     SECTION("IconAndWindow")
     {
-        Title t{Title::IconAndWindow, "Hi1"};
+        Title t{.kind = Title::IconAndWindow, .title = "Hi1"};
         interpreter.Interpret(Command(Type::change_title, t));
         REQUIRE(title.size() == 2);
         CHECK(title[0] == "Hi1");
@@ -431,7 +588,7 @@ TEST_CASE(PREFIX "Change title")
     }
     SECTION("Icon")
     {
-        Title t{Title::Icon, "Hi2"};
+        Title t{.kind = Title::Icon, .title = "Hi2"};
         interpreter.Interpret(Command(Type::change_title, t));
         REQUIRE(title.size() == 1);
         CHECK(title[0] == "Hi2");
@@ -440,7 +597,7 @@ TEST_CASE(PREFIX "Change title")
     }
     SECTION("Window")
     {
-        Title t{Title::Window, "Hi3"};
+        Title t{.kind = Title::Window, .title = "Hi3"};
         interpreter.Interpret(Command(Type::change_title, t));
         REQUIRE(title.size() == 1);
         CHECK(title[0] == "Hi3");
@@ -449,17 +606,17 @@ TEST_CASE(PREFIX "Change title")
     }
     SECTION("Called only on actual changes")
     {
-        interpreter.Interpret(Command(Type::change_title, Title{Title::Window, "A"}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::Window, .title = "A"}));
         REQUIRE(title.size() == 1);
-        interpreter.Interpret(Command(Type::change_title, Title{Title::Window, "A"}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::Window, .title = "A"}));
         REQUIRE(title.size() == 1);
-        interpreter.Interpret(Command(Type::change_title, Title{Title::Icon, "A"}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::Icon, .title = "A"}));
         REQUIRE(title.size() == 2);
-        interpreter.Interpret(Command(Type::change_title, Title{Title::Icon, "A"}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::Icon, .title = "A"}));
         REQUIRE(title.size() == 2);
-        interpreter.Interpret(Command(Type::change_title, Title{Title::IconAndWindow, "A"}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::IconAndWindow, .title = "A"}));
         REQUIRE(title.size() == 2);
-        interpreter.Interpret(Command(Type::change_title, Title{Title::IconAndWindow, "B"}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::IconAndWindow, .title = "B"}));
         REQUIRE(title.size() == 4);
     }
 }
@@ -480,12 +637,14 @@ TEST_CASE(PREFIX "Supports saving/restoring titles")
 
     SECTION("Save and restore both")
     {
-        interpreter.Interpret(Command(Type::change_title, Title{Title::IconAndWindow, "Cat"}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::IconAndWindow, .title = "Cat"}));
         interpreter.Interpret(
-            Command(Type::manipulate_title, TitleManipulation{TitleManipulation::Both, TitleManipulation::Save}));
-        interpreter.Interpret(Command(Type::change_title, Title{Title::IconAndWindow, "Dog"}));
+            Command(Type::manipulate_title,
+                    TitleManipulation{.target = TitleManipulation::Both, .operation = TitleManipulation::Save}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::IconAndWindow, .title = "Dog"}));
         interpreter.Interpret(
-            Command(Type::manipulate_title, TitleManipulation{TitleManipulation::Both, TitleManipulation::Restore}));
+            Command(Type::manipulate_title,
+                    TitleManipulation{.target = TitleManipulation::Both, .operation = TitleManipulation::Restore}));
         CHECK(title == std::vector<std::string>{"Cat", "Cat", "Dog", "Dog", "Cat", "Cat"});
         CHECK(kind == std::vector<Interpreter::TitleKind>{Interpreter::TitleKind::Icon,
                                                           Interpreter::TitleKind::Window,
@@ -497,23 +656,28 @@ TEST_CASE(PREFIX "Supports saving/restoring titles")
     SECTION("Restore with no saved titles does nothing")
     {
         interpreter.Interpret(
-            Command(Type::manipulate_title, TitleManipulation{TitleManipulation::Both, TitleManipulation::Restore}));
+            Command(Type::manipulate_title,
+                    TitleManipulation{.target = TitleManipulation::Both, .operation = TitleManipulation::Restore}));
         CHECK(title.empty());
         CHECK(kind.empty());
     }
     SECTION("Uses a LIFO")
     {
-        interpreter.Interpret(Command(Type::change_title, Title{Title::Icon, "Cat"}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::Icon, .title = "Cat"}));
         interpreter.Interpret(
-            Command(Type::manipulate_title, TitleManipulation{TitleManipulation::Icon, TitleManipulation::Save}));
-        interpreter.Interpret(Command(Type::change_title, Title{Title::Icon, "Dog"}));
+            Command(Type::manipulate_title,
+                    TitleManipulation{.target = TitleManipulation::Icon, .operation = TitleManipulation::Save}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::Icon, .title = "Dog"}));
         interpreter.Interpret(
-            Command(Type::manipulate_title, TitleManipulation{TitleManipulation::Icon, TitleManipulation::Save}));
-        interpreter.Interpret(Command(Type::change_title, Title{Title::Icon, "Fox"}));
+            Command(Type::manipulate_title,
+                    TitleManipulation{.target = TitleManipulation::Icon, .operation = TitleManipulation::Save}));
+        interpreter.Interpret(Command(Type::change_title, Title{.kind = Title::Icon, .title = "Fox"}));
         interpreter.Interpret(
-            Command(Type::manipulate_title, TitleManipulation{TitleManipulation::Icon, TitleManipulation::Restore}));
+            Command(Type::manipulate_title,
+                    TitleManipulation{.target = TitleManipulation::Icon, .operation = TitleManipulation::Restore}));
         interpreter.Interpret(
-            Command(Type::manipulate_title, TitleManipulation{TitleManipulation::Icon, TitleManipulation::Restore}));
+            Command(Type::manipulate_title,
+                    TitleManipulation{.target = TitleManipulation::Icon, .operation = TitleManipulation::Restore}));
         CHECK(title == std::vector<std::string>{"Cat", "Dog", "Fox", "Dog", "Cat"});
         CHECK(kind == std::vector<Interpreter::TitleKind>{Interpreter::TitleKind::Icon,
                                                           Interpreter::TitleKind::Icon,
@@ -553,23 +717,23 @@ TEST_CASE(PREFIX "Cursor visibility management")
     interpreter.SetShowCursorChanged([&](bool _show) { show = _show; });
     SECTION("on->on")
     {
-        interpreter.Interpret(Command(Type::change_mode, ModeChange{ModeChange::ShowCursor, true}));
+        interpreter.Interpret(Command(Type::change_mode, ModeChange{.mode = ModeChange::ShowCursor, .status = true}));
         CHECK(interpreter.ShowCursor() == true);
         REQUIRE(show.has_value() == false);
     }
     SECTION("on->off->off->on")
     {
-        interpreter.Interpret(Command(Type::change_mode, ModeChange{ModeChange::ShowCursor, false}));
+        interpreter.Interpret(Command(Type::change_mode, ModeChange{.mode = ModeChange::ShowCursor, .status = false}));
         CHECK(interpreter.ShowCursor() == false);
         REQUIRE(show.has_value());
         CHECK(show == false);
 
         show.reset();
-        interpreter.Interpret(Command(Type::change_mode, ModeChange{ModeChange::ShowCursor, false}));
+        interpreter.Interpret(Command(Type::change_mode, ModeChange{.mode = ModeChange::ShowCursor, .status = false}));
         CHECK(interpreter.ShowCursor() == false);
         CHECK(show.has_value() == false);
 
-        interpreter.Interpret(Command(Type::change_mode, ModeChange{ModeChange::ShowCursor, true}));
+        interpreter.Interpret(Command(Type::change_mode, ModeChange{.mode = ModeChange::ShowCursor, .status = true}));
         CHECK(interpreter.ShowCursor() == true);
         REQUIRE(show.has_value());
         CHECK(show == true);

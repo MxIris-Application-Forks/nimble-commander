@@ -1,27 +1,30 @@
-// Copyright (C) 2018-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <Utility/MIMResponder.h>
-#include <unordered_map>
 #include <memory>
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 
 @class MainWindowFilePanelState;
+
+namespace nc::utility {
+class ActionsShortcutsManager;
+}
 
 namespace nc::panel {
 namespace actions {
 struct StateAction;
 }
 
-using StateActionsMap =
-    robin_hood::unordered_flat_map<SEL, std::unique_ptr<const actions::StateAction>>;
-}
+using StateActionsMap = ankerl::unordered_dense::map<SEL, std::unique_ptr<const actions::StateAction>>;
+} // namespace nc::panel
 
 @interface NCPanelsStateActionsDispatcher : AttachedResponder
 @property(nonatomic, readwrite) bool hasTerminal;
 
 - (instancetype)initWithState:(MainWindowFilePanelState *)_state
-                andActionsMap:(const nc::panel::StateActionsMap &)_actions_map;
+                    actionsMap:(const nc::panel::StateActionsMap &)_actions_map
+    andActionsShortcutsManager:(const nc::utility::ActionsShortcutsManager &)_action_shortcuts_manager;
 
 - (IBAction)OnSwapPanels:(id)sender;
 - (IBAction)OnSyncPanels:(id)sender;

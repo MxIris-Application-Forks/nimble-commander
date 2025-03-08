@@ -1,22 +1,20 @@
-// Copyright (C) 2016-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2016-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #define _LIBCPP_DISABLE_DEPRECATION_WARNINGS 1
 #include "ActionShortcut.h"
 #include <locale>
 #include <vector>
 #include <codecvt>
 #include <unordered_map>
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 #include <Base/ToLower.h>
 #include <Carbon/Carbon.h>
 
 namespace nc::utility {
 
 static_assert(sizeof(ActionShortcut) == 4);
-
-ActionShortcut::EventData::EventData() noexcept
-    : char_with_modifiers(0), char_without_modifiers(0), key_code(0), modifiers(0)
-{
-}
+static_assert(std::is_trivially_copyable_v<ActionShortcut>);
+static_assert(std::is_trivially_destructible_v<ActionShortcut>);
+static_assert(std::is_trivially_copy_assignable_v<ActionShortcut>);
 
 ActionShortcut::EventData::EventData(unsigned short _chmod,
                                      unsigned short _chunmod,
@@ -44,7 +42,7 @@ ActionShortcut::EventData::EventData(NSEvent *_event) noexcept
 ActionShortcut::ActionShortcut(std::string_view _from) noexcept : ActionShortcut()
 {
     std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
-    std::u16string utf16 = convert.from_bytes(_from.data(), _from.data() + _from.length());
+    const std::u16string utf16 = convert.from_bytes(_from.data(), _from.data() + _from.length());
     std::u16string_view v(utf16);
     uint64_t mod_flags = 0;
     while( !v.empty() ) {
@@ -71,11 +69,6 @@ ActionShortcut::ActionShortcut(std::string_view _from) noexcept : ActionShortcut
     modifiers = mod_flags;
 }
 
-ActionShortcut::ActionShortcut(std::u8string_view _from) noexcept
-    : ActionShortcut(std::string_view{reinterpret_cast<const char *>(_from.data()), _from.length()})
-{
-}
-
 ActionShortcut::ActionShortcut(uint16_t _unicode, unsigned long long _modif) noexcept : unicode(_unicode), modifiers(0)
 {
     uint64_t mod_flags = 0;
@@ -90,6 +83,19 @@ ActionShortcut::ActionShortcut(uint16_t _unicode, unsigned long long _modif) noe
     modifiers = mod_flags;
 }
 
+ActionShortcut::ActionShortcut(const EventData &_event) noexcept
+{
+    // Exclude CapsLock/NumPad/Func from our decision process - our hotkeys don't support these modifiers.
+    constexpr auto mask =
+        NSEventModifierFlagDeviceIndependentFlagsMask &
+        (~NSEventModifierFlagCapsLock & ~NSEventModifierFlagNumericPad & ~NSEventModifierFlagFunction);
+    modifiers = NSEventModifierFlagsHolder{_event.modifiers & mask};
+
+    // When the shift modifier is present, characters are shown as UPPERCASE even when explicitly asked to provide them
+    // without modifiers. Explicitly remove this by lowercasing the input character.
+    unicode = nc::base::g_ToLower[_event.char_without_modifiers];
+}
+
 ActionShortcut::operator bool() const noexcept
 {
     return unicode != 0;
@@ -99,13 +105,13 @@ std::string ActionShortcut::ToPersString() const noexcept
 {
     std::string result;
     if( modifiers & NSEventModifierFlagShift )
-        result += reinterpret_cast<const char *>(u8"⇧");
+        result += "⇧";
     if( modifiers & NSEventModifierFlagControl )
-        result += reinterpret_cast<const char *>(u8"^");
+        result += "^";
     if( modifiers & NSEventModifierFlagOption )
-        result += reinterpret_cast<const char *>(u8"⌥");
+        result += "⌥";
     if( modifiers & NSEventModifierFlagCommand )
-        result += reinterpret_cast<const char *>(u8"⌘");
+        result += "⌘";
 
     if( unicode == '\r' )
         result += "\\r";
@@ -125,7 +131,7 @@ NSString *ActionShortcut::Key() const noexcept
 {
     if( !*this )
         return @"";
-    if( NSString *key = [NSString stringWithCharacters:&unicode length:1] )
+    if( NSString *const key = [NSString stringWithCharacters:&unicode length:1] )
         return key;
     return @"";
 }
@@ -149,7 +155,7 @@ static NSString *StringForModifierFlags(uint64_t flags)
     return [NSString stringWithCharacters:modChars length:charCount];
 }
 
-[[clang::no_destroy]] static const robin_hood::unordered_flat_map<uint32_t, NSString *> g_UnicodeToNiceString = {
+[[clang::no_destroy]] static const ankerl::unordered_dense::map<uint32_t, NSString *> g_UnicodeToNiceString = {
     {NSLeftArrowFunctionKey, @"←"},        //
     {NSRightArrowFunctionKey, @"→"},       //
     {NSDownArrowFunctionKey, @"↓"},        //
@@ -208,43 +214,14 @@ NSString *ActionShortcut::PrettyString() const noexcept
         return [NSString stringWithFormat:@"%@%@", StringForModifierFlags(modifiers), vis_key];
 }
 
-bool ActionShortcut::IsKeyDown(EventData _event) const noexcept
-{
-    // unicode==0 => disable, don't match anything
-    if( !unicode )
-        return false;
-
-    // exclude CapsLock/NumPad/Func from our decision process
-    constexpr auto mask =
-        NSEventModifierFlagDeviceIndependentFlagsMask &
-        (~NSEventModifierFlagCapsLock & ~NSEventModifierFlagNumericPad & ~NSEventModifierFlagFunction);
-    const auto clean_modif = NSEventModifierFlagsHolder{_event.modifiers & mask};
-
-    // modifiers should match exactly
-    if( modifiers != clean_modif )
-        return false;
-    
-    // check for exact hit - modifiers and unicode
-    if( unicode == _event.char_without_modifiers )
-        return true;
-
-    // characters are shown as UPPERCASE even when explicitly asked to provide them without modifiers.
-    // explicitly check for this case by lowercasing the input character
-    if( modifiers.is_shift() && nc::base::g_ToLower[_event.char_without_modifiers] == unicode )
-        return true;
-
-    // no dice
-    return false;
-}
-
-}
+} // namespace nc::utility
 
 size_t std::hash<nc::utility::ActionShortcut>::operator()(const nc::utility::ActionShortcut &_ac) const noexcept
 {
     return static_cast<size_t>(_ac.unicode) | (static_cast<size_t>(_ac.modifiers.flags) << 16);
 }
 
-@implementation NSMenuItem (NCAdditions)
+@implementation NSMenuItem (ActionShortcutSupport)
 
 - (void)nc_setKeyEquivalentWithShortcut:(nc::utility::ActionShortcut)_shortcut
 {

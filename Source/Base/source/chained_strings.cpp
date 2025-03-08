@@ -1,34 +1,31 @@
 // Copyright (C) 2013-2021 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <Base/chained_strings.h>
-#include <stdlib.h>
+#include <cstdlib>
 #include <memory.h>
 
 namespace nc::base {
 
 chained_strings::chained_strings() : m_Begin(nullptr), m_Last(nullptr)
 {
-    static_assert(sizeof(node) == 24, "size of string node should be 14 bytes");
+    static_assert(sizeof(node) == 24, "size of string node should be 24 bytes");
     static_assert(sizeof(block) == 1024, "size of strings chunk should be 1024 bytes");
 }
 
-chained_strings::chained_strings(const char *_allocate_with_this_string)
-    : m_Begin(nullptr), m_Last(nullptr)
+chained_strings::chained_strings(const char *_allocate_with_this_string) : m_Begin(nullptr), m_Last(nullptr)
 {
     construct();
     push_back(_allocate_with_this_string, nullptr);
 }
 
-chained_strings::chained_strings(const std::string &_allocate_with_this_string)
-    : m_Begin(nullptr), m_Last(nullptr)
+chained_strings::chained_strings(const std::string &_allocate_with_this_string) : m_Begin(nullptr), m_Last(nullptr)
 {
     construct();
     push_back(_allocate_with_this_string, nullptr);
 }
 
-chained_strings::chained_strings(chained_strings &&_rhs)
-    : m_Begin(_rhs.m_Begin), m_Last(_rhs.m_Last)
+chained_strings::chained_strings(chained_strings &&_rhs) noexcept : m_Begin(_rhs.m_Begin), m_Last(_rhs.m_Last)
 {
-    _rhs.m_Begin = _rhs.m_Last = 0;
+    _rhs.m_Begin = _rhs.m_Last = nullptr;
 }
 
 chained_strings::~chained_strings()
@@ -138,12 +135,14 @@ const chained_strings::node &chained_strings::back() const
 
 void chained_strings::node::str_with_pref(char *_buf) const
 {
-    const node *nodes[max_depth], *n = this;
-    int bufsz = 0, nodes_n = 0;
+    const node *nodes[max_depth];
+    const node *n = this;
+    int bufsz = 0;
+    int nodes_n = 0;
     do {
         nodes[nodes_n++] = n;
         assert(nodes_n < max_depth);
-    } while( (n = n->prefix) != 0 );
+    } while( (n = n->prefix) != nullptr );
 
     for( int i = nodes_n - 1; i >= 0; --i ) {
         memcpy(_buf + bufsz, nodes[i]->c_str(), nodes[i]->len);
@@ -154,13 +153,15 @@ void chained_strings::node::str_with_pref(char *_buf) const
 
 std::string chained_strings::node::to_str_with_pref() const
 {
-    const node *nodes[max_depth], *n = this;
-    int bufsz = 0, nodes_n = 0;
+    const node *nodes[max_depth];
+    const node *n = this;
+    int bufsz = 0;
+    int nodes_n = 0;
     do {
         bufsz += n->len;
         nodes[nodes_n++] = n;
         assert(nodes_n < max_depth);
-    } while( (n = n->prefix) != 0 );
+    } while( (n = n->prefix) != nullptr );
 
     std::string res;
     res.reserve(bufsz);
@@ -191,19 +192,13 @@ bool chained_strings::singleblock() const
     return m_Begin != nullptr && m_Begin == m_Last;
 }
 
-void chained_strings::swap(chained_strings &_rhs)
+void chained_strings::swap(chained_strings &_rhs) noexcept
 {
     std::swap(m_Begin, _rhs.m_Begin);
     std::swap(m_Last, _rhs.m_Last);
 }
 
-void chained_strings::swap(chained_strings &&_rhs)
-{
-    std::swap(m_Begin, _rhs.m_Begin);
-    std::swap(m_Last, _rhs.m_Last);
-}
-
-const chained_strings &chained_strings::operator=(chained_strings &&_rhs)
+chained_strings &chained_strings::operator=(chained_strings &&_rhs) noexcept
 {
     destroy();
     m_Begin = _rhs.m_Begin;

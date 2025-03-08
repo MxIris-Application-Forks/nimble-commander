@@ -1,4 +1,4 @@
-// Copyright (C) 2014-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <sys/dirent.h>
 #include <VFS/VFS.h>
 #include <VFS/VFSListingInput.h>
@@ -14,8 +14,8 @@
 using namespace nc;
 using namespace nc::base;
 using namespace nc::panel;
-using data::Model;
 using data::ItemVolatileData;
+using data::Model;
 
 static VFSListingPtr ProduceDummyListing(const std::vector<std::string> &_filenames)
 {
@@ -77,7 +77,7 @@ ProduceNonUniformDummyListing(const std::vector<std::tuple<std::string, std::str
 
 TEST_CASE(PREFIX "Empty model")
 {
-    Model model;
+    const Model model;
     CHECK(model.IsLoaded() == false);
     CHECK(model.Listing().Count() == 0);
     CHECK(model.RawEntriesCount() == 0);
@@ -124,7 +124,7 @@ TEST_CASE(PREFIX "RawIndicesForName")
     }
     SECTION("Empty")
     {
-        Model model;
+        const Model model;
         CHECK(model.RawIndicesForName("a").empty());
     }
 }
@@ -133,7 +133,7 @@ TEST_CASE(PREFIX "SortedIndexForRawIndex")
 {
     SECTION("Empty")
     {
-        Model model;
+        const Model model;
         CHECK(model.SortedIndexForRawIndex(-1) == -1);
         CHECK(model.SortedIndexForRawIndex(0) == -1);
     }
@@ -142,7 +142,6 @@ TEST_CASE(PREFIX "SortedIndexForRawIndex")
         const auto listing = ProduceDummyListing(std::vector<std::string>{"a", "b", "c", "a", "A", "b", "a", "c", "a"});
         data::SortMode sorting;
         sorting.sort = data::SortMode::SortByName;
-        sorting.case_sens = false;
 
         Model model;
         model.SetSortMode(sorting);
@@ -165,7 +164,6 @@ TEST_CASE(PREFIX "SortedIndexForRawIndex")
         const auto listing = ProduceDummyListing(std::vector<std::string>{"a", "b", "c", "a", "A", "b", "a", "c", "a"});
         data::SortMode sorting;
         sorting.sort = data::SortMode::SortByName;
-        sorting.case_sens = false;
 
         data::TextualFilter textual_filter;
         textual_filter.text = @"a";
@@ -193,6 +191,38 @@ TEST_CASE(PREFIX "SortedIndexForRawIndex")
     }
 }
 
+TEST_CASE(PREFIX "SortPositionOfEntry")
+{
+    const auto l1 = ProduceDummyListing(std::vector<std::string>{"c", "b", "a"});
+    const auto l2 = ProduceDummyListing(std::vector<std::string>{"c", "b", "a"});
+    data::SortMode sorting;
+    sorting.sort = data::SortMode::SortByName;
+
+    // first no filtering, sort by name
+    Model model;
+    model.SetSortMode(sorting);
+    model.Load(l1, Model::PanelType::Directory);
+    CHECK(model.SortPositionOfEntry(l1->Item(0)) == 2);
+    CHECK(model.SortPositionOfEntry(l1->Item(1)) == 1);
+    CHECK(model.SortPositionOfEntry(l1->Item(2)) == 0);
+    CHECK(model.SortPositionOfEntry(l2->Item(0)) == -1);
+    CHECK(model.SortPositionOfEntry(l2->Item(1)) == -1);
+    CHECK(model.SortPositionOfEntry(l2->Item(2)) == -1);
+
+    // then check with hard filtering
+    data::TextualFilter textual_filter;
+    textual_filter.text = @"b";
+    data::HardFilter filter;
+    filter.text = textual_filter;
+    model.SetHardFiltering(filter);
+    CHECK(model.SortPositionOfEntry(l1->Item(0)) == -1);
+    CHECK(model.SortPositionOfEntry(l1->Item(1)) == 0);
+    CHECK(model.SortPositionOfEntry(l1->Item(2)) == -1);
+    CHECK(model.SortPositionOfEntry(l2->Item(0)) == -1);
+    CHECK(model.SortPositionOfEntry(l2->Item(1)) == -1);
+    CHECK(model.SortPositionOfEntry(l2->Item(2)) == -1);
+}
+
 TEST_CASE(PREFIX "Basic")
 {
     const auto strings = std::vector<std::string>{"..",
@@ -206,17 +236,17 @@ TEST_CASE(PREFIX "Basic")
 
     // testing raw C sorting facility
     for( unsigned i = 0; i < listing->Count(); ++i )
-        CHECK(data.RawIndexForName(listing->Filename(i).c_str()) == static_cast<int>(i));
+        CHECK(data.RawIndexForName(listing->Filename(i)) == static_cast<int>(i));
 
     // testing basic sorting (direct by filename)
     auto sorting = data.SortMode();
     sorting.sort = data::SortMode::SortByName;
     data.SetSortMode(sorting);
 
-    CHECK(data.SortedIndexForName(listing->Filename(0).c_str()) == 0);
-    CHECK(data.SortedIndexForName(listing->Filename(2).c_str()) == 1);
-    CHECK(data.SortedIndexForName(listing->Filename(3).c_str()) == 2);
-    CHECK(data.SortedIndexForName(listing->Filename(1).c_str()) == 3);
+    CHECK(data.SortedIndexForName(listing->Filename(0)) == 0);
+    CHECK(data.SortedIndexForName(listing->Filename(2)) == 1);
+    CHECK(data.SortedIndexForName(listing->Filename(3)) == 2);
+    CHECK(data.SortedIndexForName(listing->Filename(1)) == 3);
 }
 
 TEST_CASE(PREFIX "SortingWithCases")
@@ -230,16 +260,15 @@ TEST_CASE(PREFIX "SortingWithCases")
     data::Model data;
     auto sorting = data.SortMode();
     sorting.sort = data::SortMode::SortByName;
-    sorting.case_sens = false;
     data.SetSortMode(sorting);
-    data.Load(std::move(listing), data::Model::PanelType::Directory);
+    data.Load(listing, data::Model::PanelType::Directory);
 
     CHECK(data.SortedIndexForName(listing->Item(0).FilenameC()) == 0);
     CHECK(data.SortedIndexForName(listing->Item(2).FilenameC()) == 1);
     CHECK(data.SortedIndexForName(listing->Item(1).FilenameC()) == 2);
     CHECK(data.SortedIndexForName(listing->Item(3).FilenameC()) == 3);
 
-    sorting.case_sens = true;
+    sorting.collation = data::SortMode::Collation::CaseSensitive;
     data.SetSortMode(sorting);
     CHECK(data.SortedIndexForName(listing->Item(2).FilenameC()) == 0);
     CHECK(data.SortedIndexForName(listing->Item(3).FilenameC()) == 1);
@@ -673,7 +702,7 @@ TEST_CASE(PREFIX "SetCalculatedSizesForDirectories")
 
 TEST_CASE(PREFIX "ReLoad a temporary listing")
 {
-    VFSListingPtr l1 = ProduceNonUniformDummyListing({{"/D1/", "meow.txt", 10}, {"/D2/", "bark.txt", 20}});
+    const VFSListingPtr l1 = ProduceNonUniformDummyListing({{"/D1/", "meow.txt", 10}, {"/D2/", "bark.txt", 20}});
     CHECK(l1->IsUniform() == false);
 
     data::Model data;
@@ -683,7 +712,7 @@ TEST_CASE(PREFIX "ReLoad a temporary listing")
 
     SECTION("Same items, Different order, updated size")
     {
-        VFSListingPtr l2 = ProduceNonUniformDummyListing({{"/D2/", "bark.txt", 21}, {"/D1/", "meow.txt", 11}});
+        const VFSListingPtr l2 = ProduceNonUniformDummyListing({{"/D2/", "bark.txt", 21}, {"/D1/", "meow.txt", 11}});
         data.ReLoad(l2);
         CHECK(data.EntryAtSortPosition(data.SortedIndexForName("bark.txt")).Size() == 21);
         CHECK(data.EntryAtSortPosition(data.SortedIndexForName("bark.txt")).Directory() == "/D2/");
@@ -709,7 +738,7 @@ TEST_CASE(PREFIX "ReLoad a temporary listing")
 #endif
     SECTION("One removed, updated size")
     {
-        VFSListingPtr l2 = ProduceNonUniformDummyListing({{"/D2/", "bark.txt", 21}});
+        const VFSListingPtr l2 = ProduceNonUniformDummyListing({{"/D2/", "bark.txt", 21}});
         data.ReLoad(l2);
         CHECK(data.EntryAtSortPosition(data.SortedIndexForName("bark.txt")).Size() == 21);
         CHECK(data.EntryAtSortPosition(data.SortedIndexForName("bark.txt")).Directory() == "/D2/");
@@ -718,7 +747,7 @@ TEST_CASE(PREFIX "ReLoad a temporary listing")
     }
     SECTION("Both removed")
     {
-        VFSListingPtr l2 = ProduceNonUniformDummyListing({});
+        const VFSListingPtr l2 = ProduceNonUniformDummyListing({});
         data.ReLoad(l2);
         CHECK(data.SortedIndexForName("bark.txt") == -1);
         CHECK(data.SortedIndexForName("meow.txt") == -1);

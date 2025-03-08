@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "AppDelegate+MainWindowCreation.h"
 #include "AppDelegate.Private.h"
 #include <VFSIcon/IconRepositoryImpl.h>
@@ -44,7 +44,7 @@ static const auto g_ConfigRestoreLastWindowState = "filePanel.general.restoreLas
 
 namespace {
 
-enum class CreationContext {
+enum class CreationContext : uint8_t {
     Default,
     ManualRestoration,
     SystemRestoration
@@ -79,6 +79,7 @@ static bool RestoreFilePanelStateFromLastOpenedWindow(MainWindowFilePanelState *
         *self.networkConnectionsManager,
         self.nativeFSManager,
         self.nativeHost,
+        self.tagsStorage,
         self.fileOpener,
         self.panelOpenWithMenuDelegate,
         [self](NSRect rc) { return [self makeViewerWithFrame:rc]; },
@@ -88,8 +89,11 @@ static bool RestoreFilePanelStateFromLastOpenedWindow(MainWindowFilePanelState *
 
 - (const nc::panel::StateActionsMap &)stateActionsMap
 {
-    [[clang::no_destroy]] static auto actions_map = nc::panel::BuildStateActionsMap(
-        self.globalConfig, *self.networkConnectionsManager, self.temporaryFileStorage, self.nativeFSManager);
+    [[clang::no_destroy]] static auto actions_map = nc::panel::BuildStateActionsMap(self.globalConfig,
+                                                                                    *self.networkConnectionsManager,
+                                                                                    self.temporaryFileStorage,
+                                                                                    self.nativeFSManager,
+                                                                                    self.tagsStorage);
     return actions_map;
 }
 
@@ -135,7 +139,8 @@ static std::vector<std::string> CommaSeparatedStrings(const nc::config::Config &
 
 - (nc::panel::ControllerStateJSONDecoder &)controllerStateJSONDecoder
 {
-    static auto decoder = nc::panel::ControllerStateJSONDecoder(self.nativeFSManager, self.vfsInstanceManager);
+    static auto decoder =
+        nc::panel::ControllerStateJSONDecoder(self.nativeFSManager, self.vfsInstanceManager, self.panelDataPersistency);
     return decoder;
 }
 
@@ -151,6 +156,7 @@ static std::vector<std::string> CommaSeparatedStrings(const nc::config::Config &
     const auto pv_rect = NSMakeRect(0, 0, 100, 100);
     return [[PanelView alloc] initWithFrame:pv_rect
                              iconRepository:[self allocateIconRepository]
+                    actionsShortcutsManager:self.actionsShortcutsManager
                                   nativeVFS:self.nativeHost
                                      header:header
                                      footer:footer];
@@ -165,10 +171,12 @@ static std::vector<std::string> CommaSeparatedStrings(const nc::config::Config &
                                    contextMenuProvider:[self makePanelContextMenuProvider]
                                        nativeFSManager:self.nativeFSManager
                                             nativeHost:self.nativeHost];
-    auto actions_dispatcher = [[NCPanelControllerActionsDispatcher alloc] initWithController:panel
-                                                                               andActionsMap:self.panelActionsMap];
+    auto actions_dispatcher =
+        [[NCPanelControllerActionsDispatcher alloc] initWithController:panel
+                                                            actionsMap:self.panelActionsMap
+                                               actionsShortcutsManager:self.actionsShortcutsManager];
     [panel setNextAttachedResponder:actions_dispatcher];
-    [panel.view addKeystrokeSink:actions_dispatcher withBasePriority:nc::panel::view::BiddingPriority::Low];
+    [panel.view addKeystrokeSink:actions_dispatcher];
     panel.view.actionsDispatcher = actions_dispatcher;
 
     return panel;
@@ -190,8 +198,7 @@ static PanelController *PanelFactory()
                                             loadDefaultContent:true
                                                   panelFactory:PanelFactory
                                     controllerStateJSONDecoder:ctrl_state_json_decoder
-                                                QLPanelAdaptor:self.QLPanelAdaptor
-                                               feedbackManager:self.feedbackManager];
+                                                QLPanelAdaptor:self.QLPanelAdaptor];
     }
     else if( _context == CreationContext::ManualRestoration ) {
         if( NCMainWindowController.canRestoreDefaultWindowStateFromLastOpenedWindow ) {
@@ -200,8 +207,7 @@ static PanelController *PanelFactory()
                                                       loadDefaultContent:false
                                                             panelFactory:PanelFactory
                                               controllerStateJSONDecoder:ctrl_state_json_decoder
-                                                          QLPanelAdaptor:self.QLPanelAdaptor
-                                                         feedbackManager:self.feedbackManager];
+                                                          QLPanelAdaptor:self.QLPanelAdaptor];
             RestoreFilePanelStateFromLastOpenedWindow(state);
             [state loadDefaultPanelContent];
             return state;
@@ -212,8 +218,7 @@ static PanelController *PanelFactory()
                                                       loadDefaultContent:false
                                                             panelFactory:PanelFactory
                                               controllerStateJSONDecoder:ctrl_state_json_decoder
-                                                          QLPanelAdaptor:self.QLPanelAdaptor
-                                                         feedbackManager:self.feedbackManager];
+                                                          QLPanelAdaptor:self.QLPanelAdaptor];
             if( ![NCMainWindowController restoreDefaultWindowStateFromConfig:state] )
                 [state loadDefaultPanelContent];
             return state;
@@ -230,8 +235,7 @@ static PanelController *PanelFactory()
                                             loadDefaultContent:false
                                                   panelFactory:PanelFactory
                                     controllerStateJSONDecoder:ctrl_state_json_decoder
-                                                QLPanelAdaptor:self.QLPanelAdaptor
-                                               feedbackManager:self.feedbackManager];
+                                                QLPanelAdaptor:self.QLPanelAdaptor];
     }
     return nil;
 }
@@ -253,7 +257,8 @@ static PanelController *PanelFactory()
 
     const auto file_state = [self allocateFilePanelsWithFrame:frame inContext:_context withOpsPool:*operations_pool];
     auto actions_dispatcher = [[NCPanelsStateActionsDispatcher alloc] initWithState:file_state
-                                                                      andActionsMap:self.stateActionsMap];
+                                                                         actionsMap:self.stateActionsMap
+                                                         andActionsShortcutsManager:self.actionsShortcutsManager];
     actions_dispatcher.hasTerminal = !nc::base::AmISandboxed();
     file_state.attachedResponder = actions_dispatcher;
 
@@ -308,7 +313,7 @@ static PanelController *PanelFactory()
 
 - (nc::panel::ContextMenuProvider)makePanelContextMenuProvider
 {
-    auto provider = [self](std::vector<VFSListingItem> _items, PanelController *_panel) -> NSMenu * {
+    auto provider = [self](std::vector<VFSListingItem> _items, PanelController *_panel) -> NCPanelContextMenu * {
         return [[NCPanelContextMenu alloc] initWithItems:std::move(_items)
                                                  ofPanel:_panel
                                           withFileOpener:self.fileOpener
@@ -331,13 +336,12 @@ static bool RestoreFilePanelStateFromLastOpenedWindow(MainWindowFilePanelState *
     return true;
 }
 
-
 bool DirectoryAccessProviderImpl::HasAccess([[maybe_unused]] PanelController *_panel,
                                             const std::string &_directory_path,
                                             VFSHost &_host)
 {
     // at this moment we (thankfully) care only about sanboxed versions
-    if( nc::base::AmISandboxed() == false )
+    if( !nc::base::AmISandboxed() )
         return true;
 
     if( _host.IsNativeFS() )
@@ -350,7 +354,7 @@ bool DirectoryAccessProviderImpl::RequestAccessSync([[maybe_unused]] PanelContro
                                                     const std::string &_directory_path,
                                                     VFSHost &_host)
 {
-    if( nc::base::AmISandboxed() == false )
+    if( !nc::base::AmISandboxed() )
         return true;
 
     if( _host.IsNativeFS() )

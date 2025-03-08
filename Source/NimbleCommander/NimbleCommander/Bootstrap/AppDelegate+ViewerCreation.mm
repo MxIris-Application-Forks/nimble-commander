@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2019-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "AppDelegate+ViewerCreation.h"
 #include <Viewer/ViewerView.h>
 #include <NimbleCommander/Viewer/ThemeAdaptor.h>
@@ -14,17 +14,15 @@
     return [[NCViewerView alloc] initWithFrame:frame
                                    tempStorage:self.temporaryFileStorage
                                         config:self.globalConfig
-                                         theme:std::move(theme_adaptor)];
+                                         theme:std::move(theme_adaptor)
+                          highlightingSettings:self.syntaxHighlightingSettingsStorage];
 }
 
 - (NCViewerViewController *)makeViewerController
 {
-    auto shortcuts = [](std::string_view _name) {
-        return ActionsShortcutsManager::Instance().ShortCutFromAction(_name);
-    };
     return [[NCViewerViewController alloc] initWithHistory:self.internalViewerHistory
                                                     config:self.globalConfig
-                                         shortcutsProvider:shortcuts];
+                                                 shortcuts:self.actionsShortcutsManager];
 }
 
 @end

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <functional>
+#include <string_view>
 #include <sys/types.h>
 
 namespace nc::routedio {
@@ -27,7 +28,7 @@ public:
         uint64_t inode = 0;
         uint32_t flags = 0;
         uint64_t ext_flags = 0; // EF_xxx
-        int64_t size = 0; // will be -1 if absent
+        int64_t size = 0;       // will be -1 if absent
     };
 
     using Callback = std::function<void(const CallbackParams &_params)>;
@@ -38,9 +39,8 @@ public:
      * In case of symlinks falls back to lstat() call.
      * returns 0 on success or errno value on error
      */
-    static int ReadSingleEntryAttributesByPath(routedio::PosixIOInterface &_io,
-                                               const char *_path,
-                                               const Callback &_cb);
+    static int
+    ReadSingleEntryAttributesByPath(routedio::PosixIOInterface &_io, std::string_view _path, const Callback &_cb);
 
     /** assuming this will be called when Admin Mode is on
      * returns 0 on success or errno value on error

@@ -1,4 +1,4 @@
-// Copyright (C) 2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2021-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Tests.h"
 #include "TestEnv.h"
 #include <VFS/NetDropbox.h>
@@ -8,6 +8,7 @@
 #include <queue>
 #include <optional>
 
+using namespace nc;
 using namespace nc::vfs;
 
 #define PREFIX "VFSDropbox "
@@ -47,7 +48,7 @@ private:
     std::queue<Reaction> m_Reactions;
 };
 
-}
+} // namespace
 
 @interface NCVFSDropboxMockURLSession : NSURLSession
 - (instancetype)initWithFactory:(URLSessionMockFactory &)_factory
@@ -70,14 +71,11 @@ NSURLSession *URLSessionMockFactory::CreateSession(NSURLSessionConfiguration *co
     return CreateSession(configuration, nil, nil);
 }
 
-NSURLSession *
-URLSessionMockFactory::CreateSession([[maybe_unused]] NSURLSessionConfiguration *_configuration,
-                                     id<NSURLSessionDelegate> _delegate,
-                                     NSOperationQueue *_queue)
+NSURLSession *URLSessionMockFactory::CreateSession([[maybe_unused]] NSURLSessionConfiguration *_configuration,
+                                                   id<NSURLSessionDelegate> _delegate,
+                                                   NSOperationQueue *_queue)
 {
-    return [[NCVFSDropboxMockURLSession alloc] initWithFactory:*this
-                                                      delegate:_delegate
-                                                 delegateQueue:_queue];
+    return [[NCVFSDropboxMockURLSession alloc] initWithFactory:*this delegate:_delegate delegateQueue:_queue];
 }
 
 void URLSessionMockFactory::AddReaction(const Reaction &_reaction)
@@ -98,8 +96,10 @@ const Reaction *URLSessionMockFactory::NextReaction()
 
 void URLSessionMockFactory::PopReaction()
 {
-    if( !m_Reactions.empty() )
-        return m_Reactions.pop();
+    if( !m_Reactions.empty() ) {
+        m_Reactions.pop();
+        return;
+    }
 }
 
 @implementation NCVFSDropboxMockURLSession {
@@ -152,6 +152,8 @@ void URLSessionMockFactory::PopReaction()
 @implementation NCVFSDropBoxMockSessionTask {
     __weak NCVFSDropboxMockURLSession *m_Session;
 }
+@synthesize completionHandler;
+@synthesize request;
 
 - (instancetype)initWithSession:(NCVFSDropboxMockURLSession *)_session
 {
@@ -179,27 +181,24 @@ void URLSessionMockFactory::PopReaction()
     factory.PopReaction();
 
     // Check the expectactions
-    auto request = self.request;
     if( react.exp_URL ) {
-        CHECK(*react.exp_URL == request.URL.absoluteString.UTF8String);
+        CHECK(*react.exp_URL == self.request.URL.absoluteString.UTF8String);
     }
     if( react.exp_HTTPMethod ) {
-        CHECK(*react.exp_HTTPMethod == request.HTTPMethod.UTF8String);
+        CHECK(*react.exp_HTTPMethod == self.request.HTTPMethod.UTF8String);
     }
     if( react.exp_HTTPHeaderFields ) {
-        CHECK([*react.exp_HTTPHeaderFields isEqualToDictionary:request.allHTTPHeaderFields]);
+        CHECK([*react.exp_HTTPHeaderFields isEqualToDictionary:self.request.allHTTPHeaderFields]);
     }
     if( react.exp_HTTPBody ) {
-        CHECK(*react.exp_HTTPBody == [[NSString alloc] initWithData:self.request.HTTPBody
-                                                           encoding:NSUTF8StringEncoding]
-                                         .UTF8String);
+        CHECK(*react.exp_HTTPBody ==
+              [[NSString alloc] initWithData:self.request.HTTPBody encoding:NSUTF8StringEncoding].UTF8String);
     }
 
     // Send the reponse via completion handler
     if( self.completionHandler )
-        dispatch_to_background([react, handler = self.completionHandler] {
-            handler(react.data, react.response, react.error);
-        });
+        dispatch_to_background(
+            [react, handler = self.completionHandler] { handler(react.data, react.response, react.error); });
 }
 
 @end
@@ -246,7 +245,7 @@ TEST_CASE(PREFIX "Initialization with an old token")
 
     Reaction &r = factory.AddReaction(); // get an account info
     r.response = R200();
-    r.data = D("{\"account_id\":\"dbid:12345\", \"email\":\"foobar@example.com\"}");
+    r.data = D(R"({"account_id":"dbid:12345", "email":"foobar@example.com"})");
     r.exp_URL = "https://api.dropboxapi.com/2/users/get_current_account";
     r.exp_HTTPMethod = "POST";
     r.exp_HTTPHeaderFields = @{@"Authorization": @"Bearer 1234567890"};
@@ -264,7 +263,7 @@ TEST_CASE(PREFIX "Initialization with a refresh token")
 
     Reaction &r1 = factory.AddReaction(); // r1 - convert a refresh token into a short-lived token
     r1.response = R200();
-    r1.data = D("{\"token_type\":\"bearer\", \"access_token\":\"sl.qwertyuiop\"}");
+    r1.data = D(R"({"token_type":"bearer", "access_token":"sl.qwertyuiop"})");
     r1.exp_URL = "https://api.dropbox.com/oauth2/token";
     r1.exp_HTTPMethod = "POST";
     r1.exp_HTTPBody = "grant_type=refresh_token&refresh_token=5678901234&client_id=AAAAAAAAAAAAAAA&"
@@ -272,7 +271,7 @@ TEST_CASE(PREFIX "Initialization with a refresh token")
 
     Reaction &r2 = factory.AddReaction(); // r2 - get an account info
     r2.response = R200();
-    r2.data = D("{\"account_id\": \"dbid:12345\", \"email\":\"foobar@example.com\"}");
+    r2.data = D(R"({"account_id": "dbid:12345", "email":"foobar@example.com"})");
     r2.exp_URL = "https://api.dropboxapi.com/2/users/get_current_account";
     r2.exp_HTTPMethod = "POST";
     r2.exp_HTTPHeaderFields = @{@"Authorization": @"Bearer sl.qwertyuiop"};
@@ -290,7 +289,7 @@ TEST_CASE(PREFIX "Operation with a refresh token")
 
     Reaction &r1 = factory.AddReaction(); // r1 - convert a refresh token into a short-lived token
     r1.response = R200();
-    r1.data = D("{\"token_type\":\"bearer\", \"access_token\":\"sl.qwertyuiop\"}");
+    r1.data = D(R"({"token_type":"bearer", "access_token":"sl.qwertyuiop"})");
     r1.exp_URL = "https://api.dropbox.com/oauth2/token";
     r1.exp_HTTPMethod = "POST";
     r1.exp_HTTPBody = "grant_type=refresh_token&refresh_token=5678901234&client_id=AAAAAAAAAAAAAAA&"
@@ -298,7 +297,7 @@ TEST_CASE(PREFIX "Operation with a refresh token")
 
     Reaction &r2 = factory.AddReaction(); // r2 - get an account info
     r2.response = R200();
-    r2.data = D("{\"account_id\": \"dbid:12345\", \"email\":\"foobar@example.com\"}");
+    r2.data = D(R"({"account_id": "dbid:12345", "email":"foobar@example.com"})");
     r2.exp_URL = "https://api.dropboxapi.com/2/users/get_current_account";
     r2.exp_HTTPMethod = "POST";
     r2.exp_HTTPHeaderFields = @{@"Authorization": @"Bearer sl.qwertyuiop"};
@@ -307,7 +306,7 @@ TEST_CASE(PREFIX "Operation with a refresh token")
     {
         Reaction &r3 = factory.AddReaction(); // r3 - get fs info
         r3.response = R200();
-        r3.data = D("{\"used\":1000, \"allocation\":{\"allocated\":10000}}");
+        r3.data = D(R"({"used":1000, "allocation":{"allocated":10000}})");
         r3.exp_URL = "https://api.dropboxapi.com/2/users/get_space_usage";
         r3.exp_HTTPMethod = "POST";
         r3.exp_HTTPHeaderFields = @{@"Authorization": @"Bearer sl.qwertyuiop"};
@@ -322,16 +321,15 @@ TEST_CASE(PREFIX "Operation with a refresh token")
 
         Reaction &r4 = factory.AddReaction(); // r4 - reauth
         r4.response = R200();
-        r4.data = D("{\"token_type\":\"bearer\", \"access_token\":\"sl.asdfghjkl\"}");
+        r4.data = D(R"({"token_type":"bearer", "access_token":"sl.asdfghjkl"})");
         r4.exp_URL = "https://api.dropbox.com/oauth2/token";
         r4.exp_HTTPMethod = "POST";
-        r4.exp_HTTPBody =
-            "grant_type=refresh_token&refresh_token=5678901234&client_id=AAAAAAAAAAAAAAA&"
-            "client_secret=BBBBBBBBBBBBBBB";
+        r4.exp_HTTPBody = "grant_type=refresh_token&refresh_token=5678901234&client_id=AAAAAAAAAAAAAAA&"
+                          "client_secret=BBBBBBBBBBBBBBB";
 
         Reaction &r5 = factory.AddReaction(); // r5 - get fs info
         r5.response = R200();
-        r5.data = D("{\"used\":1000, \"allocation\":{\"allocated\":10000}}");
+        r5.data = D(R"({"used":1000, "allocation":{"allocated":10000}})");
         r5.exp_URL = "https://api.dropboxapi.com/2/users/get_space_usage";
         r5.exp_HTTPMethod = "POST";
         r5.exp_HTTPHeaderFields = @{@"Authorization": @"Bearer sl.asdfghjkl"};
@@ -343,8 +341,7 @@ TEST_CASE(PREFIX "Operation with a refresh token")
     params.session_creator = &factory;
     auto host = std::make_shared<DropboxHost>(params);
 
-    VFSStatFS statfs;
-    CHECK(host->StatFS("/", statfs, {}) == VFSError::Ok);
+    const VFSStatFS statfs = host->StatFS("/").value();
     CHECK(statfs.total_bytes == 10000);
     CHECK(statfs.avail_bytes == 9000);
     CHECK(statfs.free_bytes == 9000);
@@ -357,7 +354,7 @@ TEST_CASE(PREFIX "Failed re-auth")
 
     Reaction &r1 = factory.AddReaction(); // r1 - convert a refresh token into a short-lived token
     r1.response = R200();
-    r1.data = D("{\"token_type\":\"bearer\", \"access_token\":\"sl.qwertyuiop\"}");
+    r1.data = D(R"({"token_type":"bearer", "access_token":"sl.qwertyuiop"})");
     r1.exp_URL = "https://api.dropbox.com/oauth2/token";
     r1.exp_HTTPMethod = "POST";
     r1.exp_HTTPBody = "grant_type=refresh_token&refresh_token=5678901234&client_id=AAAAAAAAAAAAAAA&"
@@ -365,7 +362,7 @@ TEST_CASE(PREFIX "Failed re-auth")
 
     Reaction &r2 = factory.AddReaction(); // r2 - get an account info
     r2.response = R200();
-    r2.data = D("{\"account_id\": \"dbid:12345\", \"email\":\"foobar@example.com\"}");
+    r2.data = D(R"({"account_id": "dbid:12345", "email":"foobar@example.com"})");
     r2.exp_URL = "https://api.dropboxapi.com/2/users/get_current_account";
     r2.exp_HTTPMethod = "POST";
     r2.exp_HTTPHeaderFields = @{@"Authorization": @"Bearer sl.qwertyuiop"};
@@ -389,6 +386,5 @@ TEST_CASE(PREFIX "Failed re-auth")
     params.session_creator = &factory;
     auto host = std::make_shared<DropboxHost>(params);
 
-    VFSStatFS statfs;
-    CHECK(host->StatFS("/", statfs, {}) == VFSError::FromErrno(EAUTH));
+    CHECK(host->StatFS("/").error() == Error{Error::POSIX, EAUTH});
 }

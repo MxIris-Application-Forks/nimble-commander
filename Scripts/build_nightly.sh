@@ -28,14 +28,9 @@ BUILT_PATH="${BUILD_DIR}/built"
 mkdir -p "${BUILD_DIR}"
 mkdir -p "${ARCHIVE_PATH}"
 
-# Enable caching with ccache if it's available in the system
-if type -p /usr/local/bin/ccache >/dev/null 2>&1; then
-    echo Using ccache
-    export CCACHE_BASEDIR="${ROOT_DIR}"
-    export CCACHE_SLOPPINESS=time_macros,include_file_mtime,include_file_ctime,file_stat_matches
-    export CC="${SCRIPTS_DIR}/ccache-clang"
-    export CXX="${SCRIPTS_DIR}/ccache-clang++"
-fi
+# Build Help.pdf and copy it into the NC sources
+${SCRIPTS_DIR}/build_help.sh
+cp -f "${SCRIPTS_DIR}/build_help.tmp/Help.pdf" "${ROOT_DIR}/Source/NimbleCommander/NimbleCommander/Resources/Help.pdf"
 
 # Gather common flags in the XC variable
 XC="xcodebuild \

@@ -46,7 +46,7 @@ TrailingTagsInplaceDisplay::Place(const std::span<const utility::Tags::Tag> _tag
     auto count = std::ranges::count_if(_tags, [](auto &_tag) { return _tag.Color() != utility::Tags::Color::None; });
     if( count == 0 )
         return {};
-    return {Diameter + (std::min(static_cast<int>(count), MaxDrawn) - 1) * Step, Margin};
+    return {.width = Diameter + ((std::min(static_cast<int>(count), MaxDrawn) - 1) * Step), .margin = Margin};
 }
 
 void TrailingTagsInplaceDisplay::Draw(const double _offset_x,
@@ -73,24 +73,24 @@ void TrailingTagsInplaceDisplay::Draw(const double _offset_x,
     constexpr double radius = static_cast<double>(Diameter) / 2.;
     constexpr double spacing = static_cast<double>(Step);
     static NSBezierPath *const circle = [] {
-        NSBezierPath *circle = [NSBezierPath bezierPath];
+        NSBezierPath *const circle = [NSBezierPath bezierPath];
         [circle appendBezierPathWithArcWithCenter:NSMakePoint(0., 0.) radius:radius startAngle:0 endAngle:360];
         [circle setLineWidth:1.];
         return circle;
     }();
     static NSBezierPath *const shadow = [] {
-        NSBezierPath *shadow = [NSBezierPath bezierPath];
+        NSBezierPath *const shadow = [NSBezierPath bezierPath];
         [shadow appendBezierPathWithArcWithCenter:NSMakePoint(0., 0.) radius:radius + 1. startAngle:0 endAngle:360];
         [shadow setLineWidth:2.0];
         return shadow;
     }();
 
-    NSGraphicsContext *currentContext = [NSGraphicsContext currentContext];
+    NSGraphicsContext *const currentContext = [NSGraphicsContext currentContext];
     for( ssize_t i = num_colors_to_draw - 1; i >= 0; --i ) {
         [currentContext saveGraphicsState];
 
-        NSAffineTransform *tr = [NSAffineTransform transform];
-        [tr translateXBy:_offset_x + i * spacing yBy:_view_height / 2.];
+        NSAffineTransform *const tr = [NSAffineTransform transform];
+        [tr translateXBy:_offset_x + (static_cast<double>(i) * spacing) yBy:_view_height / 2.];
         [tr concat];
 
         if( i < static_cast<ssize_t>(num_colors_to_draw) - 1 ) {
@@ -104,7 +104,7 @@ void TrailingTagsInplaceDisplay::Draw(const double _offset_x,
             [_accent setStroke];
         else
             [colors.second setStroke];
-        
+
         [circle fill];
         [circle stroke];
 
@@ -112,4 +112,35 @@ void TrailingTagsInplaceDisplay::Draw(const double _offset_x,
     }
 }
 
+const std::array<NSImage *, 8> &TagsMenuDisplay::Images() noexcept
+{
+    [[clang::no_destroy]] static const std::array<NSImage *, 8> images = [] {
+        std::array<NSImage *, 8> images;
+        constexpr double diameter = 12.;
+        for( size_t i = 0; i < images.size(); ++i ) {
+            auto handler = ^(NSRect _rc) {
+              if( i == 0 ) {
+                  [NSColor.textColor setStroke];
+                  NSBezierPath *const circle = [NSBezierPath bezierPathWithOvalInRect:NSInsetRect(_rc, 1., 1.)];
+                  [circle stroke];
+              }
+              else {
+                  auto colors = Color(static_cast<utility::Tags::Color>(i));
+                  [colors.first setFill];
+                  [colors.second setStroke];
+                  NSBezierPath *const circle = [NSBezierPath bezierPathWithOvalInRect:NSInsetRect(_rc, 1., 1.)];
+                  [circle setLineWidth:1.];
+                  [circle fill];
+                  [circle stroke];
+              }
+              return YES;
+            };
+            images[i] = [NSImage imageWithSize:NSMakeSize(diameter, diameter) flipped:false drawingHandler:handler];
+            [images[i] setTemplate:i == 0];
+        }
+        return images;
+    }();
+    return images;
 }
+
+} // namespace nc::panel

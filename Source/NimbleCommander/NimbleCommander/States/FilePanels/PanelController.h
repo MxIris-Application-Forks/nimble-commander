@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <Utility/MIMResponder.h>
@@ -7,8 +7,11 @@
 #include <Panel/PanelViewKeystrokeSink.h>
 #include <Panel/QuickSearch.h>
 #include <VFS/VFS.h>
+#include <fmt/format.h>
+#include <fmt/ranges.h>
 
 @class PanelController;
+@class NCPanelContextMenu;
 @class PanelView;
 @class BriefSystemOverview;
 @class MainWindowFilePanelState;
@@ -19,7 +22,7 @@ namespace nc {
 namespace core {
 class VFSInstancePromise;
 class VFSInstanceManager;
-}
+} // namespace core
 
 namespace utility {
 class NativeFSManager;
@@ -35,7 +38,7 @@ namespace data {
 struct SortMode;
 struct HardFilter;
 class Model;
-}
+} // namespace data
 
 class History;
 struct PersistentLocation;
@@ -65,10 +68,10 @@ public:
     ActivityTicket();
     ActivityTicket(PanelController *_panel, uint64_t _ticket);
     ActivityTicket(const ActivityTicket &) = delete;
-    ActivityTicket(ActivityTicket &&);
+    ActivityTicket(ActivityTicket &&) noexcept;
     ~ActivityTicket();
     void operator=(const ActivityTicket &) = delete;
-    void operator=(ActivityTicket &&);
+    ActivityTicket &operator=(ActivityTicket &&) noexcept;
 
 private:
     void Reset();
@@ -100,20 +103,15 @@ struct DirectoryChangeRequest {
     bool InitiatedByUser = false;
 
     /**
-     * This will be called from a thread which is loading a vfs listing with
-     * vfs result code.
+     * This will be called from a thread which is loading a vfs listing with the result - either nothing or an error.
      * This thread may be main or background depending on PerformAsynchronous.
-     * Will be called on any error canceling process or with 0 on successful loading.
+     * Will be called on any error canceling process or with {} on successful loading.
      */
-    std::function<void(int)> LoadingResultCallback = nullptr;
-
-    /**
-     * Return code of a VFS->FetchDirectoryListing will be placed here.
-     */
-    int LoadingResultCode = 0;
+    std::function<void(const std::expected<void, Error> &)> LoadingResultCallback = nullptr;
 };
 
-using ContextMenuProvider = std::function<NSMenu *(std::vector<VFSListingItem> _items, PanelController *_panel)>;
+using ContextMenuProvider =
+    std::function<NCPanelContextMenu *(std::vector<VFSListingItem> _items, PanelController *_panel)>;
 
 } // namespace panel
 } // namespace nc
@@ -192,7 +190,7 @@ using ContextMenuProvider = std::function<NSMenu *(std::vector<VFSListingItem> _
  * A calling code can also set intended outcomes like focus, selection, view state restoration
  * and a completion callback.
  */
-- (int)GoToDirWithContext:(std::shared_ptr<nc::panel::DirectoryChangeRequest>)_context;
+- (std::expected<void, nc::Error>)GoToDirWithContext:(std::shared_ptr<nc::panel::DirectoryChangeRequest>)_context;
 
 /**
  * Loads existing listing into the panel. Save to call from any thread.
@@ -209,7 +207,7 @@ using ContextMenuProvider = std::function<NSMenu *(std::vector<VFSListingItem> _
  * If on any checking it will be found that time for request has went out - it will be removed (500ms is just ok for
  * _time_out_in_ms). Will also deselect any currenly selected items.
  */
-- (void)scheduleDelayedFocusing:(nc::panel::DelayedFocusing)request;
+- (void)scheduleDelayedFocusing:(const nc::panel::DelayedFocusing &)request;
 
 - (void)requestQuickRenamingOfItem:(VFSListingItem)_item to:(const std::string &)_new_filename;
 
@@ -239,4 +237,26 @@ using ContextMenuProvider = std::function<NSMenu *(std::vector<VFSListingItem> _
 - (void)contextMenuDidClose:(NSMenu *)_menu;
 @end
 
-#import "PanelController+DataAccess.h"
+#include "PanelController+DataAccess.h"
+
+template <>
+struct fmt::formatter<nc::panel::DirectoryChangeRequest> : fmt::formatter<std::string> {
+    constexpr auto parse(fmt::format_parse_context &ctx) { return ctx.begin(); }
+
+    template <typename FormatContext>
+    auto format(const nc::panel::DirectoryChangeRequest &_req, FormatContext &_ctx) const
+    {
+
+        return fmt::format_to(
+            _ctx.out(),
+            "(RequestedDirectory='{}', VFS='{}', RequestFocusedEntry='{}', RequestSelectedEntries='{}', "
+            "PerformAsynchronous={}, LoadPreviousViewState={}, InitiatedByUser={})",
+            _req.RequestedDirectory,
+            _req.VFS->Tag(),
+            _req.RequestFocusedEntry,
+            _req.RequestSelectedEntries,
+            _req.PerformAsynchronous,
+            _req.LoadPreviousViewState,
+            _req.InitiatedByUser);
+    }
+};

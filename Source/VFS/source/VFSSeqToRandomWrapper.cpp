@@ -1,17 +1,18 @@
-// Copyright (C) 2013-2022 Michael Kazakov. Subject to GNU General Public License version 3.
-#include <Base/algo.h>
-#include <Base/CommonPaths.h>
-#include <Utility/SystemInformation.h>
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "../include/VFS/VFSSeqToRandomWrapper.h"
 #include "../include/VFS/VFSError.h"
-#include <stdio.h>
-#include <unistd.h>
-#include <limits.h>
-#include <stddef.h>
-#include <sys/param.h>
-#include <sys/fcntl.h>
-#include <errno.h>
+#include <Base/CommonPaths.h>
+#include <Base/algo.h>
+#include <Utility/SystemInformation.h>
+#include <algorithm>
+#include <cerrno>
+#include <climits>
+#include <cstddef>
+#include <cstdio>
 #include <fmt/core.h>
+#include <sys/fcntl.h>
+#include <sys/param.h>
+#include <unistd.h>
 
 VFSSeqToRandomROWrapperFile::Backend::~Backend()
 {
@@ -40,7 +41,7 @@ int VFSSeqToRandomROWrapperFile::Open(unsigned long _flags,
                                       const VFSCancelChecker &_cancel_checker,
                                       std::function<void(uint64_t _bytes_proc, uint64_t _bytes_total)> _progress)
 {
-    int ret = OpenBackend(_flags, _cancel_checker, _progress);
+    const int ret = OpenBackend(_flags, _cancel_checker, _progress);
     return ret;
 }
 
@@ -48,16 +49,15 @@ int VFSSeqToRandomROWrapperFile::OpenBackend(unsigned long _flags,
                                              VFSCancelChecker _cancel_checker,
                                              std::function<void(uint64_t _bytes_proc, uint64_t _bytes_total)> _progress)
 {
-    auto ggg = at_scope_end([=] {
-        m_SeqFile.reset();
-    }); // ony any result wrapper won't hold any reference to VFSFile after this function ends
+    auto ggg = at_scope_end([this] { m_SeqFile.reset(); }); // ony any result wrapper won't hold any reference to
+                                                            // VFSFile after this function ends
     if( !m_SeqFile )
         return VFSError::InvalidCall;
     if( m_SeqFile->GetReadParadigm() < VFSFile::ReadParadigm::Sequential )
         return VFSError::InvalidCall;
 
     if( !m_SeqFile->IsOpened() ) {
-        int res = m_SeqFile->Open(_flags);
+        const int res = m_SeqFile->Open(_flags);
         if( res < 0 )
             return res;
     }
@@ -73,7 +73,7 @@ int VFSSeqToRandomROWrapperFile::OpenBackend(unsigned long _flags,
         backend->m_Size = m_SeqFile->Size();
         backend->m_DataBuf = std::make_unique<uint8_t[]>(backend->m_Size);
 
-        const size_t max_io = 256 * 1024;
+        const size_t max_io = 256ULL * 1024ULL;
         uint8_t *d = &backend->m_DataBuf[0];
         uint8_t *e = d + backend->m_Size;
         ssize_t res = 0;
@@ -101,7 +101,7 @@ int VFSSeqToRandomROWrapperFile::OpenBackend(unsigned long _flags,
         auto pattern_buf =
             fmt::format("{}{}.vfs.XXXXXX", nc::base::CommonPaths::AppTemporaryDirectory(), nc::utility::GetBundleID());
 
-        int fd = mkstemp(pattern_buf.data());
+        const int fd = mkstemp(pattern_buf.data());
 
         if( fd < 0 )
             return VFSError::FromErrno(errno);
@@ -113,9 +113,9 @@ int VFSSeqToRandomROWrapperFile::OpenBackend(unsigned long _flags,
         backend->m_FD = fd;
         backend->m_Size = m_SeqFile->Size();
 
-        constexpr uint64_t bufsz = 256 * 1024;
-        std::unique_ptr<char[]> buf = std::make_unique<char[]>(bufsz);
-        uint64_t left_read = backend->m_Size;
+        constexpr uint64_t bufsz = 256ULL * 1024ULL;
+        const std::unique_ptr<char[]> buf = std::make_unique<char[]>(bufsz);
+        const uint64_t left_read = backend->m_Size;
         ssize_t res_read;
         ssize_t total_wrote = 0;
 
@@ -200,35 +200,36 @@ bool VFSSeqToRandomROWrapperFile::IsOpened() const
 
 ssize_t VFSSeqToRandomROWrapperFile::Read(void *_buf, size_t _size)
 {
-    ssize_t result = ReadAt(m_Pos, _buf, _size);
-    if( result >= 0 )
-        m_Pos += result;
-    return result;
+    const std::expected<size_t, nc::Error> result = ReadAt(m_Pos, _buf, _size);
+    if( result )
+        m_Pos += *result;
+    return /*result*/ -1; // TODO: return result
 }
 
-ssize_t VFSSeqToRandomROWrapperFile::ReadAt(off_t _pos, void *_buf, size_t _size)
+std::expected<size_t, nc::Error> VFSSeqToRandomROWrapperFile::ReadAt(off_t _pos, void *_buf, size_t _size)
 {
     if( !IsOpened() )
-        return VFSError::InvalidCall;
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
     if( _pos < 0 || _pos > m_Backend->m_Size )
-        return VFSError::InvalidCall;
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
     if( m_Backend->m_DataBuf ) {
-        ssize_t toread = std::min(m_Backend->m_Size - _pos, static_cast<off_t>(_size));
+        const ssize_t toread = std::min(m_Backend->m_Size - _pos, static_cast<off_t>(_size));
         memcpy(_buf, &m_Backend->m_DataBuf[_pos], toread);
         return toread;
     }
     else if( m_Backend->m_FD >= 0 ) {
-        ssize_t toread = std::min(m_Backend->m_Size - _pos, static_cast<off_t>(_size));
-        ssize_t res = pread(m_Backend->m_FD, _buf, toread, _pos);
+        const ssize_t toread = std::min(m_Backend->m_Size - _pos, static_cast<off_t>(_size));
+        const ssize_t res = pread(m_Backend->m_FD, _buf, toread, _pos);
         if( res >= 0 )
             return res;
         else
-            return VFSError::FromErrno(errno);
+            return std::unexpected(nc::Error{nc::Error::POSIX, errno});
+        ;
     }
     assert(0);
-    return VFSError::GenericError;
+    return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 }
 
 off_t VFSSeqToRandomROWrapperFile::Seek(off_t _off, int _basis)
@@ -249,8 +250,7 @@ off_t VFSSeqToRandomROWrapperFile::Seek(off_t _off, int _basis)
 
     if( req_pos < 0 )
         return VFSError::InvalidCall;
-    if( req_pos > m_Backend->m_Size )
-        req_pos = m_Backend->m_Size;
+    req_pos = std::min<off_t>(req_pos, m_Backend->m_Size);
     m_Pos = req_pos;
 
     return m_Pos;

@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "WebDAVHost.h"
 #include "Internal.h"
 #include <Utility/PathManip.h>
@@ -10,6 +10,9 @@
 #include "Requests.h"
 #include <sys/dirent.h>
 #include <fmt/core.h>
+
+#include <algorithm>
+#include <memory>
 
 namespace nc::vfs {
 
@@ -30,7 +33,7 @@ static VFSConfiguration ComposeConfiguration(const std::string &_serv_url,
                                              const std::string &_path,
                                              bool _https,
                                              int _port);
-static bool IsValidInputPath(const char *_path);
+static bool IsValidInputPath(std::string_view _path);
 
 WebDAVHost::WebDAVHost(const std::string &_serv_url,
                        const std::string &_user,
@@ -38,37 +41,37 @@ WebDAVHost::WebDAVHost(const std::string &_serv_url,
                        const std::string &_path,
                        bool _https,
                        int _port)
-    : VFSHost(_serv_url.c_str(), nullptr, UniqueTag),
+    : VFSHost(_serv_url, nullptr, UniqueTag),
       m_Configuration(ComposeConfiguration(_serv_url, _user, _passwd, _path, _https, _port))
 {
     Init();
 }
 
 WebDAVHost::WebDAVHost(const VFSConfiguration &_config)
-    : VFSHost(_config.Get<HostConfiguration>().server_url.c_str(), nullptr, UniqueTag), m_Configuration(_config)
+    : VFSHost(_config.Get<HostConfiguration>().server_url, nullptr, UniqueTag), m_Configuration(_config)
 {
     Init();
 }
 
-WebDAVHost::~WebDAVHost()
-{
-}
+WebDAVHost::~WebDAVHost() = default;
 
 void WebDAVHost::Init()
 {
-    I.reset(new State{Config()});
+    I = std::make_unique<State>(Config());
 
     auto ar = I->m_Pool.Get();
     const auto [rc, requests] = RequestServerOptions(Config(), *ar.connection);
     if( rc != VFSError::Ok )
-        throw VFSErrorException(rc);
+        throw ErrorException(VFSError::ToError(rc));
 
-    // it's besically good to check available requests before commiting to work with the server,
-    // BUT my local QNAP NAS is pretty strange and reports a gibberish like
-    // "Allow: GET,HEAD,POST,OPTIONS,HEAD,HEAD", which doesn't help at all.
-    //    if( (requests & HTTPRequests::MinimalRequiredSet) !=  HTTPRequests::MinimalRequiredSet ) {
+    // it's besically good to check available requests before commiting to work
+    // with the server, BUT my local QNAP NAS is pretty strange and reports a
+    // gibberish like "Allow: GET,HEAD,POST,OPTIONS,HEAD,HEAD", which doesn't help
+    // at all.
+    //    if( (requests & HTTPRequests::MinimalRequiredSet) !=
+    //    HTTPRequests::MinimalRequiredSet ) {
     //        HTTPRequests::Print(requests);
-    //        throw VFSErrorException( VFSError::FromErrno(EPROTONOSUPPORT) );
+    //        throw ErrorException( VFSError::ToError(VFSError::FromErrno(EPROTONOSUPPORT)) );
     //    }
 
     AddFeatures(HostFeatures::NonEmptyRmDir);
@@ -89,15 +92,13 @@ bool WebDAVHost::IsWritable() const
     return true;
 }
 
-int WebDAVHost::FetchDirectoryListing(const char *_path,
-                                      VFSListingPtr &_target,
-                                      unsigned long _flags,
-                                      const VFSCancelChecker &_cancel_checker)
+std::expected<VFSListingPtr, Error>
+WebDAVHost::FetchDirectoryListing(std::string_view _path, unsigned long _flags, const VFSCancelChecker &_cancel_checker)
 {
     if( !IsValidInputPath(_path) )
-        return VFSError::InvalidCall;
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
-    const auto path = EnsureTrailingSlash(_path);
+    const auto path = EnsureTrailingSlash(std::string(_path));
 
     if( _flags & VFSFlags::F_ForceRefresh )
         I->m_Cache.DiscardListing(path);
@@ -109,20 +110,18 @@ int WebDAVHost::FetchDirectoryListing(const char *_path,
     else {
         const auto refresh_rc = RefreshListingAtPath(path, _cancel_checker);
         if( refresh_rc != VFSError::Ok )
-            return refresh_rc;
+            return std::unexpected(VFSError::ToError(refresh_rc));
 
         if( auto cached2 = I->m_Cache.Listing(path) )
             items = std::move(*cached2);
         else
-            return VFSError::GenericError;
+            return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
     }
 
     if( (_flags & VFSFlags::F_NoDotDot) || path == "/" )
-        items.erase(std::remove_if(
-                        std::begin(items), std::end(items), [](const auto &_item) { return _item.filename == ".."; }),
-                    std::end(items));
+        std::erase_if(items, [](const auto &_item) { return _item.filename == ".."; });
     else
-        std::partition(std::begin(items), std::end(items), [](const auto &_i) { return _i.filename == ".."; });
+        std::ranges::partition(items, [](const auto &_i) { return _i.filename == ".."; });
 
     using nc::base::variable_container;
     ListingInput listing_source;
@@ -149,17 +148,17 @@ int WebDAVHost::FetchDirectoryListing(const char *_path,
         index++;
     }
 
-    _target = VFSListing::Build(std::move(listing_source));
-    return VFSError::Ok;
+    return VFSListing::Build(std::move(listing_source));
 }
 
-int WebDAVHost::IterateDirectoryListing(const char *_path,
-                                        const std::function<bool(const VFSDirEnt &_dirent)> &_handler)
+std::expected<void, Error>
+WebDAVHost::IterateDirectoryListing(std::string_view _path,
+                                    const std::function<bool(const VFSDirEnt &_dirent)> &_handler)
 {
     if( !IsValidInputPath(_path) )
-        return VFSError::InvalidCall;
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
-    const auto path = EnsureTrailingSlash(_path);
+    const auto path = EnsureTrailingSlash(std::string(_path));
 
     std::vector<PropFindResponse> items;
     if( auto cached = I->m_Cache.Listing(path) ) {
@@ -168,16 +167,15 @@ int WebDAVHost::IterateDirectoryListing(const char *_path,
     else {
         const auto refresh_rc = RefreshListingAtPath(path, nullptr);
         if( refresh_rc != VFSError::Ok )
-            return refresh_rc;
+            return std::unexpected(VFSError::ToError(refresh_rc));
 
         if( auto cached2 = I->m_Cache.Listing(path) )
             items = std::move(*cached2);
         else
-            return VFSError::GenericError;
+            return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
     }
 
-    items.erase(remove_if(begin(items), end(items), [](const auto &_item) { return _item.filename == ".."; }),
-                end(items));
+    std::erase_if(items, [](const auto &_item) { return _item.filename == ".."; });
 
     for( const auto &i : items ) {
         VFSDirEnt e;
@@ -185,19 +183,17 @@ int WebDAVHost::IterateDirectoryListing(const char *_path,
         e.name_len = uint16_t(i.filename.length());
         e.type = i.is_directory ? DT_DIR : DT_REG;
         if( !_handler(e) )
-            return VFSError::Cancelled;
+            return std::unexpected(nc::Error{nc::Error::POSIX, ECANCELED});
     }
 
-    return VFSError::Ok;
+    return {};
 }
 
-int WebDAVHost::Stat(const char *_path,
-                     VFSStat &_st,
-                     [[maybe_unused]] unsigned long _flags,
-                     const VFSCancelChecker &_cancel_checker)
+std::expected<VFSStat, Error>
+WebDAVHost::Stat(std::string_view _path, [[maybe_unused]] unsigned long _flags, const VFSCancelChecker &_cancel_checker)
 {
     if( !IsValidInputPath(_path) )
-        return VFSError::InvalidCall;
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
     PropFindResponse item;
     auto [cached_1st, cached_1st_res] = I->m_Cache.Item(_path);
@@ -206,38 +202,38 @@ int WebDAVHost::Stat(const char *_path,
     }
     else {
         if( cached_1st_res == Cache::E::NonExist )
-            return VFSError::FromErrno(ENOENT);
+            return std::unexpected(nc::Error{nc::Error::POSIX, ENOENT});
 
         const auto [directory, filename] = DeconstructPath(_path);
         if( directory.empty() )
-            return VFSError::InvalidCall;
+            return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
         const auto rc = RefreshListingAtPath(directory, _cancel_checker);
         if( rc != VFSError::Ok )
-            return rc;
+            return std::unexpected(VFSError::ToError(rc));
 
         auto [cached_2nd, cached_2nd_res] = I->m_Cache.Item(_path);
         if( cached_2nd )
             item = std::move(*cached_2nd);
         else
-            return VFSError::FromErrno(ENOENT);
+            return std::unexpected(nc::Error{nc::Error::POSIX, ENOENT});
     }
 
-    memset(&_st, 0, sizeof(_st));
-    _st.mode = item.is_directory ? DirectoryAccessMode : RegularFileAccessMode;
+    VFSStat st;
+    st.mode = item.is_directory ? DirectoryAccessMode : RegularFileAccessMode;
     if( item.size >= 0 ) {
-        _st.size = item.size;
-        _st.meaning.size = 1;
+        st.size = item.size;
+        st.meaning.size = 1;
     }
     if( item.creation_date >= 0 ) {
-        _st.btime.tv_sec = item.creation_date;
-        _st.meaning.btime = true;
+        st.btime.tv_sec = item.creation_date;
+        st.meaning.btime = true;
     }
     if( item.modification_date >= 0 ) {
-        _st.mtime.tv_sec = _st.ctime.tv_sec = item.modification_date;
-        _st.meaning.mtime = _st.meaning.ctime = true;
+        st.mtime.tv_sec = st.ctime.tv_sec = item.modification_date;
+        st.meaning.mtime = st.meaning.ctime = true;
     }
 
-    return VFSError::Ok;
+    return st;
 }
 
 int WebDAVHost::RefreshListingAtPath(const std::string &_path, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
@@ -255,89 +251,87 @@ int WebDAVHost::RefreshListingAtPath(const std::string &_path, [[maybe_unused]] 
     return VFSError::Ok;
 }
 
-int WebDAVHost::StatFS([[maybe_unused]] const char *_path,
-                       VFSStatFS &_stat,
-                       [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<VFSStatFS, Error> WebDAVHost::StatFS([[maybe_unused]] std::string_view _path,
+                                                   [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
     const auto ar = I->m_Pool.Get();
     const auto [rc, free, used] = RequestSpaceQuota(Config(), *ar.connection);
     if( rc != VFSError::Ok )
-        return rc;
+        return std::unexpected(VFSError::ToError(rc));
 
-    _stat = nc::vfs::StatFS{};
+    VFSStatFS stat;
 
     if( free >= 0 ) {
-        _stat.free_bytes = free;
-        _stat.avail_bytes = free;
+        stat.free_bytes = free;
+        stat.avail_bytes = free;
     }
     if( free >= 0 && used >= 0 ) {
-        _stat.total_bytes = free + used;
+        stat.total_bytes = free + used;
     }
 
-    _stat.volume_name = Config().full_url;
+    stat.volume_name = Config().full_url;
 
-    return VFSError::Ok;
+    return stat;
 }
 
-int WebDAVHost::CreateDirectory(const char *_path,
-                                [[maybe_unused]] int _mode,
-                                [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> WebDAVHost::CreateDirectory(std::string_view _path,
+                                                       [[maybe_unused]] int _mode,
+                                                       [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
     if( !IsValidInputPath(_path) )
-        return VFSError::InvalidCall;
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
-    const auto path = EnsureTrailingSlash(_path);
+    const auto path = EnsureTrailingSlash(std::string(_path));
     const auto ar = I->m_Pool.Get();
     const auto rc = RequestMKCOL(Config(), *ar.connection, path);
     if( rc != VFSError::Ok )
-        return rc;
+        return std::unexpected(VFSError::ToError(rc));
 
     I->m_Cache.CommitMkDir(path);
 
-    return VFSError::Ok;
+    return {};
 }
 
-int WebDAVHost::RemoveDirectory(const char *_path, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> WebDAVHost::RemoveDirectory(std::string_view _path,
+                                                       [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
     if( !IsValidInputPath(_path) )
-        return VFSError::InvalidCall;
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
-    const auto path = EnsureTrailingSlash(_path);
+    const auto path = EnsureTrailingSlash(std::string(_path));
     const auto ar = I->m_Pool.Get();
     const auto rc = RequestDelete(Config(), *ar.connection, path);
     if( rc != VFSError::Ok )
-        return rc;
+        return std::unexpected(VFSError::ToError(rc));
 
     I->m_Cache.CommitRmDir(path);
 
-    return VFSError::Ok;
+    return {};
 }
 
-int WebDAVHost::Unlink(const char *_path, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> WebDAVHost::Unlink(std::string_view _path,
+                                              [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
     if( !IsValidInputPath(_path) )
-        return VFSError::InvalidCall;
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
     const auto ar = I->m_Pool.Get();
     const auto rc = RequestDelete(Config(), *ar.connection, _path);
     if( rc != VFSError::Ok )
-        return rc;
+        return std::unexpected(VFSError::ToError(rc));
 
     I->m_Cache.CommitUnlink(_path);
 
-    return VFSError::Ok;
+    return {};
 }
 
-int WebDAVHost::CreateFile(const char *_path,
-                           std::shared_ptr<VFSFile> &_target,
-                           [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<std::shared_ptr<VFSFile>, Error>
+WebDAVHost::CreateFile(std::string_view _path, [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
     if( !IsValidInputPath(_path) )
-        return VFSError::InvalidCall;
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
-    _target = std::make_shared<File>(_path, std::dynamic_pointer_cast<WebDAVHost>(shared_from_this()));
-
-    return VFSError::Ok;
+    return std::make_shared<File>(_path, std::dynamic_pointer_cast<WebDAVHost>(shared_from_this()));
 }
 
 webdav::ConnectionsPool &WebDAVHost::ConnectionsPool()
@@ -350,46 +344,45 @@ webdav::Cache &WebDAVHost::Cache()
     return I->m_Cache;
 }
 
-int WebDAVHost::Rename(const char *_old_path,
-                       const char *_new_path,
-                       [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
+std::expected<void, Error> WebDAVHost::Rename(std::string_view _old_path,
+                                              std::string_view _new_path,
+                                              [[maybe_unused]] const VFSCancelChecker &_cancel_checker)
 {
     if( !IsValidInputPath(_old_path) || !IsValidInputPath(_new_path) )
-        return VFSError::InvalidCall;
+        return std::unexpected(nc::Error{nc::Error::POSIX, EINVAL});
 
-    VFSStat st;
-    const int stat_rc = Stat(_old_path, st, 0, _cancel_checker);
-    if( stat_rc != VFSError::Ok )
-        return stat_rc;
+    const std::expected<VFSStat, Error> st = Stat(_old_path, 0, _cancel_checker);
+    if( !st )
+        return std::unexpected(st.error());
 
-    std::string old_path = _old_path;
-    std::string new_path = _new_path;
-    if( st.mode_bits.dir ) {
+    std::string old_path = std::string(_old_path);
+    std::string new_path = std::string(_new_path);
+    if( st->mode_bits.dir ) {
         // WebDAV RFC mandates that directories (collections) should be denoted with a trailing slash
         old_path = EnsureTrailingSlash(old_path);
         new_path = EnsureTrailingSlash(new_path);
     }
 
     const auto ar = I->m_Pool.Get();
-    const auto rc = RequestMove(Config(), *ar.connection, old_path, new_path);
-    if( rc != VFSError::Ok )
-        return rc;
+    const auto move_rc = RequestMove(Config(), *ar.connection, old_path, new_path);
+    if( move_rc != VFSError::Ok )
+        return std::unexpected(VFSError::ToError(move_rc));
 
     I->m_Cache.CommitMove(_old_path, _new_path);
 
-    return VFSError::Ok;
+    return {};
 }
 
-bool WebDAVHost::IsDirChangeObservingAvailable([[maybe_unused]] const char *_path)
+bool WebDAVHost::IsDirectoryChangeObservationAvailable([[maybe_unused]] std::string_view _path)
 {
     return true;
 }
 
-HostDirObservationTicket WebDAVHost::DirChangeObserve(const char *_path, std::function<void()> _handler)
+HostDirObservationTicket WebDAVHost::ObserveDirectoryChanges(std::string_view _path, std::function<void()> _handler)
 {
     if( !IsValidInputPath(_path) )
         return {};
-    const auto ticket = I->m_Cache.Observe(_path, std::move(_handler));
+    const auto ticket = I->m_Cache.Observe(std::string(_path), std::move(_handler));
     return HostDirObservationTicket{ticket, shared_from_this()};
 }
 
@@ -464,12 +457,12 @@ static VFSConfiguration ComposeConfiguration(const std::string &_serv_url,
                                   (default_port ? "" : std::to_string(_port)),
                                   (_path.empty() ? "" : _path + "/"));
 
-    return VFSConfiguration(std::move(config));
+    return {std::move(config)};
 }
 
-static bool IsValidInputPath(const char *_path)
+static bool IsValidInputPath(std::string_view _path)
 {
-    return _path != nullptr && _path[0] == '/';
+    return !_path.empty() && _path[0] == '/';
 }
 
 } // namespace nc::vfs

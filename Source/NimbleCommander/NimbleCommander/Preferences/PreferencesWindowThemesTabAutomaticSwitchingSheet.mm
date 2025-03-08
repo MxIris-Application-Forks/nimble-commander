@@ -1,4 +1,4 @@
-// Copyright (C) 2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2022-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PreferencesWindowThemesTabAutomaticSwitchingSheet.h"
 #include <Utility/StringExtras.h>
 
@@ -15,6 +15,9 @@
 }
 
 @synthesize settings = m_NewSettings;
+@synthesize lightThemePopUp;
+@synthesize darkThemePopUp;
+@synthesize autoSwitchingEnabled;
 
 - (instancetype)init
 {
@@ -24,7 +27,8 @@
 - (instancetype)initWithSwitchingSettings:(const nc::ThemesManager::AutoSwitchingSettings &)_autoswitching
                             andThemeNames:(std::span<const std::string>)_names
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         m_ThemeNames.insert(m_ThemeNames.end(), _names.begin(), _names.end());
         m_OrigSettings = _autoswitching;
         self.autoSwitchingEnabled = false;

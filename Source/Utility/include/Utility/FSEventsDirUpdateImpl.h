@@ -5,14 +5,14 @@
 #include <CoreServices/CoreServices.h>
 #include <Base/spinlock.h>
 #include <filesystem>
-#include <Base/RobinHoodUtil.h>
+#include <Base/UnorderedUtil.h>
 
 namespace nc::utility {
 
 class FSEventsDirUpdateImpl : public FSEventsDirUpdate
 {
 public:
-    uint64_t AddWatchPath(const char *_path, std::function<void()> _handler) override;
+    uint64_t AddWatchPath(std::string_view _path, std::function<void()> _handler) override;
 
     void RemoveWatchPathWithTicket(uint64_t _ticket) override;
 
@@ -24,23 +24,23 @@ public:
 
 private:
     struct WatchData {
-        std::string_view path; // canonical fs representation, should include a trailing slash. points into hashmap
+        std::string path; // canonical fs representation, should include a trailing slash
         FSEventStreamRef stream = nullptr;
         std::vector<std::pair<uint64_t, std::function<void()>>> handlers;
     };
 
-    using WatchesT = robin_hood::
-        unordered_node_map<std::string, WatchData, RHTransparentStringHashEqual, RHTransparentStringHashEqual>;
+    using WatchesT = ankerl::unordered_dense::
+        map<std::string, std::unique_ptr<WatchData>, UnorderedStringHashEqual, UnorderedStringHashEqual>;
 
     void OnVolumeDidUnmount(const std::string &_on_path) override;
 
     static void DiskDisappeared(DADiskRef disk, void *context);
-    static void FSEventsDirUpdateCallback(ConstFSEventStreamRef streamRef,
-                                          void *userData,
-                                          size_t numEvents,
-                                          void *eventPaths,
-                                          const FSEventStreamEventFlags eventFlags[],
-                                          const FSEventStreamEventId eventIds[]);
+    static void FSEventsDirUpdateCallback(ConstFSEventStreamRef _stream_ref,
+                                          void *_user_data,
+                                          size_t _num,
+                                          void *_paths,
+                                          const FSEventStreamEventFlags _flags[],
+                                          const FSEventStreamEventId _ids[]);
     static FSEventStreamRef CreateEventStream(const std::string &path, void *context);
 
     spinlock m_Lock;

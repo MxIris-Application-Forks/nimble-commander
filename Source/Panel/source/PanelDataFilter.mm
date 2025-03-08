@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PanelDataFilter.h"
 #include <VFS/VFS.h>
 #include <Base/CFPtr.h>
@@ -9,11 +9,6 @@ namespace nc::panel::data {
 
 static_assert(sizeof(TextualFilter) == 10);
 static_assert(sizeof(HardFilter) == 11);
-
-TextualFilter::TextualFilter() noexcept
-    : text{nil}, type{Anywhere}, ignore_dot_dot{true}, clear_on_new_listing{false}, hightlight_results{true}
-{
-}
 
 bool TextualFilter::operator==(const TextualFilter &_r) const noexcept
 {
@@ -65,7 +60,7 @@ static bool FuzzySearchSatisfiable(CFStringRef _hay,
                                    NSString *_needle,
                                    size_t _needle_start) noexcept
 {
-    base::CFStackAllocator alloc;
+    const base::CFStackAllocator alloc;
     const auto needle_len = _needle.length;
 
     size_t pos = _hay_start;
@@ -76,7 +71,7 @@ static bool FuzzySearchSatisfiable(CFStringRef _hay,
         CFRange result = {0, 0};
         const bool found = CFStringFindWithOptions(
             _hay, cs.get(), CFRangeMake(pos, _hay_len - pos), kCFCompareCaseInsensitive, &result);
-        if( found == false )
+        if( !found )
             return false; // cannot be satisfied - filename doesn't contain a sparse sequence of chars from text
         pos = result.location + 1;
     }
@@ -88,7 +83,7 @@ std::optional<QuickSearchHiglight> FuzzySearch(NSString *_filename, NSString *_t
     assert(_filename != nil);
     assert(_text != nil);
 
-    base::CFPtr<CFStringRef> cf_filename =
+    const base::CFPtr<CFStringRef> cf_filename =
         base::CFPtr<CFStringRef>::adopt(static_cast<CFStringRef>(CFBridgingRetain(_filename)));
 
     const auto filename_len = _filename.length;
@@ -114,9 +109,9 @@ std::optional<QuickSearchHiglight> FuzzySearch(NSString *_filename, NSString *_t
                 return {}; // invalid case?
             }
 
-            NSRange result = [_filename rangeOfString:[text substringToIndex:length]
-                                              options:NSCaseInsensitiveSearch
-                                                range:NSMakeRange(filename_pos, filename_len - filename_pos)];
+            const NSRange result = [_filename rangeOfString:[text substringToIndex:length]
+                                                    options:NSCaseInsensitiveSearch
+                                                      range:NSMakeRange(filename_pos, filename_len - filename_pos)];
             if( result.length == 0 ) {
                 continue; // cannot found a substring this long
             }
@@ -152,13 +147,13 @@ bool TextualFilter::IsValidItem(const VFSListingItem &_item, QuickSearchHiglight
     if( textlen == 0 )
         return true; // will return true on any item with @"" filter
 
-    NSString *name = _item.DisplayNameNS();
+    NSString *const name = _item.DisplayNameNS();
     const auto namelen = name.length;
     if( textlen > namelen )
         return false; // unsatisfiable by definition
 
     if( type == Anywhere ) {
-        NSRange result = [name rangeOfString:text options:NSCaseInsensitiveSearch];
+        const NSRange result = [name rangeOfString:text options:NSCaseInsensitiveSearch];
         if( result.length == 0 )
             return false;
 
@@ -169,7 +164,7 @@ bool TextualFilter::IsValidItem(const VFSListingItem &_item, QuickSearchHiglight
         return true;
     }
     else if( type == Beginning ) {
-        NSRange result = [name rangeOfString:text options:NSCaseInsensitiveSearch | NSAnchoredSearch];
+        const NSRange result = [name rangeOfString:text options:NSCaseInsensitiveSearch | NSAnchoredSearch];
 
         if( result.length == 0 )
             return false;
@@ -182,7 +177,7 @@ bool TextualFilter::IsValidItem(const VFSListingItem &_item, QuickSearchHiglight
     }
     else if( type == Ending || type == BeginningOrEnding ) {
         if( type == BeginningOrEnding ) { // look at beginning
-            NSRange result = [name rangeOfString:text options:NSCaseInsensitiveSearch | NSAnchoredSearch];
+            const NSRange result = [name rangeOfString:text options:NSCaseInsensitiveSearch | NSAnchoredSearch];
             if( result.length != 0 ) {
                 QuickSearchHiglight::Range hlrange;
                 hlrange.offset = result.location;
@@ -194,11 +189,12 @@ bool TextualFilter::IsValidItem(const VFSListingItem &_item, QuickSearchHiglight
 
         if( _item.HasExtension() ) {
             // slow path here - look before extension
-            NSRange dotrange = [name rangeOfString:@"." options:NSBackwardsSearch];
+            const NSRange dotrange = [name rangeOfString:@"." options:NSBackwardsSearch];
             if( dotrange.length != 0 && dotrange.location > textlen ) {
-                NSRange result = [name rangeOfString:text
-                                             options:NSCaseInsensitiveSearch | NSAnchoredSearch | NSBackwardsSearch
-                                               range:NSMakeRange(dotrange.location - textlen, textlen)];
+                const NSRange result =
+                    [name rangeOfString:text
+                                options:NSCaseInsensitiveSearch | NSAnchoredSearch | NSBackwardsSearch
+                                  range:NSMakeRange(dotrange.location - textlen, textlen)];
                 if( result.length != 0 ) {
                     QuickSearchHiglight::Range hlrange;
                     hlrange.offset = result.location;
@@ -210,8 +206,8 @@ bool TextualFilter::IsValidItem(const VFSListingItem &_item, QuickSearchHiglight
         }
 
         // look at the end at last
-        NSRange result = [name rangeOfString:text
-                                     options:NSCaseInsensitiveSearch | NSAnchoredSearch | NSBackwardsSearch];
+        const NSRange result = [name rangeOfString:text
+                                           options:NSCaseInsensitiveSearch | NSAnchoredSearch | NSBackwardsSearch];
         if( result.length != 0 ) {
             QuickSearchHiglight::Range hlrange;
             hlrange.offset = result.location;
@@ -251,7 +247,7 @@ bool TextualFilter::IsFiltering() const noexcept
 
 bool HardFilter::IsValidItem(const VFSListingItem &_item, QuickSearchHiglight &_found_range) const
 {
-    if( show_hidden == false && _item.IsHidden() )
+    if( !show_hidden && _item.IsHidden() )
         return false;
 
     return text.IsValidItem(_item, _found_range);
@@ -262,4 +258,4 @@ bool HardFilter::IsFiltering() const noexcept
     return !show_hidden || text.IsFiltering();
 }
 
-}
+} // namespace nc::panel::data

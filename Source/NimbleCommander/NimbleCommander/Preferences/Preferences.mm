@@ -1,4 +1,4 @@
-// Copyright (C) 2016-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2016-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <NimbleCommander/Bootstrap/AppDelegate.h>
 #include "PreferencesWindowGeneralTab.h"
 #include "PreferencesWindowPanelsTab.h"
@@ -10,7 +10,7 @@
 #include "PreferencesWindowThemesTab.h"
 #include "Preferences.h"
 
-static RHPreferencesWindowController *CreatePrefWindow()
+static PreferencesWindowController *CreatePrefWindow()
 {
     auto tools_storage = []() -> nc::panel::ExternalToolsStorage & { return NCAppDelegate.me.externalTools; };
     auto app_del = NCAppDelegate.me;
@@ -21,10 +21,11 @@ static RHPreferencesWindowController *CreatePrefWindow()
         [[PreferencesWindowViewerTab alloc] initWithHistory:app_del.internalViewerHistory],
         [[PreferencesWindowExternalEditorsTab alloc] initWithEditorsStorage:app_del.externalEditorsStorage],
         [PreferencesWindowTerminalTab new],
-        [[PreferencesWindowHotkeysTab alloc] initWithToolsStorage:tools_storage],
+        [[PreferencesWindowHotkeysTab alloc] initWithToolsStorage:tools_storage
+                                          actionsShortcutsManager:app_del.actionsShortcutsManager],
         [[PreferencesWindowToolsTab alloc] initWithToolsStorage:tools_storage]
     ];
-    return [[RHPreferencesWindowController alloc] initWithViewControllers:tabs andTitle:@"Preferences"];
+    return [[PreferencesWindowController alloc] initWithControllers:tabs title:@"Preferences"];
 }
 
 void ShowPreferencesWindow()

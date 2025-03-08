@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2019-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Tests.h"
 #include "TextModeWorkingSet.h"
 #include "HexModeProcessing.h"
@@ -8,13 +8,12 @@
 #include <Base/algo.h>
 
 using namespace nc::viewer;
+using Catch::Approx;
 
 static std::shared_ptr<const TextModeWorkingSet>
-ProduceWorkingSet(const char *_chars, const int _chars_number, long _ws_offset = 0);
+ProduceWorkingSet(const char *_chars, int _chars_number, long _ws_offset = 0);
 static std::shared_ptr<const HexModeFrame>
-ProduceFrame(const std::shared_ptr<const TextModeWorkingSet> &ws,
-             const char *_chars,
-             const int _chars_number);
+ProduceFrame(const std::shared_ptr<const TextModeWorkingSet> &ws, const char *_chars, int _chars_number);
 
 static std::unique_ptr<HexModeLayout> ProduceLayout(std::shared_ptr<const HexModeFrame> _frame);
 
@@ -120,12 +119,12 @@ ProduceWorkingSet(const char *_chars, const int _chars_number, long _ws_offset)
     auto utf16_chars = std::make_unique<unsigned short[]>(_chars_number);
     auto utf16_chars_offsets = std::make_unique<unsigned[]>(_chars_number);
     size_t utf16_length = 0;
-    encodings::InterpretAsUnichar(encodings::ENCODING_UTF8,
-                                  reinterpret_cast<const unsigned char *>(_chars),
-                                  _chars_number,
-                                  utf16_chars.get(),
-                                  utf16_chars_offsets.get(),
-                                  &utf16_length);
+    nc::utility::InterpretAsUnichar(nc::utility::Encoding::ENCODING_UTF8,
+                                    reinterpret_cast<const unsigned char *>(_chars),
+                                    _chars_number,
+                                    utf16_chars.get(),
+                                    utf16_chars_offsets.get(),
+                                    &utf16_length);
     auto source = TextModeWorkingSet::Source{};
     source.unprocessed_characters = reinterpret_cast<const char16_t *>(utf16_chars.get());
     source.mapping_to_byte_offsets = reinterpret_cast<const int *>(utf16_chars_offsets.get());
@@ -136,9 +135,7 @@ ProduceWorkingSet(const char *_chars, const int _chars_number, long _ws_offset)
 }
 
 static std::shared_ptr<const HexModeFrame>
-ProduceFrame(const std::shared_ptr<const TextModeWorkingSet> &ws,
-             const char *_chars,
-             const int _chars_number)
+ProduceFrame(const std::shared_ptr<const TextModeWorkingSet> &ws, const char *_chars, const int _chars_number)
 {
     const auto font = CTFontCreateWithName(CFSTR("Menlo-Regular"), 13., nullptr);
     const auto release_font = at_scope_end([&] { CFRelease(font); });

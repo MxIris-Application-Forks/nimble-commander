@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Link.h"
 #include "../PanelController.h"
 #include "../PanelView.h"
@@ -39,7 +39,7 @@ bool CreateSymlink::Predicate(PanelController *_target) const
     return true;
 }
 
-void CreateSymlink::Perform(PanelController *_target, id) const
+void CreateSymlink::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto item = _target.view.item;
     if( !item )
@@ -66,7 +66,7 @@ void CreateSymlink::Perform(PanelController *_target, id) const
       const auto operation = std::make_shared<nc::ops::Linkage>(dest, value, vfs, nc::ops::LinkageType::CreateSymlink);
       __weak PanelController *weak_panel = focus_opposite ? opposite : _target;
       operation->ObserveUnticketed(nc::ops::Operation::NotifyAboutCompletion, [weak_panel, dest] {
-          if( PanelController *pc = weak_panel )
+          if( PanelController *const pc = weak_panel )
               FocusResult(pc, dest);
       });
       [_target.mainWindowController enqueueOperation:operation];
@@ -81,7 +81,7 @@ bool AlterSymlink::Predicate(PanelController *_target) const
     return item && item.IsSymlink() && item.Host()->IsWritable();
 }
 
-void AlterSymlink::Perform(PanelController *_target, id) const
+void AlterSymlink::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto item = _target.view.item;
     if( !item || !item.IsSymlink() )
@@ -98,7 +98,7 @@ void AlterSymlink::Perform(PanelController *_target, id) const
       __weak PanelController *weak_panel = _target;
       operation->ObserveUnticketed(nc::ops::Operation::NotifyAboutCompletion, [weak_panel] {
           dispatch_to_main_queue([weak_panel] {
-              if( PanelController *pc = weak_panel )
+              if( PanelController *const pc = weak_panel )
                   [pc hintAboutFilesystemChange];
           });
       });
@@ -113,7 +113,7 @@ bool CreateHardlink::Predicate(PanelController *_target) const
     return item && !item.IsDir() && item.Host()->IsNativeFS();
 }
 
-void CreateHardlink::Perform(PanelController *_target, id) const
+void CreateHardlink::Perform(PanelController *_target, id /*_sender*/) const
 {
     if( !Predicate(_target) )
         return;
@@ -137,7 +137,7 @@ void CreateHardlink::Perform(PanelController *_target, id) const
           std::make_shared<nc::ops::Linkage>(dest, value, item.Host(), nc::ops::LinkageType::CreateHardlink);
       __weak PanelController *weak_panel = _target;
       operation->ObserveUnticketed(nc::ops::Operation::NotifyAboutCompletion, [weak_panel, dest] {
-          if( PanelController *pc = weak_panel )
+          if( PanelController *const pc = weak_panel )
               FocusResult(pc, dest);
       });
 
@@ -178,4 +178,4 @@ static void FocusResult(PanelController *_target, const std::string &_path)
         dispatch_to_main_queue([_target, _path] { FocusResult(_target, _path); });
 }
 
-}
+} // namespace nc::panel::actions

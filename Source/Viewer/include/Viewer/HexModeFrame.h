@@ -112,8 +112,7 @@ public:
     /** Returns a numbers of unicode chars covered by this row */
     int CharsNum() const noexcept;
 
-    enum
-    {
+    enum {
         AddressIndex = 0,
         SnippetIndex = 1,
         ColumnsBaseIndex = 2
@@ -147,7 +146,7 @@ public:
 
 private:
     const Source &m_Source;
-    int const m_RawBytesNumber;
+    const int m_RawBytesNumber;
     base::CFPtr<CFDictionaryRef> m_Attributes;
 };
 
@@ -256,4 +255,4 @@ inline int HexModeFrame::Row::BytesInColum(int _column) const
     const auto chars_per_byte = 3;
     return int((CFStringGetLength(ColumnString(_column)) + 1) / chars_per_byte);
 }
-}
+} // namespace nc::viewer

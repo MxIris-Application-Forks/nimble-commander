@@ -1,9 +1,8 @@
-// Copyright (C) 2016-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2016-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "MainWindowFilePanelState.h"
 #include "StateActionsDispatcher.h"
-#include "../../Core/ActionsShortcutsManager.h"
+#include <Utility/ActionsShortcutsManager.h>
 #include "MainWindowFilePanelsStateToolbarDelegate.h"
-#include "StateActionsDispatcher.h"
 #include <Operations/PoolViewController.h>
 #include "Actions/ExecuteExternalTool.h"
 #include <NimbleCommander/Core/AnyHolder.h>
@@ -13,19 +12,16 @@
 #include <Utility/StringExtras.h>
 #include <Utility/ObjCpp.h>
 #include <deque>
+#include <algorithm>
+#include <fmt/format.h>
+
+using nc::panel::ExternalTool;
 
 // do not change these strings, they are used for persistency in NSUserDefaults
 static auto g_ToolbarIdentifier = @"FilePanelsToolbar";
-static auto g_ExternalToolsIdentifiersPrefix = @"external_tool_";
-
-@interface MainWindowFilePanelsStateToolbarDelegate ()
-
-@property(nonatomic, readonly) MainWindowFilePanelState *state;
-
-@end
+static std::string_view g_ExternalToolsIdentifiersPrefix = "external_tool_";
 
 @implementation MainWindowFilePanelsStateToolbarDelegate {
-    __weak MainWindowFilePanelState *m_State;
     NSToolbar *m_Toolbar;
     NSButton *m_LeftPanelGoToButton;
     NSButton *m_RightPanelGoToButton;
@@ -34,7 +30,9 @@ static auto g_ExternalToolsIdentifiersPrefix = @"external_tool_";
     NSToolbarItem *m_PoolViewToolbarItem;
 
     NSArray *m_AllowedToolbarItemsIdentifiers;
+    nc::panel::ExternalToolsStorage *m_Storage;
     nc::panel::ExternalToolsStorage::ObservationTicket m_ToolsChangesTicket;
+    const nc::utility::ActionsShortcutsManager *m_ActionsShortcutsManager;
 
     id m_RepresentedObject;
 }
@@ -44,35 +42,29 @@ static auto g_ExternalToolsIdentifiersPrefix = @"external_tool_";
 @synthesize rightPanelGoToButton = m_RightPanelGoToButton;
 @synthesize operationsPoolViewController = m_PoolViewController;
 
-- (instancetype)initWithFilePanelsState:(MainWindowFilePanelState *)_state
+- (instancetype)initWithToolsStorage:(nc::panel::ExternalToolsStorage &)_storage
+             actionsShortcutsManager:(const nc::utility::ActionsShortcutsManager &)_actions_shortcuts_manager
+                   andOperationsPool:(nc::ops::Pool &)_pool
 {
-    assert(_state != nil);
     self = [super init];
     if( self ) {
-        m_State = _state;
+        m_Storage = &_storage;
+        m_ActionsShortcutsManager = &_actions_shortcuts_manager;
 
         [self buildBasicControls];
         [self buildToolbar];
         [self buildAllowedIdentifiers];
 
         __weak MainWindowFilePanelsStateToolbarDelegate *weak_self = self;
-        m_ToolsChangesTicket = _state.externalToolsStorage.ObserveChanges([=] {
-            dispatch_to_main_queue([=] {
-                [static_cast<MainWindowFilePanelsStateToolbarDelegate *>(weak_self)
-                    externalToolsChanged];
-            });
+        m_ToolsChangesTicket = m_Storage->ObserveChanges([=] {
+            dispatch_to_main_queue(
+                [=] { [static_cast<MainWindowFilePanelsStateToolbarDelegate *>(weak_self) externalToolsChanged]; });
         });
 
-        m_PoolViewController =
-            [[NCOpsPoolViewController alloc] initWithPool:self.state.operationsPool];
+        m_PoolViewController = [[NCOpsPoolViewController alloc] initWithPool:_pool];
         [m_PoolViewController loadView];
     }
     return self;
-}
-
-- (MainWindowFilePanelState *)state
-{
-    return static_cast<MainWindowFilePanelState *>(m_State);
 }
 
 - (void)buildBasicControls
@@ -108,8 +100,7 @@ static NSImage *MakeBackupToolImage()
 {
     const auto path = @"/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
                       @"GenericQuestionMarkIcon.icns";
-    auto image = [[NSImage alloc] initWithContentsOfURL:[NSURL fileURLWithPath:path
-                                                                   isDirectory:false]];
+    auto image = [[NSImage alloc] initWithContentsOfURL:[NSURL fileURLWithPath:path isDirectory:false]];
     if( !image )
         return nil;
     image.size = NSMakeSize(24, 24);
@@ -119,7 +110,7 @@ static NSImage *MakeBackupToolImage()
 static NSImage *ImageForTool(const nc::panel::ExternalTool &_et)
 {
     std::filesystem::path tool_path = _et.m_ExecutablePath;
-    if( std::filesystem::exists(tool_path) == false ) {
+    if( !std::filesystem::exists(tool_path) ) {
         // presumably this is a short name of a CLI tool, i.e. 'zip'. let's resolve it
         const auto paths = nc::base::WhereIs(_et.m_ExecutablePath);
         if( paths.empty() )
@@ -127,8 +118,7 @@ static NSImage *ImageForTool(const nc::panel::ExternalTool &_et)
         tool_path = paths.front();
     }
 
-    NSURL *exec_url =
-        [[NSURL alloc] initFileURLWithPath:[NSString stringWithUTF8StdString:tool_path.native()]];
+    NSURL *const exec_url = [[NSURL alloc] initFileURLWithPath:[NSString stringWithUTF8StdString:tool_path.native()]];
     if( !exec_url )
         return MakeBackupToolImage();
 
@@ -141,7 +131,25 @@ static NSImage *ImageForTool(const nc::panel::ExternalTool &_et)
     return img;
 }
 
-- (void)setupExternalToolItem:(NSToolbarItem *)_item forTool:(const nc::panel::ExternalTool &)_et no:(int)_no
+static NSString *EncodeToolIdentifier(const ExternalTool &_et)
+{
+    const std::string identifier = fmt::format("{}{}", g_ExternalToolsIdentifiersPrefix, _et.m_UUID.ToString());
+    return [NSString stringWithUTF8StdString:identifier];
+}
+
+- (std::shared_ptr<const ExternalTool>)findToolWithIdentifier:(NSString *)_identifier
+{
+    std::string_view identifier = _identifier.UTF8String;
+    if( identifier.starts_with(g_ExternalToolsIdentifiersPrefix) ) {
+        identifier.remove_prefix(g_ExternalToolsIdentifiersPrefix.length());
+        if( const auto uuid = nc::base::UUID::FromString(identifier) ) {
+            return m_Storage->GetTool(uuid.value());
+        }
+    }
+    return nullptr;
+}
+
+- (void)setupExternalToolItem:(NSToolbarItem *)_item forTool:(const nc::panel::ExternalTool &)_et
 {
     const auto title = [NSString stringWithUTF8StdString:_et.m_Title];
     _item.image = ImageForTool(_et);
@@ -149,7 +157,6 @@ static NSImage *ImageForTool(const nc::panel::ExternalTool &_et)
     _item.paletteLabel = title;
     _item.target = self;
     _item.action = @selector(onExternalToolAction:);
-    _item.tag = _no;
     _item.toolTip = [&] {
         const auto hotkey = _et.m_Shorcut.PrettyString();
         if( hotkey.length == 0 )
@@ -163,19 +170,20 @@ static NSImage *ImageForTool(const nc::panel::ExternalTool &_et)
         itemForItemIdentifier:(NSString *)itemIdentifier
     willBeInsertedIntoToolbar:(BOOL) [[maybe_unused]] _flag
 {
-    const auto &actman = ActionsShortcutsManager::Instance();
     if( [itemIdentifier isEqualToString:@"filepanels_left_goto_button"] ) {
         NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:itemIdentifier];
         item.view = m_LeftPanelGoToButton;
         item.paletteLabel = item.label = NSLocalizedString(@"Left GoTo", "Toolbar palette");
-        item.toolTip = actman.ShortCutFromAction("menu.go.left_panel").PrettyString();
+        auto shortcuts = m_ActionsShortcutsManager->ShortcutsFromAction("menu.go.left_panel").value();
+        item.toolTip = shortcuts.empty() ? @"" : shortcuts.front().PrettyString();
         return item;
     }
     if( [itemIdentifier isEqualToString:@"filepanels_right_goto_button"] ) {
         NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:itemIdentifier];
         item.view = m_RightPanelGoToButton;
         item.paletteLabel = item.label = NSLocalizedString(@"Right GoTo", "Toolbar palette");
-        item.toolTip = actman.ShortCutFromAction("menu.go.right_panel").PrettyString();
+        auto shortcuts = m_ActionsShortcutsManager->ShortcutsFromAction("menu.go.right_panel").value();
+        item.toolTip = shortcuts.empty() ? @"" : shortcuts.front().PrettyString();
         return item;
     }
     if( [itemIdentifier isEqualToString:@"operations_pool"] ) {
@@ -185,13 +193,10 @@ static NSImage *ImageForTool(const nc::panel::ExternalTool &_et)
         m_PoolViewToolbarItem = item;
         return item;
     }
-    if( [itemIdentifier hasPrefix:g_ExternalToolsIdentifiersPrefix] ) {
-        const int n = atoi(itemIdentifier.UTF8String + g_ExternalToolsIdentifiersPrefix.length);
-        if( const auto tool = self.state.externalToolsStorage.GetTool(n) ) {
-            NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:itemIdentifier];
-            [self setupExternalToolItem:item forTool:*tool no:n];
-            return item;
-        }
+    if( const auto tool = [self findToolWithIdentifier:itemIdentifier] ) {
+        NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:itemIdentifier];
+        [self setupExternalToolItem:item forTool:*tool];
+        return item;
     }
 
     return nil;
@@ -205,7 +210,7 @@ static NSImage *ImageForTool(const nc::panel::ExternalTool &_et)
 - (IBAction)onExternalToolAction:(id)sender
 {
     if( auto i = nc::objc_cast<NSToolbarItem>(sender) )
-        if( auto tool = self.state.externalToolsStorage.GetTool(i.tag) ) {
+        if( auto tool = [self findToolWithIdentifier:i.itemIdentifier] ) {
             m_RepresentedObject = [[AnyHolder alloc] initWithAny:std::any{tool}];
             [NSApp sendAction:@selector(onExecuteExternalTool:) to:nil from:self];
             m_RepresentedObject = nil;
@@ -239,9 +244,10 @@ static NSImage *ImageForTool(const nc::panel::ExternalTool &_et)
     [a addObject:@"filepanels_right_goto_button"];
     [a addObject:@"operations_pool"];
 
-    auto tools = m_State.externalToolsStorage.GetAllTools();
-    for( int i = 0, e = static_cast<int>(tools.size()); i != e; ++i )
-        [a addObject:[NSString stringWithFormat:@"%@%d", g_ExternalToolsIdentifiersPrefix, i]];
+    const std::vector<std::shared_ptr<const ExternalTool>> tools = m_Storage->GetAllTools();
+    for( const auto &tool : tools ) {
+        [a addObject:EncodeToolIdentifier(*tool)];
+    }
 
     [a addObject:NSToolbarFlexibleSpaceItemIdentifier];
     [a addObject:NSToolbarSpaceItemIdentifier];
@@ -252,21 +258,22 @@ static NSImage *ImageForTool(const nc::panel::ExternalTool &_et)
 - (void)externalToolsChanged
 {
     dispatch_assert_main_queue();
-    std::deque<int> to_remove;
+    std::vector<int> to_remove;
     for( NSToolbarItem *i in m_Toolbar.items ) {
-        if( [i.itemIdentifier hasPrefix:g_ExternalToolsIdentifiersPrefix] ) {
-            const int n =
-                atoi(i.itemIdentifier.UTF8String + g_ExternalToolsIdentifiersPrefix.length);
-            if( const auto tool = self.state.externalToolsStorage.GetTool(n) ) {
-                [self setupExternalToolItem:i forTool:*tool no:n];
+        //        if( [i.itemIdentifier hasPrefix:g_ExternalToolsIdentifiersPrefix] ) {
+        if( std::string_view(i.itemIdentifier.UTF8String).starts_with(g_ExternalToolsIdentifiersPrefix) ) {
+            //            const int n = atoi(i.itemIdentifier.UTF8String + g_ExternalToolsIdentifiersPrefix.length);
+            if( const auto tool = [self findToolWithIdentifier:i.itemIdentifier] ) {
+                [self setupExternalToolItem:i forTool:*tool];
             }
             else
-                to_remove.push_front(static_cast<int>([m_Toolbar.items indexOfObject:i]));
+                to_remove.push_back(static_cast<int>([m_Toolbar.items indexOfObject:i]));
         }
     }
 
     // this will immediately trigger removing of same elements from other windows' toolbars.
     // this is intended and should work fine.
+    std::ranges::reverse(to_remove);
     for( auto i : to_remove )
         [m_Toolbar removeItemAtIndex:i];
 

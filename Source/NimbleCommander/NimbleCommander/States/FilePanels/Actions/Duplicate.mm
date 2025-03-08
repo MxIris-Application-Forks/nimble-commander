@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Duplicate.h"
 #include "../PanelController.h"
 #include <VFS/VFS.h>
@@ -13,7 +13,8 @@
 #include <Base/dispatch_cpp.h>
 #include <Config/Config.h>
 #include "Helpers.h"
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
+#include <fmt/format.h>
 
 namespace nc::panel::actions {
 
@@ -22,10 +23,10 @@ using namespace std::literals;
 [[clang::no_destroy]] static const auto g_Suffix = "copy"s; // TODO: localize
 static const auto g_DeselectConfigFlag = "filePanel.general.deselectItemsAfterFileOperations";
 
-static robin_hood::unordered_set<std::string> ExtractFilenames(const VFSListing &_listing);
+static ankerl::unordered_dense::set<std::string> ExtractFilenames(const VFSListing &_listing);
 static std::string ProduceFormCLowercase(std::string_view _string);
 static std::string FindFreeFilenameToDuplicateIn(const VFSListingItem &_item,
-                                                 const robin_hood::unordered_set<std::string> &_filenames);
+                                                 const ankerl::unordered_dense::set<std::string> &_filenames);
 static void CommonPerform(PanelController *_target, const std::vector<VFSListingItem> &_items, bool _add_deselector);
 
 Duplicate::Duplicate(nc::config::Config &_config) : m_Config(_config)
@@ -66,7 +67,7 @@ static void CommonPerform(PanelController *_target, const std::vector<VFSListing
             __weak PanelController *weak_panel = _target;
             auto finish_handler = [weak_panel, duplicate] {
                 dispatch_to_main_queue([weak_panel, duplicate] {
-                    if( PanelController *panel = weak_panel ) {
+                    if( PanelController *const panel = weak_panel ) {
                         [panel hintAboutFilesystemChange];
                         nc::panel::DelayedFocusing req;
                         req.filename = duplicate;
@@ -87,7 +88,7 @@ static void CommonPerform(PanelController *_target, const std::vector<VFSListing
     }
 }
 
-void Duplicate::Perform(PanelController *_target, id) const
+void Duplicate::Perform(PanelController *_target, id /*_sender*/) const
 {
     CommonPerform(_target, _target.selectedEntriesOrFocusedEntry, m_Config.GetBool(g_DeselectConfigFlag));
 }
@@ -105,7 +106,7 @@ bool context::Duplicate::Predicate(PanelController *_target) const
     return _target.vfs->IsWritable();
 }
 
-void context::Duplicate::Perform(PanelController *_target, id) const
+void context::Duplicate::Perform(PanelController *_target, id /*_sender*/) const
 {
     CommonPerform(_target, m_Items, m_Config.GetBool(g_DeselectConfigFlag));
 }
@@ -128,7 +129,7 @@ static std::pair<int, std::string> ExtractExistingDuplicateInfo(const std::strin
 }
 
 static std::string FindFreeFilenameToDuplicateIn(const VFSListingItem &_item,
-                                                 const robin_hood::unordered_set<std::string> &_filenames)
+                                                 const ankerl::unordered_dense::set<std::string> &_filenames)
 {
     const auto max_duplicates = 100;
     const auto filename = _item.FilenameWithoutExt();
@@ -137,23 +138,24 @@ static std::string FindFreeFilenameToDuplicateIn(const VFSListingItem &_item,
 
     if( duplicate_index < 0 )
         for( int i = 1; i < max_duplicates; ++i ) {
-            const auto target = filename + " " + g_Suffix + (i == 1 ? "" : " " + std::to_string(i)) + extension;
-            if( _filenames.count(ProduceFormCLowercase(target)) == 0 )
+            const auto target =
+                fmt::format("{} {}{}{}", filename, g_Suffix, (i == 1 ? ""s : " "s + std::to_string(i)), extension);
+            if( !_filenames.contains(ProduceFormCLowercase(target)) )
                 return target;
         }
     else
         for( int i = duplicate_index + 1; i < max_duplicates; ++i ) {
-            auto target = filename_wo_index + " " + std::to_string(i) + extension;
-            if( _filenames.count(ProduceFormCLowercase(target)) == 0 )
+            const auto target = fmt::format("{} {}{}", filename_wo_index, i, extension);
+            if( !_filenames.contains(ProduceFormCLowercase(target)) )
                 return target;
         }
 
     return "";
 }
 
-static robin_hood::unordered_set<std::string> ExtractFilenames(const VFSListing &_listing)
+static ankerl::unordered_dense::set<std::string> ExtractFilenames(const VFSListing &_listing)
 {
-    robin_hood::unordered_set<std::string> filenames;
+    ankerl::unordered_dense::set<std::string> filenames;
     for( int i = 0, e = _listing.Count(); i != e; ++i )
         filenames.emplace(ProduceFormCLowercase(_listing.Filename(i)));
     return filenames;
@@ -161,7 +163,7 @@ static robin_hood::unordered_set<std::string> ExtractFilenames(const VFSListing 
 
 static std::string ProduceFormCLowercase(std::string_view _string)
 {
-    base::CFStackAllocator allocator;
+    const base::CFStackAllocator allocator;
 
     CFStringRef original = CFStringCreateWithBytesNoCopy(allocator,
                                                          reinterpret_cast<const UInt8 *>(_string.data()),
@@ -197,4 +199,4 @@ static std::string ProduceFormCLowercase(std::string_view _string)
     return utf8;
 }
 
-}
+} // namespace nc::panel::actions

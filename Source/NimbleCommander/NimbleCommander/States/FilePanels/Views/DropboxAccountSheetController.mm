@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "DropboxAccountSheetController.h"
 #include <VFS/NetDropbox.h>
 #include <NimbleCommander/Bootstrap/NCE.h>
@@ -10,15 +10,14 @@ using vfs::dropbox::Authenticator;
 
 namespace {
 
-enum class State
-{
+enum class State : uint8_t {
     Default = 0,
     Validating = 1,
     Success = 2,
     Failure = 3
 };
 
-}
+} // namespace
 
 @interface DropboxAccountSheetController ()
 
@@ -38,17 +37,26 @@ enum class State
 @implementation DropboxAccountSheetController {
     std::shared_ptr<Authenticator> m_Authenticator;
     std::string m_Token;
-    std::optional<NetworkConnectionsManager::Connection> m_Original;
-    NetworkConnectionsManager::Dropbox m_Connection;
+    std::optional<nc::panel::NetworkConnectionsManager::Connection> m_Original;
+    nc::panel::NetworkConnectionsManager::Dropbox m_Connection;
     State m_State;
 }
+@synthesize setupMode;
+@synthesize isValid;
+@synthesize isValidating;
+@synthesize isSuccess;
+@synthesize isFailure;
+@synthesize titleField;
+@synthesize accountField;
+@synthesize failureReasonField;
+@synthesize connectButton;
 
 - (instancetype)init
 {
     self = [super init];
     if( self ) {
         self.isValid = true;
-        m_Connection.uuid = NetworkConnectionsManager::MakeUUID();
+        m_Connection.uuid = nc::panel::NetworkConnectionsManager::MakeUUID();
     }
     return self;
 }
@@ -58,7 +66,7 @@ enum class State
     [super windowDidLoad];
 
     if( m_Original ) {
-        auto &original = m_Original->Get<NetworkConnectionsManager::Dropbox>();
+        auto &original = m_Original->Get<nc::panel::NetworkConnectionsManager::Dropbox>();
         m_Connection = original;
     }
 
@@ -95,11 +103,11 @@ enum class State
     m_Authenticator->PerformRequest(
         request,
         [weak_self](const Authenticator::Token &_token) {
-            if( DropboxAccountSheetController *me = weak_self )
+            if( DropboxAccountSheetController *const me = weak_self )
                 [me processAuthToken:_token];
         },
         [weak_self](int _vfs_error) {
-            if( DropboxAccountSheetController *me = weak_self )
+            if( DropboxAccountSheetController *const me = weak_self )
                 [me processAuthError:_vfs_error];
         });
 }
@@ -108,9 +116,8 @@ enum class State
 {
     // Brings this app to the foreground.
     [NSRunningApplication.currentApplication
-        activateWithOptions:(NSApplicationActivateAllWindows |
-                             NSApplicationActivateIgnoringOtherApps)];
-    
+        activateWithOptions:(NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps)];
+
     m_Token = vfs::dropbox::TokenMangler::ToMangledRefreshToken(_token.refresh_token);
     self.state = State::Validating;
 
@@ -133,15 +140,13 @@ enum class State
             }
         });
     });
-    
 }
 
 - (void)processAuthError:(int)_vfs_error
 {
     // Brings this app to the foreground.
     [NSRunningApplication.currentApplication
-        activateWithOptions:(NSApplicationActivateAllWindows |
-                             NSApplicationActivateIgnoringOtherApps)];
+        activateWithOptions:(NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps)];
     self.state = State::Failure;
     self.failureReasonField.stringValue = VFSError::ToNSError(_vfs_error).localizedDescription;
 }
@@ -156,12 +161,12 @@ enum class State
     return m_Token;
 }
 
-- (NetworkConnectionsManager::Connection)connection
+- (nc::panel::NetworkConnectionsManager::Connection)connection
 {
-    return NetworkConnectionsManager::Connection{m_Connection};
+    return nc::panel::NetworkConnectionsManager::Connection{m_Connection};
 }
 
-- (void)setConnection:(NetworkConnectionsManager::Connection)connection
+- (void)setConnection:(nc::panel::NetworkConnectionsManager::Connection)connection
 {
     m_Original = connection;
 }
@@ -179,8 +184,8 @@ enum class State
 
 - (void)validate
 {
-    self.isValid = (m_State == State::Default || m_State == State::Success) && !m_Token.empty() &&
-                   !m_Connection.account.empty();
+    self.isValid =
+        (m_State == State::Default || m_State == State::Success) && !m_Token.empty() && !m_Connection.account.empty();
 }
 
 - (State)state

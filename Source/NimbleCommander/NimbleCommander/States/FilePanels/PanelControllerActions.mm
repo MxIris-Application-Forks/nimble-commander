@@ -8,7 +8,6 @@
 #include "Actions/ShowVolumeInformation.h"
 #include "Actions/InsertFromPasteboard.h"
 #include "Actions/OpenXAttr.h"
-#include "Actions/CalculateChecksum.h"
 #include "Actions/SpotlightSearch.h"
 #include "Actions/OpenWithExternalEditor.h"
 #include "Actions/ToggleSort.h"
@@ -35,27 +34,17 @@
 #include "Actions/ShowQuickLook.h"
 #include "Actions/ShowSystemOverview.h"
 #include "Actions/FollowSymlink.h"
+#include "Actions/ShowContextMenu.h"
 
 namespace nc::panel {
 
 using namespace actions;
 
-static std::vector<SEL> QuickListsBut(int but)
-{
-    std::vector<SEL> lists
-    {
-        @selector(OnGoToQuickListsParents:), @selector(OnGoToQuickListsHistory:), @selector(OnGoToQuickListsFavorites:),
-            @selector(OnGoToQuickListsVolumes:), @selector(OnGoToQuickListsConnections:)
-    };
-    assert(but >= 0 && but < static_cast<int>(lists.size()));
-    lists.erase(lists.begin() + but);
-    return lists;
-}
-
 PanelActionsMap BuildPanelActionsMap(nc::config::Config &_global_config,
-                                     NetworkConnectionsManager &_net_mgr,
+                                     nc::panel::NetworkConnectionsManager &_net_mgr,
                                      utility::NativeFSManager &_native_fs_mgr,
                                      nc::vfs::NativeHost &_native_host,
+                                     const nc::panel::TagsStorage &_tags_storage,
                                      FileOpener &_file_opener,
                                      NCPanelOpenWithMenuDelegate *_open_with_menu_delegate,
                                      std::function<NCViewerView *(NSRect)> _make_viewer,
@@ -66,8 +55,7 @@ PanelActionsMap BuildPanelActionsMap(nc::config::Config &_global_config,
 
     add(@selector(OnOpenNatively:), new OpenFilesWithDefaultHandler{_file_opener});
     add(@selector(onOpenFileWith:), new OpenFileWithSubmenu{_open_with_menu_delegate});
-    add(
-        @selector(OnOpen:), new Enter { *m[@selector(OnOpenNatively:)] });
+    add(@selector(OnOpen:), new Enter { *m[@selector(OnOpenNatively:)] });
     add(@selector(onAlwaysOpenFileWith:), new AlwaysOpenFileWithSubmenu{_open_with_menu_delegate});
     add(@selector(onMainMenuPerformFindAction:), new FindFiles{_make_viewer, _make_viewer_controller});
     add(@selector(OnSpotlightSearch:), new SpotlightSearch);
@@ -75,7 +63,6 @@ PanelActionsMap BuildPanelActionsMap(nc::config::Config &_global_config,
     add(@selector(OnAddToFavorites:), new AddToFavorites);
     add(@selector(OnCalculateSizes:), new CalculateSizes);
     add(@selector(OnCalculateAllSizes:), new CalculateAllSizes);
-    add(@selector(OnCalculateChecksum:), new CalculateChecksum);
     add(@selector(OnQuickNewFile:), new MakeNewFile);
     add(@selector(OnQuickNewFolder:), new MakeNewFolder);
     add(@selector(OnQuickNewFolderWithSelection:), new MakeNewFolderWithSelection);
@@ -92,10 +79,11 @@ PanelActionsMap BuildPanelActionsMap(nc::config::Config &_global_config,
     add(@selector(ToggleSortByBTime:), new ToggleSortingByCreatedTime);
     add(@selector(ToggleSortByAddTime:), new ToggleSortingByAddedTime);
     add(@selector(ToggleSortByATime:), new ToggleSortingByAccessedTime);
-    add(@selector(ToggleCaseSensitiveComparison:), new ToggleSortingCaseSensitivity);
+    add(@selector(onToggleNaturalCollation:), new ToggleSortingNaturalCollation);
+    add(@selector(onToggleCaseInsensitiveCollation:), new ToggleSortingCaseInsensitiveCollation);
+    add(@selector(onToggleCaseSensitiveCollation:), new ToggleSortingCaseSensitiveCollation);
     add(@selector(ToggleSeparateFoldersFromFiles:), new ToggleSortingFoldersSeparation);
     add(@selector(ToggleExtensionlessFolders:), new ToggleSortingExtensionlessFolders);
-    add(@selector(ToggleNumericComparison:), new ToggleSortingNumerical);
     add(@selector(ToggleViewHiddenFiles:), new ToggleSortingShowHidden);
     add(@selector(onToggleViewLayout1:), new ToggleLayout{0});
     add(@selector(onToggleViewLayout2:), new ToggleLayout{1});
@@ -130,14 +118,14 @@ PanelActionsMap BuildPanelActionsMap(nc::config::Config &_global_config,
     add(@selector(OnGoToDropboxStorage:), new OpenNewDropboxStorage{_net_mgr});
     add(@selector(OnConnectToNetworkServer:), new OpenNetworkConnections{_net_mgr});
     add(@selector(OnGoToSavedConnectionItem:), new OpenExistingNetworkConnection{_net_mgr});
-    add(@selector(OnGoToQuickListsParents:),
-        new ShowParentFoldersQuickList{_net_mgr, _native_fs_mgr, QuickListsBut(0)});
-    add(@selector(OnGoToQuickListsHistory:), new ShowHistoryQuickList{_net_mgr, _native_fs_mgr, QuickListsBut(1)});
-    add(@selector(OnGoToQuickListsFavorites:), new ShowFavoritesQuickList{_net_mgr, _native_fs_mgr, QuickListsBut(2)});
-    add(@selector(OnGoToQuickListsVolumes:), new ShowVolumesQuickList{_net_mgr, _native_fs_mgr, QuickListsBut(3)});
-    add(@selector(OnGoToQuickListsConnections:),
-        new ShowConnectionsQuickList{_net_mgr, _native_fs_mgr, QuickListsBut(4)});
-    add(@selector(OnGoToFavoriteLocation:), new GoToFavoriteLocation);
+    add(@selector(OnGoToQuickListsParents:), new ShowParentFoldersQuickList{_net_mgr, _native_fs_mgr, _tags_storage});
+    add(@selector(OnGoToQuickListsHistory:), new ShowHistoryQuickList{_net_mgr, _native_fs_mgr, _tags_storage});
+    add(@selector(OnGoToQuickListsFavorites:), new ShowFavoritesQuickList{_net_mgr, _native_fs_mgr, _tags_storage});
+    add(@selector(OnGoToQuickListsVolumes:), new ShowVolumesQuickList{_net_mgr, _native_fs_mgr, _tags_storage});
+    add(@selector(OnGoToQuickListsConnections:), new ShowConnectionsQuickList{_net_mgr, _native_fs_mgr, _tags_storage});
+    add(@selector(OnGoToQuickListsTags:),
+        new ShowTagsQuickList{_net_mgr, _native_fs_mgr, _tags_storage, _global_config});
+    add(@selector(OnGoToFavoriteLocation:), new GoToFavoriteLocation{_net_mgr});
     add(@selector(OnFileViewCommand:), new ShowQuickLook);
     add(@selector(OnBriefSystemOverviewCommand:), new ShowSystemOverview);
     add(@selector(OnFileInternalBigViewCommand:), new ViewFile);
@@ -164,6 +152,7 @@ PanelActionsMap BuildPanelActionsMap(nc::config::Config &_global_config,
     add(@selector(OnCreateSymbolicLinkCommand:), new CreateSymlink);
     add(@selector(OnEditSymbolicLinkCommand:), new AlterSymlink);
     add(@selector(OnCreateHardLinkCommand:), new CreateHardlink);
+    add(@selector(onShowContextMenu:), new ShowContextMenu);
 
     return m;
 }

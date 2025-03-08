@@ -1,12 +1,12 @@
-// Copyright (C) 2018-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PanelBriefViewFixedNumberLayout.h"
 #include "PanelBriefViewFixedNumberLayoutEngine.h"
-#include <optional>
 #include <Panel/Log.h>
 #include <algorithm>
+#include <optional>
 
-using nc::panel::view::brief::FixedNumberLayoutEngine;
 using nc::panel::Log;
+using nc::panel::view::brief::FixedNumberLayoutEngine;
 
 namespace {
 
@@ -15,7 +15,7 @@ struct ColumnAnchor {
     int offset_from_left_border = 0;
 };
 
-}
+} // namespace
 
 @implementation NCPanelBriefViewFixedNumberLayout {
     int m_ItemHeight;
@@ -29,7 +29,8 @@ struct ColumnAnchor {
 
 - (instancetype)init
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         m_ItemHeight = 20;
         m_ColumnsPerScreen = 3;
         self.scrollDirection = NSCollectionViewScrollDirectionHorizontal;
@@ -40,20 +41,20 @@ struct ColumnAnchor {
 - (NSSize)collectionViewContentSize
 {
     const auto sz = m_Engine.ContentSize();
-    Log::Trace(SPDLOC, "[NCPanelBriefViewFixedNumberLayout collectionViewContentSize], return: {}", sz);
+    Log::Trace("[NCPanelBriefViewFixedNumberLayout collectionViewContentSize], return: {}", sz);
     return sz;
 }
 
 - (NSCollectionViewLayoutAttributes *)layoutAttributesForItemAtIndexPath:(NSIndexPath *)_index_path
 {
     const auto index = static_cast<int>(_index_path.item);
-    Log::Trace(SPDLOC, "[NCPanelBriefViewFixedNumberLayout layoutAttributesForItemAtIndexPath={}]", index);
+    Log::Trace("[NCPanelBriefViewFixedNumberLayout layoutAttributesForItemAtIndexPath={}]", index);
     return m_Engine.AttributesForItemNumber(index);
 }
 
 - (NSArray *)layoutAttributesForElementsInRect:(NSRect)_rect
 {
-    Log::Trace(SPDLOC, "[NCPanelBriefViewFixedNumberLayout layoutAttributesForElementsInRect:{}]", _rect);
+    Log::Trace("[NCPanelBriefViewFixedNumberLayout layoutAttributesForElementsInRect:{}]", _rect);
     return m_Engine.AttributesForItemsInRect(_rect);
 }
 
@@ -75,8 +76,7 @@ struct ColumnAnchor {
 - (BOOL)shouldInvalidateLayoutForBoundsChange:(NSRect)_new_bounds
 {
     const auto result = m_Engine.ShouldRelayoutForNewBounds(_new_bounds);
-    Log::Trace(SPDLOC,
-               "[NCPanelBriefViewFixedNumberLayout shouldInvalidateLayoutForBoundsChange:{}], return: {}",
+    Log::Trace("[NCPanelBriefViewFixedNumberLayout shouldInvalidateLayoutForBoundsChange:{}], return: {}",
                _new_bounds,
                result);
     return result;
@@ -84,7 +84,7 @@ struct ColumnAnchor {
 
 - (void)prepareLayout
 {
-    Log::Trace(SPDLOC, "[NCPanelBriefViewFixedNumberLayout prepareLayout]");
+    Log::Trace("[NCPanelBriefViewFixedNumberLayout prepareLayout]");
     const auto anchor = [self getColumnAnchor];
     const auto collection_view = self.collectionView;
     const auto clip_bounds = collection_view.superview.bounds;
@@ -160,7 +160,7 @@ struct ColumnAnchor {
     const auto scroll_view = self.collectionView.enclosingScrollView;
     const auto visible_rect = scroll_view.documentVisibleRect;
     const auto left_border = static_cast<int>(visible_rect.origin.x);
-    const auto col_it = std::lower_bound(col_positions.begin(), col_positions.end(), left_border);
+    const auto col_it = std::ranges::lower_bound(col_positions, left_border);
     if( col_it == col_positions.end() )
         return std::nullopt;
 

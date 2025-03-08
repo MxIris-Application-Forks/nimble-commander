@@ -16,13 +16,15 @@ TEST_CASE(PREFIX "Generic cases", "[!mayfail]")
     QueuedAtomicHolder<int> ncalled{0};
     auto cb = [&ncalled, next = 1] mutable { ncalled.store(next++); };
 
-    ChildrenTracker tracker{p1, cb};
+    const ChildrenTracker tracker{p1, cb};
 
-    SECTION("Nothing") {}
+    SECTION("Nothing")
+    {
+    }
     SECTION("Single fork")
     {
-        int p2 = 0;
-        if( (p2 = fork()) == 0 ) {
+        const int p2 = fork();
+        if( p2 == 0 ) {
             std::this_thread::sleep_for(1ms);
             exit(0);
         }
@@ -33,15 +35,16 @@ TEST_CASE(PREFIX "Generic cases", "[!mayfail]")
     }
     SECTION("Two sequent forks")
     {
-        int p2 = 0, p3 = 0;
-        if( (p2 = fork()) == 0 ) {
+        const int p2 = fork();
+        if( p2 == 0 ) {
             std::this_thread::sleep_for(1ms);
             exit(0);
         }
         CHECK(p2 > 0);
         CHECK(ncalled.wait_to_become_with_runloop(5s, 1ms, 1)); // p1 fork -> p2
         CHECK(ncalled.wait_to_become_with_runloop(5s, 1ms, 2)); // p2 exit
-        if( (p3 = fork()) == 0 ) {
+        const int p3 = fork();
+        if( p3 == 0 ) {
             std::this_thread::sleep_for(1ms);
             exit(0);
         }
@@ -53,10 +56,10 @@ TEST_CASE(PREFIX "Generic cases", "[!mayfail]")
     }
     SECTION("Two recursive forks")
     {
-        int p2 = 0;
-        if( (p2 = fork()) == 0 ) {
+        const int p2 = fork();
+        if( p2 == 0 ) {
             std::this_thread::sleep_for(1ms);
-            if( int p3; (p3 = fork()) == 0 ) {
+            if( const int p3 = fork(); p3 == 0 ) {
                 std::this_thread::sleep_for(1ms);
                 exit(0);
             }
@@ -73,12 +76,12 @@ TEST_CASE(PREFIX "Generic cases", "[!mayfail]")
     }
     SECTION("Three recursive forks")
     {
-        int p2 = 0;
-        if( (p2 = fork()) == 0 ) {
+        const int p2 = fork();
+        if( p2 == 0 ) {
             std::this_thread::sleep_for(1ms);
-            if( int p3; (p3 = fork()) == 0 ) {
+            if( const int p3 = fork(); p3 == 0 ) {
                 std::this_thread::sleep_for(1ms);
-                if( int p4; (p4 = fork()) == 0 ) {
+                if( const int p4 = fork(); p4 == 0 ) {
                     std::this_thread::sleep_for(1ms);
                     exit(0);
                 }
@@ -101,10 +104,10 @@ TEST_CASE(PREFIX "Generic cases", "[!mayfail]")
     }
     SECTION("2 x two recursive forks")
     {
-        int p2 = 0, p4 = 0;
-        if( (p2 = fork()) == 0 ) {
+        const int p2 = fork();
+        if( p2 == 0 ) {
             std::this_thread::sleep_for(1ms);
-            if( int p3; (p3 = fork()) == 0 ) {
+            if( const int p3 = fork(); p3 == 0 ) {
                 std::this_thread::sleep_for(1ms);
                 exit(0);
             }
@@ -112,9 +115,10 @@ TEST_CASE(PREFIX "Generic cases", "[!mayfail]")
                 waitpid(p3, nullptr, 0);
             exit(0);
         }
-        if( (p4 = fork()) == 0 ) {
+        const int p4 = fork();
+        if( p4 == 0 ) {
             std::this_thread::sleep_for(1ms);
-            if( int p3; (p3 = fork()) == 0 ) {
+            if( const int p3 = fork(); p3 == 0 ) {
                 std::this_thread::sleep_for(1ms);
                 exit(0);
             }
@@ -137,8 +141,8 @@ TEST_CASE(PREFIX "Generic cases", "[!mayfail]")
     }
     SECTION("Fork and exec")
     {
-        int p2 = 0;
-        if( (p2 = fork()) == 0 ) {
+        const int p2 = fork();
+        if( p2 == 0 ) {
             std::this_thread::sleep_for(1ms);
             close(1);
             execl("/usr/bin/uptime", "uptime", nullptr);
@@ -151,10 +155,10 @@ TEST_CASE(PREFIX "Generic cases", "[!mayfail]")
     }
     SECTION("Two recursive forks and exec")
     {
-        int p2 = 0;
-        if( (p2 = fork()) == 0 ) {
+        const int p2 = fork();
+        if( p2 == 0 ) {
             std::this_thread::sleep_for(1ms);
-            if( int p3; (p3 = fork()) == 0 ) {
+            if( const int p3 = fork(); p3 == 0 ) {
                 std::this_thread::sleep_for(1ms);
                 close(1);
                 execl("/usr/bin/uptime", "uptime", nullptr);
@@ -175,7 +179,7 @@ TEST_CASE(PREFIX "Generic cases", "[!mayfail]")
 
 TEST_CASE(PREFIX "Invalid input")
 {
-    ChildrenTracker tracker{std::numeric_limits<int>::max(), [] { FAIL(); }};
+    const ChildrenTracker tracker{std::numeric_limits<int>::max(), [] { FAIL(); }};
     if( fork() == 0 ) {
         std::this_thread::sleep_for(1ms);
         exit(0);

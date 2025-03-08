@@ -1,48 +1,77 @@
-// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PreferencesWindowThemesTab.h"
+#include "PreferencesWindowThemesControls.h"
+#include "PreferencesWindowThemesTabAutomaticSwitchingSheet.h"
+#include "PreferencesWindowThemesTabImportSheet.h"
+#include "PreferencesWindowThemesTabModel.h"
 #include <Config/RapidJSON.h>
+#include <NimbleCommander/Bootstrap/AppDelegate.h>
+#include <NimbleCommander/Bootstrap/Config.h>
+#include <NimbleCommander/Core/Theming/ThemePersistence.h>
+#include <NimbleCommander/Core/Theming/ThemesManager.h>
+#include <Panel/UI/PanelViewPresentationItemsColoringFilter.h>
+#include <Utility/ObjCpp.h>
+#include <Utility/StringExtras.h>
+#include <Utility/VerticallyCenteredTextFieldCell.h>
+#include <algorithm>
 #include <fstream>
 #include <rapidjson/error/en.h>
 #include <rapidjson/memorystream.h>
-#include <rapidjson/stringbuffer.h>
 #include <rapidjson/prettywriter.h>
-#include <NimbleCommander/Bootstrap/Config.h>
-#include <NimbleCommander/Bootstrap/AppDelegate.h>
-#include <NimbleCommander/Core/Theming/ThemesManager.h>
-#include <NimbleCommander/Core/Theming/ThemePersistence.h>
-#include <Panel/UI/PanelViewPresentationItemsColoringFilter.h>
-#include "PreferencesWindowThemesControls.h"
-#include "PreferencesWindowThemesTabModel.h"
-#include "PreferencesWindowThemesTabImportSheet.h"
-#include "PreferencesWindowThemesTabAutomaticSwitchingSheet.h"
-#include <Utility/StringExtras.h>
-#include <Utility/ObjCpp.h>
-#include <Utility/VerticallyCenteredTextFieldCell.h>
+#include <rapidjson/stringbuffer.h>
 
 using namespace std::literals;
 using nc::ThemePersistence;
 
-static NSTextField *SpawnSectionTitle(NSString *_title)
+static NSTableCellView *SpawnSectionTitle(NSString *_title)
 {
-    NSTextField *tf = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
+    NSTextField *const tf = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
     tf.stringValue = _title;
     tf.bordered = false;
     tf.editable = false;
     tf.drawsBackground = false;
     tf.font = [NSFont labelFontOfSize:13];
-    return tf;
+    tf.translatesAutoresizingMaskIntoConstraints = false;
+    NSTableCellView *const cv = [[NSTableCellView alloc] initWithFrame:NSRect()];
+    [cv addSubview:tf];
+    [cv addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|-(0)-[tf]-(0)-|"
+                                                               options:0
+                                                               metrics:nil
+                                                                 views:NSDictionaryOfVariableBindings(tf)]];
+    [cv addConstraint:[NSLayoutConstraint constraintWithItem:tf
+                                                   attribute:NSLayoutAttributeCenterY
+                                                   relatedBy:NSLayoutRelationEqual
+                                                      toItem:cv
+                                                   attribute:NSLayoutAttributeCenterY
+                                                  multiplier:1.
+                                                    constant:0.]];
+    return cv;
 }
 
-static NSTextField *SpawnEntryTitle(NSString *_title)
+static NSTableCellView *SpawnEntryTitle(NSString *_title)
 {
-    NSTextField *tf = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
+    NSTextField *const tf = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
     tf.stringValue = _title;
     tf.bordered = false;
     tf.editable = false;
     tf.drawsBackground = false;
     tf.font = [NSFont labelFontOfSize:11];
     tf.lineBreakMode = NSLineBreakByTruncatingTail;
-    return tf;
+    tf.translatesAutoresizingMaskIntoConstraints = false;
+    NSTableCellView *const cv = [[NSTableCellView alloc] initWithFrame:NSRect()];
+    [cv addSubview:tf];
+    [cv addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|-(0)-[tf]-(0)-|"
+                                                               options:0
+                                                               metrics:nil
+                                                                 views:NSDictionaryOfVariableBindings(tf)]];
+    [cv addConstraint:[NSLayoutConstraint constraintWithItem:tf
+                                                   attribute:NSLayoutAttributeCenterY
+                                                   relatedBy:NSLayoutRelationEqual
+                                                      toItem:cv
+                                                   attribute:NSLayoutAttributeCenterY
+                                                  multiplier:1.
+                                                    constant:0.]];
+    return cv;
 }
 
 @interface PreferencesWindowThemesTab ()
@@ -62,6 +91,10 @@ static NSTextField *SpawnEntryTitle(NSString *_title)
     bool m_SelectedThemeCanBeRemoved;
     bool m_SelectedThemeCanBeReverted;
 }
+@synthesize tableAdditionalMenu;
+@synthesize tableButtons;
+@synthesize themesTable;
+@synthesize outlineView;
 
 - (instancetype)init
 {
@@ -88,7 +121,7 @@ static NSTextField *SpawnEntryTitle(NSString *_title)
     m_ThemeNames = m_Manager->ThemeNames();
     assert(!m_ThemeNames.empty()); // there should be at least 3 default themes!
     m_SelectedTheme = 0;
-    auto it = std::find(std::begin(m_ThemeNames), std::end(m_ThemeNames), m_Manager->SelectedThemeName());
+    auto it = std::ranges::find(m_ThemeNames, m_Manager->SelectedThemeName());
     if( it != std::end(m_ThemeNames) )
         m_SelectedTheme = static_cast<size_t>(std::distance(std::begin(m_ThemeNames), it));
     [self.themesTable selectRowIndexes:[NSIndexSet indexSetWithIndex:m_SelectedTheme] byExtendingSelection:false];
@@ -147,7 +180,7 @@ static NSTextField *SpawnEntryTitle(NSString *_title)
     if( new_theme_name == m_ThemeNames[m_SelectedTheme] )
         return; // no so new, huh?
 
-    auto it = std::find(std::begin(m_ThemeNames), std::end(m_ThemeNames), new_theme_name);
+    auto it = std::ranges::find(m_ThemeNames, new_theme_name);
     if( it == std::end(m_ThemeNames) )
         return;
     m_SelectedTheme = static_cast<size_t>(std::distance(std::begin(m_ThemeNames), it));
@@ -222,8 +255,7 @@ static NSTextField *SpawnEntryTitle(NSString *_title)
 
 - (NSImage *)toolbarItemImage
 {
-    return [[NSImage alloc] initWithContentsOfFile:@"/System/Library/CoreServices/CoreTypes.bundle/"
-                                                   @"Contents/Resources/ProfileFontAndColor.icns"];
+    return [NSImage imageNamed:@"preferences.toolbar.themes"];
 }
 
 - (NSString *)toolbarItemLabel
@@ -298,7 +330,7 @@ static NSTextField *SpawnEntryTitle(NSString *_title)
                  It (hopefuly) will reduce astonishment when user changes UI appearance of *current*
                  theme instead of choosing a needed theme instead.
                  */
-                v.enabled = m_SelectedThemeCanBeReverted == false;
+                v.enabled = !m_SelectedThemeCanBeReverted;
 
                 return v;
             }
@@ -378,7 +410,7 @@ static NSTextField *SpawnEntryTitle(NSString *_title)
         if( i.type == PreferencesWindowThemesTabItemType::ColoringRules )
             return 140;
 
-    return 18;
+    return 20.;
 }
 
 - (void)loadSelectedDocument

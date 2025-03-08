@@ -15,7 +15,7 @@ ExtensionLowercaseComparison &ExtensionLowercaseComparison::Instance() noexcept
 
 static std::string ProduceFormCLowercase(std::string_view _string)
 {
-    base::CFStackAllocator allocator;
+    const base::CFStackAllocator allocator;
 
     CFStringRef original = CFStringCreateWithBytesNoCopy(allocator,
                                                          reinterpret_cast<const UInt8 *>(_string.data()),
@@ -98,7 +98,7 @@ ExtensionsLowercaseList::ExtensionsLowercaseList(std::string_view _comma_separat
         if( auto trimmed = base::Trim(std::string_view{ext}); !trimmed.empty() )
             exts.emplace_back(trimmed);
     for( auto &ext : exts ) {
-        if( ext.empty() == false )
+        if( !ext.empty() )
             m_List.emplace(i.ExtensionToLowercase(ext));
     }
 }

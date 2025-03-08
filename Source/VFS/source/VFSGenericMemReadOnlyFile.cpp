@@ -1,11 +1,11 @@
-// Copyright (C) 2013-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "VFSGenericMemReadOnlyFile.h"
 #include <algorithm>
-#include <assert.h>
+#include <cassert>
 
 namespace nc::vfs {
 
-GenericMemReadOnlyFile::GenericMemReadOnlyFile(const char *_relative_path,
+GenericMemReadOnlyFile::GenericMemReadOnlyFile(std::string_view _relative_path,
                                                const std::shared_ptr<VFSHost> &_host,
                                                const void *_memory,
                                                uint64_t _mem_size)
@@ -15,11 +15,10 @@ GenericMemReadOnlyFile::GenericMemReadOnlyFile(const char *_relative_path,
         throw std::invalid_argument("GenericMemReadOnlyFile expects a valid memory pointer");
 }
 
-GenericMemReadOnlyFile::GenericMemReadOnlyFile(const char *_relative_path,
+GenericMemReadOnlyFile::GenericMemReadOnlyFile(std::string_view _relative_path,
                                                const std::shared_ptr<VFSHost> &_host,
                                                std::string_view _memory)
-    : VFSFile(_relative_path, _host), m_Mem(static_cast<const void *>(_memory.data())),
-      m_Size(_memory.size())
+    : VFSFile(_relative_path, _host), m_Mem(static_cast<const void *>(_memory.data())), m_Size(_memory.size())
 {
     if( m_Mem == nullptr )
         throw std::invalid_argument("GenericMemReadOnlyFile expects a valid memory pointer");
@@ -30,7 +29,7 @@ ssize_t GenericMemReadOnlyFile::Read(void *_buf, size_t _size)
     if( !IsOpened() )
         return VFSError::InvalidCall;
 
-    if( _buf == 0 )
+    if( _buf == nullptr )
         return VFSError::InvalidCall;
 
     if( _size == 0 )
@@ -40,7 +39,7 @@ ssize_t GenericMemReadOnlyFile::Read(void *_buf, size_t _size)
     if( m_Pos == static_cast<long>(m_Size) )
         return 0;
 
-    size_t to_read = std::min(static_cast<size_t>(m_Size - m_Pos), _size);
+    const size_t to_read = std::min(static_cast<size_t>(m_Size - m_Pos), _size);
     memcpy(_buf, static_cast<const char *>(m_Mem) + m_Pos, to_read);
     m_Pos += to_read;
     assert(m_Pos <= static_cast<long>(m_Size)); // just a sanity check
@@ -48,16 +47,16 @@ ssize_t GenericMemReadOnlyFile::Read(void *_buf, size_t _size)
     return to_read;
 }
 
-ssize_t GenericMemReadOnlyFile::ReadAt(off_t _pos, void *_buf, size_t _size)
+std::expected<size_t, Error> GenericMemReadOnlyFile::ReadAt(off_t _pos, void *_buf, size_t _size)
 {
     if( !IsOpened() )
-        return VFSError::InvalidCall;
+        return std::unexpected(Error{Error::POSIX, EINVAL});
 
     // we can only deal with cache buffer now, need another branch later
     if( _pos < 0 || _pos > static_cast<long>(m_Size) )
-        return VFSError::InvalidCall;
+        return std::unexpected(Error{Error::POSIX, EINVAL});
 
-    ssize_t toread = std::min(static_cast<size_t>(m_Size - _pos), _size);
+    const size_t toread = std::min(static_cast<size_t>(m_Size - _pos), _size);
     memcpy(_buf, static_cast<const char *>(m_Mem) + _pos, toread);
     return toread;
 }

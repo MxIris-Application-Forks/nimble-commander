@@ -1,9 +1,10 @@
-// Copyright (C) 2018-2020 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <VFS/VFSDeclarations.h>
 #include <Operations/Operation.h>
 #include <NimbleCommander/Core/VFSInstanceManager.h>
+#include <Panel/NetworkConnectionsManager.h>
 #include "../PanelDataPersistency.h"
 #include <memory>
 
@@ -22,7 +23,7 @@ public:
     AsyncVFSPromiseRestorer(PanelController *_panel, nc::core::VFSInstanceManager &_instance_mgr);
 
     using SuccessHandler = std::function<void(VFSHostPtr)>;
-    using FailureHandler = std::function<void(int)>;
+    using FailureHandler = std::function<void(Error)>;
     void Restore(const nc::core::VFSInstanceManager::Promise &_promise,
                  SuccessHandler _success_handler,
                  FailureHandler _failure_handler);
@@ -43,10 +44,11 @@ class AsyncPersistentLocationRestorer
 {
 public:
     AsyncPersistentLocationRestorer(PanelController *_panel,
-                                    nc::core::VFSInstanceManager &_instance_mgr);
+                                    nc::core::VFSInstanceManager &_instance_mgr,
+                                    nc::panel::NetworkConnectionsManager &_net_mgr);
 
     using SuccessHandler = std::function<void(VFSHostPtr)>;
-    using FailureHandler = std::function<void(int)>;
+    using FailureHandler = std::function<void(Error)>;
     void Restore(const nc::panel::PersistentLocation &_location,
                  SuccessHandler _success_handler,
                  FailureHandler _failure_handler);
@@ -54,6 +56,7 @@ public:
 private:
     PanelController *m_Panel = nil;
     nc::core::VFSInstanceManager &m_InstanceManager;
+    nc::panel::NetworkConnectionsManager &m_NetConnManager;
 };
 
 // Actions that trigger operations can spawn these objects and hook them up with the operation.
@@ -70,11 +73,11 @@ public:
 
 private:
     void HandleImpl([[maybe_unused]] nc::vfs::Host *_host, const std::string &_path) const;
-    
+
     mutable std::atomic_bool m_Cancelled;
     std::string m_ExpectedUniformDirectory;
     __weak PanelController *m_Panel;
-    unsigned long m_Generation;    
+    unsigned long m_Generation;
 };
 
 } // namespace nc::panel::actions

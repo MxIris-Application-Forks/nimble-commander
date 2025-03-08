@@ -1,10 +1,11 @@
-// Copyright (C) 2014-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Tests.h"
 #include "TestEnv.h"
 #include <VFS/VFS.h>
 #include <VFS/FileWindow.h>
 #include <random>
 
+using namespace nc;
 using nc::vfs::FileWindow;
 
 #define PREFIX "nc::vfs::FileWindow "
@@ -12,23 +13,23 @@ using nc::vfs::FileWindow;
 class TestGenericMemReadOnlyFile : public VFSFile
 {
 public:
-    TestGenericMemReadOnlyFile(const char *_relative_path,
+    TestGenericMemReadOnlyFile(std::string_view _relative_path,
                                std::shared_ptr<VFSHost> _host,
                                const void *_memory,
                                uint64_t _mem_size,
                                ReadParadigm _behave_as);
 
-    virtual int Open(unsigned long _open_flags, const VFSCancelChecker &_cancel_checker) override;
-    virtual bool IsOpened() const override { return m_Opened; }
-    virtual int Close() override;
+    int Open(unsigned long _open_flags, const VFSCancelChecker &_cancel_checker) override;
+    bool IsOpened() const override { return m_Opened; }
+    int Close() override;
 
-    virtual ssize_t Read(void *_buf, size_t _size) override;
-    virtual ssize_t ReadAt(off_t _pos, void *_buf, size_t _size) override;
-    virtual ReadParadigm GetReadParadigm() const override;
-    virtual off_t Seek(off_t _off, int _basis) override;
-    virtual ssize_t Pos() const override;
-    virtual ssize_t Size() const override;
-    virtual bool Eof() const override;
+    ssize_t Read(void *_buf, size_t _size) override;
+    std::expected<size_t, nc::Error> ReadAt(off_t _pos, void *_buf, size_t _size) override;
+    ReadParadigm GetReadParadigm() const override;
+    off_t Seek(off_t _off, int _basis) override;
+    ssize_t Pos() const override;
+    ssize_t Size() const override;
+    bool Eof() const override;
 
 private:
     ReadParadigm m_Behaviour;
@@ -38,7 +39,7 @@ private:
     bool m_Opened = false;
 };
 
-TestGenericMemReadOnlyFile::TestGenericMemReadOnlyFile(const char *_relative_path,
+TestGenericMemReadOnlyFile::TestGenericMemReadOnlyFile(std::string_view _relative_path,
                                                        std::shared_ptr<VFSHost> _host,
                                                        const void *_memory,
                                                        uint64_t _mem_size,
@@ -52,7 +53,7 @@ ssize_t TestGenericMemReadOnlyFile::Read(void *_buf, size_t _size)
     if( !IsOpened() )
         return VFSError::InvalidCall;
 
-    if( _buf == 0 )
+    if( _buf == nullptr )
         return VFSError::InvalidCall;
 
     if( _size == 0 )
@@ -62,7 +63,7 @@ ssize_t TestGenericMemReadOnlyFile::Read(void *_buf, size_t _size)
     if( m_Pos == static_cast<ssize_t>(m_Size) )
         return 0;
 
-    size_t to_read = MIN(m_Size - m_Pos, _size);
+    const size_t to_read = MIN(m_Size - m_Pos, _size);
     std::memcpy(_buf, static_cast<const char *>(m_Mem) + m_Pos, to_read);
     m_Pos += to_read;
     assert(m_Pos <= static_cast<ssize_t>(m_Size)); // just a sanity check
@@ -70,19 +71,19 @@ ssize_t TestGenericMemReadOnlyFile::Read(void *_buf, size_t _size)
     return to_read;
 }
 
-ssize_t TestGenericMemReadOnlyFile::ReadAt(off_t _pos, void *_buf, size_t _size)
+std::expected<size_t, nc::Error> TestGenericMemReadOnlyFile::ReadAt(off_t _pos, void *_buf, size_t _size)
 {
     if( m_Behaviour < VFSFile::ReadParadigm::Random )
-        return VFSError::NotSupported;
+        return SetLastError(Error{Error::POSIX, ENOTSUP});
 
     if( !IsOpened() )
-        return VFSError::InvalidCall;
+        return SetLastError(Error{Error::POSIX, EINVAL});
 
     // we can only deal with cache buffer now, need another branch later
     if( _pos < 0 || _pos > static_cast<ssize_t>(m_Size) )
-        return VFSError::InvalidCall;
+        return SetLastError(Error{Error::POSIX, EINVAL});
 
-    ssize_t toread = MIN(m_Size - _pos, _size);
+    const size_t toread = std::min(static_cast<size_t>(m_Size) - static_cast<size_t>(_pos), _size);
     std::memcpy(_buf, static_cast<const char *>(m_Mem) + _pos, toread);
     return toread;
 }
@@ -154,25 +155,24 @@ int TestGenericMemReadOnlyFile::Close()
 TEST_CASE(PREFIX "random access")
 {
     const auto data_size = 1024 * 1024;
-    std::unique_ptr<uint8_t[]> data(new uint8_t[data_size]);
+    const std::unique_ptr<uint8_t[]> data(new uint8_t[data_size]);
     for( int i = 0; i < data_size; ++i )
         data[i] = static_cast<unsigned char>(rand() % 256);
 
-    auto vfs_file = std::make_shared<TestGenericMemReadOnlyFile>(
-        nullptr, nullptr, data.get(), data_size, VFSFile::ReadParadigm::Random);
-    vfs_file->Open(0, 0);
+    auto vfs_file =
+        std::make_shared<TestGenericMemReadOnlyFile>("", nullptr, data.get(), data_size, VFSFile::ReadParadigm::Random);
+    vfs_file->Open(0, nullptr);
 
     FileWindow fw;
-    int ret = fw.Attach(vfs_file);
-    REQUIRE(ret == 0);
+    REQUIRE(fw.Attach(vfs_file));
 
     std::mt19937 mt((std::random_device())());
     std::uniform_int_distribution<size_t> dist(0, fw.FileSize() - fw.WindowSize());
 
     for( int i = 0; i < 10000; ++i ) {
         auto pos = dist(mt);
-        fw.MoveWindow(pos);
-        int cmp = memcmp(fw.Window(), &data[pos], fw.WindowSize());
+        REQUIRE(fw.MoveWindow(pos));
+        const int cmp = memcmp(fw.Window(), &data[pos], fw.WindowSize());
         REQUIRE(cmp == 0);
     }
 }
@@ -180,23 +180,22 @@ TEST_CASE(PREFIX "random access")
 TEST_CASE(PREFIX "sequential access")
 {
     const auto data_size = 100 * 1024 * 1024;
-    std::unique_ptr<uint8_t[]> data(new uint8_t[data_size]);
+    const std::unique_ptr<uint8_t[]> data(new uint8_t[data_size]);
     for( int i = 0; i < data_size; ++i )
         data[i] = static_cast<unsigned char>(rand() % 256);
 
     auto vfs_file = std::make_shared<TestGenericMemReadOnlyFile>(
-        nullptr, nullptr, data.get(), data_size, VFSFile::ReadParadigm::Sequential);
-    vfs_file->Open(0, 0);
+        "", nullptr, data.get(), data_size, VFSFile::ReadParadigm::Sequential);
+    vfs_file->Open(0, nullptr);
 
     FileWindow fw;
-    int ret = fw.Attach(vfs_file);
-    REQUIRE(ret == 0);
+    REQUIRE(fw.Attach(vfs_file));
 
     std::mt19937 mt((std::random_device())());
     std::uniform_int_distribution<size_t> dist(0, fw.WindowSize() * 10);
 
     while( true ) {
-        int cmp = memcmp(fw.Window(), &data[fw.WindowPos()], fw.WindowSize());
+        const int cmp = memcmp(fw.Window(), &data[fw.WindowPos()], fw.WindowSize());
         REQUIRE(cmp == 0);
 
         auto off = dist(mt);
@@ -204,32 +203,31 @@ TEST_CASE(PREFIX "sequential access")
         if( pos > fw.FileSize() - fw.WindowSize() )
             break;
 
-        fw.MoveWindow(pos);
+        REQUIRE(fw.MoveWindow(pos));
     }
 }
 
 TEST_CASE(PREFIX "seek access")
 {
     const auto data_size = 10 * 1024 * 1024;
-    std::unique_ptr<uint8_t[]> data(new uint8_t[data_size]);
+    const std::unique_ptr<uint8_t[]> data(new uint8_t[data_size]);
     for( int i = 0; i < data_size; ++i )
         data[i] = static_cast<unsigned char>(rand() % 256);
 
-    auto vfs_file = std::make_shared<TestGenericMemReadOnlyFile>(
-        nullptr, nullptr, data.get(), data_size, VFSFile::ReadParadigm::Seek);
-    vfs_file->Open(0, 0);
+    auto vfs_file =
+        std::make_shared<TestGenericMemReadOnlyFile>("", nullptr, data.get(), data_size, VFSFile::ReadParadigm::Seek);
+    vfs_file->Open(0, nullptr);
 
     FileWindow fw;
-    int ret = fw.Attach(vfs_file);
-    REQUIRE(ret == 0);
+    REQUIRE(fw.Attach(vfs_file));
 
     std::mt19937 mt((std::random_device())());
     std::uniform_int_distribution<size_t> dist(0, fw.FileSize() - fw.WindowSize());
 
     for( int i = 0; i < 10000; ++i ) {
         auto pos = dist(mt);
-        fw.MoveWindow(pos);
-        int cmp = memcmp(fw.Window(), &data[pos], fw.WindowSize());
+        REQUIRE(fw.MoveWindow(pos));
+        const int cmp = memcmp(fw.Window(), &data[pos], fw.WindowSize());
         REQUIRE(cmp == 0);
     }
 }

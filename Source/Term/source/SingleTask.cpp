@@ -1,25 +1,24 @@
-// Copyright (C) 2014-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <sys/ioctl.h>
 #include <sys/sysctl.h>
 
-#include <sys/types.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 
-#include <errno.h>
+#include <Base/CloseFrom.h>
+#include <Base/dispatch_cpp.h>
+#include <cerrno>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
 #include <grp.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <iostream>
+#include <syslog.h>
 #include <termios.h>
 #include <unistd.h>
 #include <util.h>
-#include <syslog.h>
-#include <signal.h>
-#include <iostream>
-#include <Base/dispatch_cpp.h>
-#include <Base/CloseFrom.h>
 
 #include "SingleTask.h"
 
@@ -62,9 +61,7 @@ static const char *ImgNameFromPath(const char *_path)
     return img_name;
 }
 
-SingleTask::SingleTask()
-{
-}
+SingleTask::SingleTask() = default;
 
 SingleTask::~SingleTask()
 {
@@ -92,18 +89,17 @@ void SingleTask::Launch(const char *_full_binary_path, const char *_params, int 
     grantpt(m_MasterFD);
     unlockpt(m_MasterFD);
 
-    int slave_fd = open(ptsname(m_MasterFD), O_RDWR);
-
-    int rc;
+    const int slave_fd = open(ptsname(m_MasterFD), O_RDWR);
 
     // Create the child process
-    if( (rc = fork()) ) { // master
+    const int rc = fork();
+    if( rc ) { // master
         m_TaskPID = rc;
         close(slave_fd);
 
         // TODO: consider using single shared thread here, not a queue (mind maximum running queues
         // issue)
-        dispatch_async(dispatch_get_global_queue(0, 0), [=] { ReadChildOutput(); });
+        dispatch_async(dispatch_get_global_queue(0, 0), [this] { ReadChildOutput(); });
     }
     else { // slave/child
         SetupTermios(slave_fd);
@@ -126,7 +122,7 @@ void SingleTask::Launch(const char *_full_binary_path, const char *_params, int 
         argvs[0] = strdup(img_name);
         for( size_t i = 0; i < args.size(); ++i )
             argvs[i + 1] = strdup(args[i].c_str());
-        argvs[args.size() + 1] = NULL;
+        argvs[args.size() + 1] = nullptr;
 
         // execution of the program
         execvp(_full_binary_path, argvs);
@@ -141,22 +137,23 @@ void SingleTask::WriteChildInput(const void *_d, size_t _sz)
     if( m_MasterFD < 0 || m_TaskPID < 0 || _sz == 0 )
         return;
 
-    std::lock_guard<std::mutex> lock(m_Lock);
+    const std::lock_guard<std::mutex> lock(m_Lock);
     write(m_MasterFD, _d, _sz);
 }
 
 void SingleTask::ReadChildOutput()
 {
     int rc;
-    fd_set fd_in, fd_err;
+    fd_set fd_in;
+    fd_set fd_err;
 
     // just for cases when select() don't catch child death - we force to ask it for every 2 seconds
-    struct timeval timeout = {2, 0};
+    struct timeval timeout = {.tv_sec = 2, .tv_usec = 0};
 
     constexpr size_t input_sz = 65536;
-    std::unique_ptr<char[]> input = std::make_unique<char[]>(input_sz);
+    const std::unique_ptr<char[]> input = std::make_unique<char[]>(input_sz);
 
-    while( 1 ) {
+    while( true ) {
         // Wait for data from standard input and master side of PTY
         FD_ZERO(&fd_in);
         FD_SET(m_MasterFD, &fd_in);
@@ -164,9 +161,9 @@ void SingleTask::ReadChildOutput()
         FD_ZERO(&fd_err);
         FD_SET(m_MasterFD, &fd_err);
 
-        int max_fd = m_MasterFD;
+        const int max_fd = m_MasterFD;
 
-        rc = select(max_fd + 1, &fd_in, NULL, &fd_err, &timeout);
+        rc = select(max_fd + 1, &fd_in, nullptr, &fd_err, &timeout);
         if( rc < 0 || m_TaskPID < 0 )
             goto end_of_all; // error on select(), let's think that task has died
 
@@ -177,14 +174,15 @@ void SingleTask::ReadChildOutput()
                 DoCalloutOnChildOutput(input.get(), rc);
             }
             else if( rc < 0 ) {
-                std::cerr << "Error " << errno << " on read master PTY" << std::endl;
+                std::cerr << "Error " << errno << " on read master PTY" << '\n';
                 goto end_of_all;
             }
         }
 
         // check if child process died
         if( FD_ISSET(m_MasterFD, &fd_err) ) {
-            // is that right - that we treat any err output as signal that task is dead?
+            // is that right - that we treat any err output as signal that task is
+            // dead?
             read(m_MasterFD, input.get(), input_sz);
             goto end_of_all;
         }
@@ -216,7 +214,7 @@ void SingleTask::ResizeWindow(int _sx, int _sy)
     if( m_TermSX == _sx && m_TermSY == _sy )
         return;
 
-    std::lock_guard<std::mutex> lock(m_Lock);
+    const std::lock_guard<std::mutex> lock(m_Lock);
 
     m_TermSX = _sx;
     m_TermSY = _sy;
@@ -226,15 +224,16 @@ void SingleTask::ResizeWindow(int _sx, int _sy)
 
 void SingleTask::CleanUp()
 {
-    std::lock_guard<std::mutex> lock(m_Lock);
+    const std::lock_guard<std::mutex> lock(m_Lock);
 
     if( m_TaskPID > 0 ) {
-        int pid = m_TaskPID;
+        const int pid = m_TaskPID;
         m_TaskPID = -1;
         kill(pid, SIGKILL);
 
         // possible and very bad workaround for sometimes appearing ZOMBIE BASHes
-        struct timespec tm, tm2;
+        struct timespec tm;
+        struct timespec tm2;
         tm.tv_sec = 0;
         tm.tv_nsec = 10000000L; // 10 ms
         nanosleep(&tm, &tm2);

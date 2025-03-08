@@ -1,16 +1,14 @@
 // Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ReadBuffer.h"
-#include <stdlib.h>
 #include <algorithm>
-#include <assert.h>
+#include <cassert>
+#include <cstdlib>
 
 namespace nc::vfs::webdav {
 
 static const auto g_DefaultCapacity = 32768;
 
-ReadBuffer::ReadBuffer()
-{
-}
+ReadBuffer::ReadBuffer() = default;
 
 ReadBuffer::~ReadBuffer()
 {
@@ -87,4 +85,4 @@ void ReadBuffer::Clear()
 {
     m_Size = 0;
 }
-}
+} // namespace nc::vfs::webdav

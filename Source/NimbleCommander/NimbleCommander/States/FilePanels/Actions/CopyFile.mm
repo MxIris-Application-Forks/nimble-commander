@@ -15,8 +15,7 @@
 
 namespace nc::panel::actions {
 
-static std::function<void()>
-RefreshCurrentActiveControllerLambda(MainWindowFilePanelState *_target);
+static std::function<void()> RefreshCurrentActiveControllerLambda(MainWindowFilePanelState *_target);
 static std::function<void()> RefreshBothCurrentControllersLambda(MainWindowFilePanelState *_target);
 
 static const auto g_DeselectConfigFlag = "filePanel.general.deselectItemsAfterFileOperations";
@@ -31,8 +30,7 @@ void CopyBase::AddDeselectorIfNeeded(nc::ops::Operation &_operation, PanelContro
         return;
 
     const auto deselector = std::make_shared<const DeselectorViaOpNotification>(_target);
-    _operation.SetItemStatusCallback(
-        [deselector](nc::ops::ItemStateReport _report) { deselector->Handle(_report); });
+    _operation.SetItemStatusCallback([deselector](nc::ops::ItemStateReport _report) { deselector->Handle(_report); });
 }
 
 bool CopyBase::ShouldAutomaticallyDeselect() const
@@ -40,8 +38,7 @@ bool CopyBase::ShouldAutomaticallyDeselect() const
     return m_Config.GetBool(g_DeselectConfigFlag);
 }
 
-CopyTo::CopyTo(nc::config::Config &_config)
-    : CopyBase(_config)
+CopyTo::CopyTo(nc::config::Config &_config) : CopyBase(_config)
 {
 }
 
@@ -65,7 +62,7 @@ bool CopyTo::Predicate(MainWindowFilePanelState *_target) const
     return true;
 }
 
-void CopyTo::Perform(MainWindowFilePanelState *_target, id) const
+void CopyTo::Perform(MainWindowFilePanelState *_target, id /*_sender*/) const
 {
     const auto act_pc = _target.activePanelController;
     const auto opp_pc = _target.oppositePanelController;
@@ -79,13 +76,12 @@ void CopyTo::Perform(MainWindowFilePanelState *_target, id) const
     const auto act_uniform = act_pc.isUniform;
     const auto opp_uniform = opp_pc.isUniform;
 
-    const auto cd =
-        [[NCOpsCopyingDialog alloc] initWithItems:entries
-                                        sourceVFS:act_uniform ? act_pc.vfs : nullptr
-                                  sourceDirectory:act_uniform ? act_pc.currentDirectoryPath : ""
-                               initialDestination:opp_uniform ? opp_pc.currentDirectoryPath : ""
-                                   destinationVFS:opp_uniform ? opp_pc.vfs : nullptr
-                                 operationOptions:MakeDefaultFileCopyOptions()];
+    const auto cd = [[NCOpsCopyingDialog alloc] initWithItems:entries
+                                                    sourceVFS:act_uniform ? act_pc.vfs : nullptr
+                                              sourceDirectory:act_uniform ? act_pc.currentDirectoryPath : ""
+                                           initialDestination:opp_uniform ? opp_pc.currentDirectoryPath : ""
+                                               destinationVFS:opp_uniform ? opp_pc.vfs : nullptr
+                                             operationOptions:MakeDefaultFileCopyOptions()];
 
     const auto handler = ^(NSModalResponse returnCode) {
       if( returnCode != NSModalResponseOK )
@@ -97,7 +93,7 @@ void CopyTo::Perform(MainWindowFilePanelState *_target, id) const
       if( !host || path.empty() )
           return; // ui invariant is broken
 
-      const auto op = std::make_shared<nc::ops::Copying>(std::move(entries), path, host, opts);
+      const auto op = std::make_shared<nc::ops::Copying>(entries, path, host, opts);
 
       const auto update_both_panels = RefreshBothCurrentControllersLambda(_target);
       op->ObserveUnticketed(nc::ops::Operation::NotifyAboutFinish, update_both_panels);
@@ -110,8 +106,7 @@ void CopyTo::Perform(MainWindowFilePanelState *_target, id) const
     [_target.mainWindowController beginSheet:cd.window completionHandler:handler];
 }
 
-CopyAs::CopyAs(nc::config::Config &_config)
-    : CopyBase(_config)
+CopyAs::CopyAs(nc::config::Config &_config) : CopyBase(_config)
 {
 }
 
@@ -131,7 +126,7 @@ bool CopyAs::Predicate(MainWindowFilePanelState *_target) const
     return true;
 }
 
-void CopyAs::Perform(MainWindowFilePanelState *_target, id) const
+void CopyAs::Perform(MainWindowFilePanelState *_target, id /*_sender*/) const
 {
     const auto act_pc = _target.activePanelController;
     if( !act_pc )
@@ -169,10 +164,9 @@ void CopyAs::Perform(MainWindowFilePanelState *_target, id) const
       __weak PanelController *weak_panel = act_pc;
       op->ObserveUnticketed(nc::ops::Operation::NotifyAboutCompletion, [=] {
           dispatch_to_main_queue([=] {
-              if( PanelController *panel = weak_panel ) {
+              if( PanelController *const panel = weak_panel ) {
                   if( panel.isUniform &&
-                      panel.currentDirectoryPath ==
-                          std::filesystem::path(path).parent_path().native() + "/" ) {
+                      panel.currentDirectoryPath == std::filesystem::path(path).parent_path().native() + "/" ) {
                       nc::panel::DelayedFocusing req;
                       req.filename = std::filesystem::path(path).filename().native();
                       [panel scheduleDelayedFocusing:req];
@@ -203,14 +197,13 @@ bool MoveTo::Predicate(MainWindowFilePanelState *_target) const
     if( i.IsDotDot() && act_pc.data.Stats().selected_entries_amount == 0 )
         return false;
 
-    if( (act_pc.isUniform && !act_pc.vfs->IsWritable()) ||
-        (opp_pc.isUniform && !opp_pc.vfs->IsWritable()) )
+    if( (act_pc.isUniform && !act_pc.vfs->IsWritable()) || (opp_pc.isUniform && !opp_pc.vfs->IsWritable()) )
         return false;
 
     return true;
 }
 
-void MoveTo::Perform(MainWindowFilePanelState *_target, id) const
+void MoveTo::Perform(MainWindowFilePanelState *_target, id /*_sender*/) const
 {
     const auto act_pc = _target.activePanelController;
     const auto opp_pc = _target.oppositePanelController;
@@ -227,13 +220,12 @@ void MoveTo::Perform(MainWindowFilePanelState *_target, id) const
     if( entries.empty() )
         return;
 
-    const auto cd =
-        [[NCOpsCopyingDialog alloc] initWithItems:entries
-                                        sourceVFS:act_uniform ? act_pc.vfs : nullptr
-                                  sourceDirectory:act_uniform ? act_pc.currentDirectoryPath : ""
-                               initialDestination:opp_uniform ? opp_pc.currentDirectoryPath : ""
-                                   destinationVFS:opp_uniform ? opp_pc.vfs : nullptr
-                                 operationOptions:MakeDefaultFileMoveOptions()];
+    const auto cd = [[NCOpsCopyingDialog alloc] initWithItems:entries
+                                                    sourceVFS:act_uniform ? act_pc.vfs : nullptr
+                                              sourceDirectory:act_uniform ? act_pc.currentDirectoryPath : ""
+                                           initialDestination:opp_uniform ? opp_pc.currentDirectoryPath : ""
+                                               destinationVFS:opp_uniform ? opp_pc.vfs : nullptr
+                                             operationOptions:MakeDefaultFileMoveOptions()];
 
     const auto handler = ^(NSModalResponse returnCode) {
       if( returnCode != NSModalResponseOK )
@@ -245,7 +237,7 @@ void MoveTo::Perform(MainWindowFilePanelState *_target, id) const
       if( !host || path.empty() )
           return; // ui invariant is broken
 
-      const auto op = std::make_shared<nc::ops::Copying>(std::move(entries), path, host, opts);
+      const auto op = std::make_shared<nc::ops::Copying>(entries, path, host, opts);
 
       const auto update_both_panels = RefreshBothCurrentControllersLambda(_target);
       op->ObserveUnticketed(nc::ops::Operation::NotifyAboutFinish, update_both_panels);
@@ -272,7 +264,7 @@ bool MoveAs::Predicate(MainWindowFilePanelState *_target) const
     return true;
 }
 
-void MoveAs::Perform(MainWindowFilePanelState *_target, id) const
+void MoveAs::Perform(MainWindowFilePanelState *_target, id /*_sender*/) const
 {
     const auto act_pc = _target.activePanelController;
     if( !act_pc )
@@ -325,9 +317,7 @@ void MoveAs::Perform(MainWindowFilePanelState *_target, id) const
 static std::function<void()> RefreshCurrentActiveControllerLambda(MainWindowFilePanelState *_target)
 {
     __weak PanelController *cur = _target.activePanelController;
-    auto update_current = [=] {
-        dispatch_to_main_queue([=] { [static_cast<PanelController *>(cur) refreshPanel]; });
-    };
+    auto update_current = [=] { dispatch_to_main_queue([=] { [static_cast<PanelController *>(cur) refreshPanel]; }); };
     return update_current;
 }
 
@@ -344,4 +334,4 @@ static std::function<void()> RefreshBothCurrentControllersLambda(MainWindowFileP
     return update_both_panels;
 }
 
-}
+} // namespace nc::panel::actions

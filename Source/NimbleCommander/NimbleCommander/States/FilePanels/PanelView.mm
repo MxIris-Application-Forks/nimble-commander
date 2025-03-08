@@ -1,13 +1,14 @@
-// Copyright (C) 2013-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PanelView.h"
-#include <NimbleCommander/Core/ActionsShortcutsManager.h>
+#include <Utility/ActionsShortcutsManager.h>
 #include <Utility/NSEventModifierFlagsHolder.h>
 #include <Utility/MIMResponder.h>
 #include <Utility/ObjCpp.h>
 #include <Utility/StringExtras.h>
-#include <Base/RobinHoodUtil.h>
+#include <Base/UnorderedUtil.h>
 #include "PanelViewLayoutSupport.h"
 #include <Panel/PanelData.h>
+#include <Panel/Log.h>
 #include "PanelController.h"
 #include "Brief/PanelBriefView.h"
 #include "List/PanelListView.h"
@@ -16,6 +17,7 @@
 #include "PanelViewDelegate.h"
 #include "DragReceiver.h"
 #include "DragSender.h"
+#include "ContextMenu.h"
 #include <Panel/PanelViewFieldEditor.h>
 #include <Panel/PanelViewKeystrokeSink.h>
 #include "PanelViewDummyPresentation.h"
@@ -26,8 +28,7 @@ using nc::vfsicon::IconRepository;
 
 namespace nc::panel {
 
-enum class CursorSelectionType : int8_t
-{
+enum class CursorSelectionType : int8_t {
     No = 0,
     Selection = 1,
     Unselection = 2
@@ -37,7 +38,7 @@ struct StateStorage {
     std::string focused_item;
 };
 
-}
+} // namespace nc::panel
 
 @interface PanelView ()
 
@@ -47,9 +48,9 @@ struct StateStorage {
 
 @implementation PanelView {
     data::Model *m_Data;
-    std::vector<std::pair<__weak id<NCPanelViewKeystrokeSink>, int>> m_KeystrokeSinks;
+    std::vector<__weak id<NCPanelViewKeystrokeSink>> m_KeystrokeSinks;
 
-    robin_hood::unordered_flat_map<uint64_t, StateStorage> m_States;
+    ankerl::unordered_dense::map<uint64_t, StateStorage> m_States;
     NSString *m_HeaderTitle;
     NCPanelViewFieldEditor *m_RenamingEditor;
 
@@ -60,6 +61,7 @@ struct StateStorage {
 
     std::unique_ptr<IconRepository> m_IconRepository;
     std::shared_ptr<nc::vfs::NativeHost> m_NativeHost;
+    const nc::utility::ActionsShortcutsManager *m_ActionsShortcutsManager;
 
     int m_CursorPos;
     nc::utility::NSEventModifierFlagsHolder m_KeyboardModifierFlags;
@@ -67,12 +69,14 @@ struct StateStorage {
 }
 
 @synthesize headerView = m_HeaderView;
+@synthesize actionsDispatcher;
 
 - (id)initWithFrame:(NSRect)frame
-     iconRepository:(std::unique_ptr<nc::vfsicon::IconRepository>)_icon_repository
-          nativeVFS:(nc::vfs::NativeHost &)_native_vfs
-             header:(NCPanelViewHeader *)_header
-             footer:(NCPanelViewFooter *)_footer
+             iconRepository:(std::unique_ptr<nc::vfsicon::IconRepository>)_icon_repository
+    actionsShortcutsManager:(const nc::utility::ActionsShortcutsManager &)_actions_shortcuts_manager
+                  nativeVFS:(nc::vfs::NativeHost &)_native_vfs
+                     header:(NCPanelViewHeader *)_header
+                     footer:(NCPanelViewFooter *)_footer
 {
     self = [super initWithFrame:frame];
     if( self ) {
@@ -81,9 +85,9 @@ struct StateStorage {
         m_HeaderTitle = @"";
         m_IconRepository = std::move(_icon_repository);
         m_NativeHost = _native_vfs.SharedPtr();
+        m_ActionsShortcutsManager = &_actions_shortcuts_manager;
 
-        m_ItemsView =
-            [[NCPanelViewDummyPresentation alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
+        m_ItemsView = [[NCPanelViewDummyPresentation alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
         [self addSubview:m_ItemsView];
 
         m_HeaderView = _header;
@@ -91,7 +95,7 @@ struct StateStorage {
         m_HeaderView.defaultResponder = self;
         __weak PanelView *weak_self = self;
         m_HeaderView.sortModeChangeCallback = [weak_self](data::SortMode _sm) {
-            if( PanelView *strong_self = weak_self )
+            if( PanelView *const strong_self = weak_self )
                 [strong_self.controller changeSortingModeTo:_sm];
         };
         [self addSubview:m_HeaderView];
@@ -115,11 +119,10 @@ struct StateStorage {
 - (void)setupLayout
 {
     const auto views = NSDictionaryOfVariableBindings(m_ItemsView, m_HeaderView, m_FooterView);
-    const auto constraints = {
-        @"V:|-(==0)-[m_HeaderView(==20)]-(==0)-[m_ItemsView]-(==0)-[m_FooterView(==20)]-(==0)-|",
-        @"|-(0)-[m_HeaderView]-(0)-|",
-        @"|-(0)-[m_ItemsView]-(0)-|",
-        @"|-(0)-[m_FooterView]-(0)-|"};
+    const auto constraints = {@"V:|-(==0)-[m_HeaderView(==20)]-(==0)-[m_ItemsView]-(==0)-[m_FooterView(==20)]-(==0)-|",
+                              @"|-(0)-[m_HeaderView]-(0)-|",
+                              @"|-(0)-[m_ItemsView]-(0)-|",
+                              @"|-(0)-[m_FooterView]-(0)-|"};
     for( auto constraint : constraints )
         [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:constraint
                                                                      options:0
@@ -127,8 +130,7 @@ struct StateStorage {
                                                                        views:views]];
 }
 
-- (NSView<NCPanelViewPresentationProtocol> *)spawnItemViewWithLayout:
-    (const PanelViewLayout &)_layout
+- (NSView<NCPanelViewPresentationProtocol> *)spawnItemViewWithLayout:(const PanelViewLayout &)_layout
 {
     if( auto ll = std::any_cast<PanelListViewColumnsLayout>(&_layout.layout) ) {
         auto v = [self spawnListView];
@@ -178,7 +180,7 @@ struct StateStorage {
     v.translatesAutoresizingMaskIntoConstraints = false;
     __weak PanelView *weak_self = self;
     v.sortModeChangeCallback = [=](data::SortMode _sm) {
-        if( PanelView *strong_self = weak_self )
+        if( PanelView *const strong_self = weak_self )
             [strong_self.controller changeSortingModeTo:_sm];
     };
     return v;
@@ -212,7 +214,7 @@ struct StateStorage {
 {
     __weak PanelView *weak_self = self;
     dispatch_to_main_queue([=] {
-        if( PanelView *strong_self = weak_self )
+        if( PanelView *const strong_self = weak_self )
             [strong_self refreshActiveStatus];
     });
     return YES;
@@ -472,7 +474,7 @@ struct StateStorage {
 {
     dispatch_assert_main_queue();
 
-    const auto clipped_pos = (m_Data->SortedDirectoryEntries().size() > 0 && _pos >= 0 &&
+    const auto clipped_pos = (!m_Data->SortedDirectoryEntries().empty() && _pos >= 0 &&
                               _pos < static_cast<int>(m_Data->SortedDirectoryEntries().size()))
                                  ? _pos
                                  : -1;
@@ -510,14 +512,16 @@ struct StateStorage {
 
 - (void)keyDown:(NSEvent *)event
 {
+    using nc::utility::ActionShortcut;
+
     id<NCPanelViewKeystrokeSink> best_handler = nil;
-    int best_bid = 0;
+    int best_bid = view::BiddingPriority::Skip;
     for( const auto &handler : m_KeystrokeSinks )
-        if( id<NCPanelViewKeystrokeSink> h = handler.first ) {
+        if( id<NCPanelViewKeystrokeSink> h = handler ) {
             const auto bid = [h bidForHandlingKeyDown:event forPanelView:self];
-            if( bid > 0 && bid + handler.second > best_bid ) {
+            if( bid > best_bid ) {
                 best_handler = h;
-                best_bid = bid + handler.second;
+                best_bid = bid;
             }
         }
 
@@ -534,56 +538,85 @@ struct StateStorage {
 
     [self checkKeyboardModifierFlags:event.modifierFlags];
 
-    static ActionsShortcutsManager::ShortCut hk_up, hk_down, hk_left, hk_right, hk_first, hk_last,
-        hk_pgdown, hk_pgup, hk_inv_and_move, hk_inv, hk_scrdown, hk_scrup, hk_scrhome, hk_scrend;
-    [[clang::no_destroy]] static ActionsShortcutsManager::ShortCutsUpdater hotkeys_updater(
-        std::initializer_list<ActionsShortcutsManager::ShortCutsUpdater::UpdateTarget>{
-            {&hk_up, "panel.move_up"},
-            {&hk_down, "panel.move_down"},
-            {&hk_left, "panel.move_left"},
-            {&hk_right, "panel.move_right"},
-            {&hk_first, "panel.move_first"},
-            {&hk_last, "panel.move_last"},
-            {&hk_pgdown, "panel.move_next_page"},
-            {&hk_pgup, "panel.move_prev_page"},
-            {&hk_inv_and_move, "panel.move_next_and_invert_selection"},
-            {&hk_inv, "panel.invert_item_selection"},
-            {&hk_scrdown, "panel.scroll_next_page"},
-            {&hk_scrup, "panel.scroll_prev_page"},
-            {&hk_scrhome, "panel.scroll_first"},
-            {&hk_scrend, "panel.scroll_last"}});
+    struct Tags {
+        int up = -1;
+        int down = -1;
+        int left = -1;
+        int right = -1;
+        int first = -1;
+        int last = -1;
+        int page_down = -1;
+        int page_up = -1;
+        int invert_and_move = -1;
+        int invert = -1;
+        int scroll_down = -1;
+        int scroll_up = -1;
+        int scroll_home = -1;
+        int scroll_end = -1;
+    };
+    static const Tags tags = [&] {
+        Tags t;
+        t.up = m_ActionsShortcutsManager->TagFromAction("panel.move_up").value();
+        t.down = m_ActionsShortcutsManager->TagFromAction("panel.move_down").value();
+        t.left = m_ActionsShortcutsManager->TagFromAction("panel.move_left").value();
+        t.right = m_ActionsShortcutsManager->TagFromAction("panel.move_right").value();
+        t.first = m_ActionsShortcutsManager->TagFromAction("panel.move_first").value();
+        t.last = m_ActionsShortcutsManager->TagFromAction("panel.move_last").value();
+        t.page_down = m_ActionsShortcutsManager->TagFromAction("panel.move_next_page").value();
+        t.page_up = m_ActionsShortcutsManager->TagFromAction("panel.move_prev_page").value();
+        t.invert_and_move = m_ActionsShortcutsManager->TagFromAction("panel.move_next_and_invert_selection").value();
+        t.invert = m_ActionsShortcutsManager->TagFromAction("panel.invert_item_selection").value();
+        t.scroll_down = m_ActionsShortcutsManager->TagFromAction("panel.scroll_next_page").value();
+        t.scroll_up = m_ActionsShortcutsManager->TagFromAction("panel.scroll_prev_page").value();
+        t.scroll_home = m_ActionsShortcutsManager->TagFromAction("panel.scroll_first").value();
+        t.scroll_end = m_ActionsShortcutsManager->TagFromAction("panel.scroll_last").value();
+        return t;
+    }();
 
-    const auto event_data = nc::utility::ActionShortcut::EventData(event);
-    auto event_data_wo_shift = event_data;
-    event_data_wo_shift.modifiers &= ~NSEventModifierFlagShift;
-        
-    if( hk_up.IsKeyDown(event_data_wo_shift) )
+    const auto event_data = ActionShortcut::EventData(event);
+    const auto event_hotkey = ActionShortcut(event_data);
+    const auto event_hotkey_wo_shift =
+        ActionShortcut(ActionShortcut::EventData(event_data.char_with_modifiers,
+                                                 event_data.char_without_modifiers,
+                                                 event_data.key_code,
+                                                 event_data.modifiers & ~NSEventModifierFlagShift));
+
+    const std::optional<int> event_action_tag = m_ActionsShortcutsManager->FirstOfActionTagsFromShortcut(
+        std::array{
+            tags.scroll_down, tags.scroll_up, tags.scroll_home, tags.scroll_end, tags.invert_and_move, tags.invert},
+        event_hotkey);
+
+    const std::optional<int> event_action_tag_wo_shift = m_ActionsShortcutsManager->FirstOfActionTagsFromShortcut(
+        std::array{tags.up, tags.down, tags.left, tags.right, tags.first, tags.last, tags.page_down, tags.page_up},
+        event_hotkey_wo_shift);
+
+    if( event_action_tag_wo_shift == tags.up )
         [self HandlePrevFile];
-    else if( hk_down.IsKeyDown(event_data_wo_shift) )
+    else if( event_action_tag_wo_shift == tags.down )
         [self HandleNextFile];
-    else if( hk_left.IsKeyDown(event_data_wo_shift) )
+    else if( event_action_tag_wo_shift == tags.left )
         [self HandlePrevColumn];
-    else if( hk_right.IsKeyDown(event_data_wo_shift) )
+    else if( event_action_tag_wo_shift == tags.right )
         [self HandleNextColumn];
-    else if( hk_first.IsKeyDown(event_data_wo_shift) )
+    else if( event_action_tag_wo_shift == tags.first )
         [self HandleFirstFile];
-    else if( hk_last.IsKeyDown(event_data_wo_shift) )
+    else if( event_action_tag_wo_shift == tags.last )
         [self HandleLastFile];
-    else if( hk_pgdown.IsKeyDown(event_data_wo_shift) )
+    else if( event_action_tag_wo_shift == tags.page_down )
         [self HandleNextPage];
-    else if( hk_scrdown.IsKeyDown(event_data_wo_shift) )
-        [m_ItemsView onPageDown:event];
-    else if( hk_pgup.IsKeyDown(event_data_wo_shift) )
+    else if( event_action_tag_wo_shift == tags.page_up )
         [self HandlePrevPage];
-    else if( hk_scrup.IsKeyDown(event_data) )
+    else if( event_action_tag == tags.scroll_down )
+        [m_ItemsView onPageDown:event];
+    else if( event_action_tag == tags.scroll_up )
         [m_ItemsView onPageUp:event];
-    else if( hk_scrhome.IsKeyDown(event_data) )
+    else if( event_action_tag == tags.scroll_home )
         [m_ItemsView onScrollToBeginning:event];
-    else if( hk_scrend.IsKeyDown(event_data) )
+    else if( event_action_tag == tags.scroll_end )
         [m_ItemsView onScrollToEnd:event];
-    else if( hk_inv_and_move.IsKeyDown(event_data) )
+    else if( event_action_tag == tags.invert_and_move )
         [self onInvertCurrentItemSelectionAndMoveNext];
-    else if( hk_inv.IsKeyDown(event_data) )
+    else if( event_action_tag == tags.invert )
         [self onInvertCurrentItemSelection];
     else
         [super keyDown:event];
@@ -605,17 +638,15 @@ struct StateStorage {
         // lets decide if we need to select or unselect files when user will use navigation arrows
         if( auto item = self.item ) {
             if( !item.IsDotDot() ) { // regular case
-                m_KeyboardCursorSelectionType = self.item_vd.is_selected()
-                                                    ? CursorSelectionType::Unselection
-                                                    : CursorSelectionType::Selection;
+                m_KeyboardCursorSelectionType =
+                    self.item_vd.is_selected() ? CursorSelectionType::Unselection : CursorSelectionType::Selection;
             }
             else {
                 // need to look at a first file (next to dotdot) for current representation if any.
                 if( auto next_item = m_Data->EntryAtSortPosition(1) )
-                    m_KeyboardCursorSelectionType =
-                        m_Data->VolatileDataAtSortPosition(1).is_selected()
-                            ? CursorSelectionType::Unselection
-                            : CursorSelectionType::Selection;
+                    m_KeyboardCursorSelectionType = m_Data->VolatileDataAtSortPosition(1).is_selected()
+                                                        ? CursorSelectionType::Unselection
+                                                        : CursorSelectionType::Selection;
                 else // singular case - selection doesn't matter - nothing to select
                     m_KeyboardCursorSelectionType = CursorSelectionType::Selection;
             }
@@ -654,8 +685,8 @@ struct StateStorage {
 - (void)SelectUnselectInRange:(int)_start last_included:(int)_end select:(BOOL)_select
 {
     dispatch_assert_main_queue();
-    if( _start < 0 || _start >= static_cast<int>(m_Data->SortedDirectoryEntries().size()) ||
-        _end < 0 || _end >= static_cast<int>(m_Data->SortedDirectoryEntries().size()) ) {
+    if( _start < 0 || _start >= static_cast<int>(m_Data->SortedDirectoryEntries().size()) || _end < 0 ||
+        _end >= static_cast<int>(m_Data->SortedDirectoryEntries().size()) ) {
         NSLog(@"SelectUnselectInRange - invalid range");
         return;
     }
@@ -697,19 +728,17 @@ struct StateStorage {
         [self replaceSubview:m_ItemsView with:v];
         m_ItemsView = v;
 
-        NSDictionary *views =
-            NSDictionaryOfVariableBindings(m_ItemsView, m_HeaderView, m_FooterView);
-        [self addConstraints:[NSLayoutConstraint
-                                 constraintsWithVisualFormat:
-                                     @"V:[m_HeaderView]-(==0)-[m_ItemsView]-(==0)-[m_FooterView]"
-                                                     options:0
-                                                     metrics:nil
-                                                       views:views]];
-        [self addConstraints:[NSLayoutConstraint
-                                 constraintsWithVisualFormat:@"|-(0)-[m_ItemsView]-(0)-|"
-                                                     options:0
-                                                     metrics:nil
-                                                       views:views]];
+        NSDictionary *views = NSDictionaryOfVariableBindings(m_ItemsView, m_HeaderView, m_FooterView);
+        [self
+            addConstraints:[NSLayoutConstraint
+                               constraintsWithVisualFormat:@"V:[m_HeaderView]-(==0)-[m_ItemsView]-(==0)-[m_FooterView]"
+                                                   options:0
+                                                   metrics:nil
+                                                     views:views]];
+        [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"|-(0)-[m_ItemsView]-(0)-|"
+                                                                     options:0
+                                                                     metrics:nil
+                                                                       views:views]];
         [self layout];
 
         if( m_Data ) {
@@ -737,19 +766,17 @@ struct StateStorage {
         [self replaceSubview:m_ItemsView with:v];
         m_ItemsView = v;
 
-        NSDictionary *views =
-            NSDictionaryOfVariableBindings(m_ItemsView, m_HeaderView, m_FooterView);
-        [self addConstraints:[NSLayoutConstraint
-                                 constraintsWithVisualFormat:
-                                     @"V:[m_HeaderView]-(==0)-[m_ItemsView]-(==0)-[m_FooterView]"
-                                                     options:0
-                                                     metrics:nil
-                                                       views:views]];
-        [self addConstraints:[NSLayoutConstraint
-                                 constraintsWithVisualFormat:@"|-(0)-[m_ItemsView]-(0)-|"
-                                                     options:0
-                                                     metrics:nil
-                                                       views:views]];
+        NSDictionary *views = NSDictionaryOfVariableBindings(m_ItemsView, m_HeaderView, m_FooterView);
+        [self
+            addConstraints:[NSLayoutConstraint
+                               constraintsWithVisualFormat:@"V:[m_HeaderView]-(==0)-[m_ItemsView]-(==0)-[m_FooterView]"
+                                                   options:0
+                                                   metrics:nil
+                                                     views:views]];
+        [self addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"|-(0)-[m_ItemsView]-(0)-|"
+                                                                     options:0
+                                                                     metrics:nil
+                                                                       views:views]];
         [self layout];
 
         if( m_Data ) {
@@ -797,7 +824,7 @@ struct StateStorage {
     if( !item )
         return;
 
-    const auto hash = listing.Host()->FullHashForPath(listing.Directory().c_str());
+    const auto hash = listing.Host()->FullHashForPath(listing.Directory());
     auto &storage = m_States[hash];
     storage.focused_item = item.Filename();
 }
@@ -810,13 +837,13 @@ struct StateStorage {
 
     const auto &listing = m_Data->Listing();
 
-    const auto hash = listing.Host()->FullHashForPath(listing.Directory().c_str());
+    const auto hash = listing.Host()->FullHashForPath(listing.Directory());
     const auto it = m_States.find(hash);
     if( it == end(m_States) )
         return;
 
     const auto &storage = it->second;
-    int cursor = m_Data->SortedIndexForName(storage.focused_item.c_str());
+    int cursor = m_Data->SortedIndexForName(storage.focused_item);
     if( cursor < 0 )
         return;
 
@@ -824,8 +851,7 @@ struct StateStorage {
     [self OnCursorPositionChanged];
 }
 
-- (void)panelChangedWithFocusedFilename:(const std::string &)_focused_filename
-                      loadPreviousState:(bool)_load
+- (void)panelChangedWithFocusedFilename:(const std::string &)_focused_filename loadPreviousState:(bool)_load
 {
     dispatch_assert_main_queue();
     m_CursorPos = -1;
@@ -833,12 +859,12 @@ struct StateStorage {
     if( _load )
         [self loadPathState];
 
-    const int cur = m_Data->SortedIndexForName(_focused_filename.c_str());
+    const int cur = m_Data->SortedIndexForName(_focused_filename);
     if( cur >= 0 ) {
         [self setCurpos:cur];
     }
 
-    if( m_CursorPos < 0 && m_Data->SortedDirectoryEntries().size() > 0 ) {
+    if( m_CursorPos < 0 && !m_Data->SortedDirectoryEntries().empty() ) {
         [self setCurpos:0];
     }
 
@@ -871,8 +897,7 @@ struct StateStorage {
           if( !sself->m_RenamingEditor )
               return;
 
-          [sself.controller requestQuickRenamingOfItem:sself->m_RenamingEditor.originalItem
-                                                    to:_new_filename];
+          [sself.controller requestQuickRenamingOfItem:sself->m_RenamingEditor.originalItem to:_new_filename];
       }
     };
     m_RenamingEditor.onEditingFinished = ^{
@@ -908,23 +933,23 @@ struct StateStorage {
 }
 
 // Search the current data for an item which has the same name, the same directory and the same VFS as the queried item
-- (int)findSortedIndexOfForeignListingItem:(const VFSListingItem&)_item
+- (int)findSortedIndexOfForeignListingItem:(const VFSListingItem &)_item
 {
     if( !_item )
         return -1;
-    
+
     const auto raw_inds = m_Data->RawIndicesForName(_item.Filename()); // O(logN)
-    for( const auto raw_ind: raw_inds ) {
+    for( const auto raw_ind : raw_inds ) {
         const auto sort_ind = m_Data->SortedIndexForRawIndex(raw_ind); // O(1)
         if( sort_ind < 0 )
             continue; // skip any items not currently presented due to filtering
         const auto new_item = m_Data->EntryAtRawPosition(raw_ind);
-        assert( new_item.Filename() == _item.Filename() ); // the filename is assumed to be the same
+        assert(new_item.Filename() == _item.Filename()); // the filename is assumed to be the same
         if( new_item.Directory() != _item.Directory() )
             continue; // different directory (perhaps a non-uniform listing) - skip this entry
         if( new_item.Host() != _item.Host() )
             continue; // different vfs host (perhaps a non-uniform listing) - skip this entry
-        
+
         // a match - return the sorted index
         return sort_ind;
     }
@@ -951,8 +976,7 @@ struct StateStorage {
 
     [self volatileDataChanged];
     [m_FooterView updateListing:m_Data->ListingPtr()];
-    
-    
+
     if( m_RenamingEditor ) {
         assert(renaming_item_ind);
         [m_ItemsView setupFieldEditor:m_RenamingEditor forItemAtIndex:*renaming_item_ind];
@@ -1006,10 +1030,7 @@ struct StateStorage {
                     return NSLocalizedString(@"__PANELVIEW_TEMPORARY_PANEL_WITHOUT_TITLE", "");
                 else {
                     auto fmt = NSLocalizedString(@"__PANELVIEW_TEMPORARY_PANEL_WITH_TITLE", "");
-                    return [NSString
-                        localizedStringWithFormat:fmt,
-                                                  [NSString
-                                                      stringWithUTF8StdString:listing.Title()]];
+                    return [NSString localizedStringWithFormat:fmt, [NSString stringWithUTF8StdString:listing.Title()]];
                 }
             }
             default:
@@ -1021,36 +1042,35 @@ struct StateStorage {
 
 - (void)panelItem:(int)_sorted_index mouseDown:(NSEvent *)_event
 {
-    // any cursor movements or selection changes should be performed only in active window
-    const bool window_focused = self.window.isKeyWindow;
-    if( window_focused ) {
-        if( !self.active )
-            [self.window makeFirstResponder:self];
+    nc::panel::Log::Trace("[PanelController panelItem:mouseDown:] called for sorted index '{}'", _sorted_index);
 
-        if( !m_Data->IsValidSortPosition(_sorted_index) ) {
-            [self commitFieldEditor];
-            return;
-        }
-
-        const int current_cursor_pos = m_CursorPos;
-        const auto click_entry_vd = m_Data->VolatileDataAtSortPosition(_sorted_index);
-        const auto modifier_flags =
-            _event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
-
-        // Select range of items with shift+click.
-        // If clicked item is selected, then deselect the range instead.
-        if( modifier_flags & NSEventModifierFlagShift )
-            [self SelectUnselectInRange:current_cursor_pos >= 0 ? current_cursor_pos : 0
-                          last_included:_sorted_index
-                                 select:!click_entry_vd.is_selected()];
-        else if( modifier_flags &
-                 NSEventModifierFlagCommand ) // Select or deselect a single item with cmd+click.
-            [self SelectUnselectInRange:_sorted_index
-                          last_included:_sorted_index
-                                 select:!click_entry_vd.is_selected()];
-
-        [self setCurpos:_sorted_index];
+    if( !self.window.isKeyWindow ) {
+        // any cursor movements or selection changes should be performed only in active window
+        return;
     }
+
+    if( !self.active )
+        [self.window makeFirstResponder:self];
+
+    if( !m_Data->IsValidSortPosition(_sorted_index) ) {
+        [self commitFieldEditor];
+        return;
+    }
+
+    const int current_cursor_pos = m_CursorPos;
+    const auto click_entry_vd = m_Data->VolatileDataAtSortPosition(_sorted_index);
+    const auto modifier_flags = _event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+
+    // Select range of items with shift+click.
+    // If clicked item is selected, then deselect the range instead.
+    if( modifier_flags & NSEventModifierFlagShift )
+        [self SelectUnselectInRange:current_cursor_pos >= 0 ? current_cursor_pos : 0
+                      last_included:_sorted_index
+                             select:!click_entry_vd.is_selected()];
+    else if( modifier_flags & NSEventModifierFlagCommand ) // Select or deselect a single item with cmd+click.
+        [self SelectUnselectInRange:_sorted_index last_included:_sorted_index select:!click_entry_vd.is_selected()];
+
+    [self setCurpos:_sorted_index];
 }
 
 - (void)panelItem:(int)_sorted_index fieldEditor:(NSEvent *) [[maybe_unused]] _event
@@ -1061,6 +1081,7 @@ struct StateStorage {
 
 - (void)panelItem:(int)_sorted_index dblClick:(NSEvent *) [[maybe_unused]] _event
 {
+    nc::panel::Log::Trace("[PanelController panelItem:dblClick:] called for sorted index '{}'", _sorted_index);
     if( _sorted_index >= 0 && _sorted_index == m_CursorPos ) {
         if( auto action_dispatcher = self.actionsDispatcher )
             [action_dispatcher OnOpen:self];
@@ -1105,32 +1126,25 @@ struct StateStorage {
 
 - (NSDragOperation)panelItem:(int)_sorted_index operationForDragging:(id<NSDraggingInfo>)_dragging
 {
-    auto receiver = [self.delegate panelView:self
-             requestsDragReceiverForDragging:_dragging
-                                      onItem:_sorted_index];
+    auto receiver = [self.delegate panelView:self requestsDragReceiverForDragging:_dragging onItem:_sorted_index];
     return receiver->Validate();
 }
 
 - (bool)panelItem:(int)_sorted_index performDragOperation:(id<NSDraggingInfo>)_dragging
 {
-    auto receiver = [self.delegate panelView:self
-             requestsDragReceiverForDragging:_dragging
-                                      onItem:_sorted_index];
+    auto receiver = [self.delegate panelView:self requestsDragReceiverForDragging:_dragging onItem:_sorted_index];
     return receiver->Receive();
 }
 
-- (NSPopover *)showPopoverUnderPathBarWithView:(NSViewController *)_view
-                                   andDelegate:(id<NSPopoverDelegate>)_delegate
+- (NSPopover *)showPopoverUnderPathBarWithView:(NSViewController *)_view andDelegate:(id<NSPopoverDelegate>)_delegate
 {
     const auto bounds = self.bounds;
     NSPopover *popover = [NSPopover new];
     popover.contentViewController = _view;
     popover.behavior = NSPopoverBehaviorTransient;
     popover.delegate = _delegate;
-    [popover showRelativeToRect:NSMakeRect(0,
-                                           bounds.size.height - self.headerBarHeight,
-                                           bounds.size.width,
-                                           bounds.size.height)
+    [popover showRelativeToRect:NSMakeRect(
+                                    0, bounds.size.height - self.headerBarHeight, bounds.size.width, bounds.size.height)
                          ofView:self
                   preferredEdge:NSMinYEdge];
     return popover;
@@ -1146,17 +1160,22 @@ struct StateStorage {
     [self.controller panelViewDidChangePresentationLayout];
 }
 
-- (void)addKeystrokeSink:(id<NCPanelViewKeystrokeSink>)_sink withBasePriority:(int)_priority
+- (void)addKeystrokeSink:(id<NCPanelViewKeystrokeSink>)_sink
 {
-    m_KeystrokeSinks.emplace_back(_sink, _priority);
+    m_KeystrokeSinks.emplace_back(_sink);
 }
 
 - (void)removeKeystrokeSink:(id<NCPanelViewKeystrokeSink>)_sink
 {
-    m_KeystrokeSinks.erase(remove_if(begin(m_KeystrokeSinks),
-                                     end(m_KeystrokeSinks),
-                                     [&](const auto &v) { return v.first == _sink; }),
-                           end(m_KeystrokeSinks));
+    std::erase(m_KeystrokeSinks, _sink);
+}
+
+- (std::optional<NSRect>)frameOfItemAtSortPos:(int)_sorted_position
+{
+    const std::optional<NSRect> frame = [m_ItemsView frameOfItemAtIndex:_sorted_position];
+    if( !frame )
+        return {};
+    return [self convertRect:*frame fromView:m_ItemsView];
 }
 
 @end

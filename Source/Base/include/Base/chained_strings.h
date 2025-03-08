@@ -8,8 +8,7 @@ namespace nc::base {
 
 class chained_strings
 {
-    enum
-    {
+    enum {
         strings_per_block = 42,
         buffer_length = 14,
         max_depth = 128
@@ -49,7 +48,7 @@ private:
         block *next;     // #8
         // next is valid pointer when .amount == strings_per_block, otherwise it should be null
         node strings[strings_per_block]; // # 16
-    };                                   // 1024 bytes long
+    }; // 1024 bytes long
 
     inline static block *const m_Sentinel = reinterpret_cast<block *>(0xDEADBEEFDEADBEEF);
 
@@ -102,7 +101,7 @@ public:
     chained_strings();
     chained_strings(const char *_allocate_with_this_string);
     chained_strings(const std::string &_allocate_with_this_string);
-    chained_strings(chained_strings &&_rhs);
+    chained_strings(chained_strings &&_rhs) noexcept;
 
     template <class T>
     inline chained_strings(std::initializer_list<T> l) : m_Begin(nullptr), m_Last(nullptr)
@@ -127,12 +126,11 @@ public:
     unsigned size() const;     // O(N) linear(!) time, N - number of blocks
     bool singleblock() const;  // O(1)
 
-    void swap(chained_strings &_rhs);
-    void swap(chained_strings &&_rhs);
-    const chained_strings &operator=(chained_strings &&);
+    void swap(chained_strings &_rhs) noexcept;
+    chained_strings &operator=(chained_strings &&) noexcept;
 
 private:
-    void insert_into(block *_to, const char *_str, unsigned _len, const node *_prefix);
+    static void insert_into(block *_to, const char *_str, unsigned _len, const node *_prefix);
     void construct();
     void destroy();
     void grow();

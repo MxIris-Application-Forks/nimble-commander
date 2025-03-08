@@ -1,4 +1,6 @@
-// Copyright (C) 2013-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+#include <algorithm>
+
 #include "../include/VFS/Host.h"
 #include "../include/VFS/VFSPath.h"
 
@@ -6,13 +8,11 @@ namespace nc::vfs {
 
 VFSPath::VFSPath() noexcept = default;
 
-VFSPath::VFSPath(const VFSHostPtr &_host, std::filesystem::path _path)
-    : m_Host(_host), m_Path(std::move(_path))
+VFSPath::VFSPath(const VFSHostPtr &_host, std::filesystem::path _path) : m_Host(_host), m_Path(std::move(_path))
 {
 }
 
-VFSPath::VFSPath(VFSHost &_host, std::filesystem::path _path)
-    : VFSPath(_host.shared_from_this(), std::move(_path))
+VFSPath::VFSPath(VFSHost &_host, std::filesystem::path _path) : VFSPath(_host.shared_from_this(), std::move(_path))
 {
 }
 
@@ -84,9 +84,7 @@ bool VFSPathStack::Part::weak_equal(const Part &_r) const
     return true;
 }
 
-VFSPathStack::VFSPathStack()
-{
-}
+VFSPathStack::VFSPathStack() = default;
 
 VFSPathStack::VFSPathStack(const VFSHostPtr &_vfs, const std::string &_path) : m_Path(_path)
 {
@@ -95,7 +93,7 @@ VFSPathStack::VFSPathStack(const VFSHostPtr &_vfs, const std::string &_path) : m
         m_Stack.emplace_back(*curr_host);
         curr_host = curr_host->Parent().get();
     }
-    reverse(begin(m_Stack), end(m_Stack));
+    std::ranges::reverse(m_Stack);
 }
 
 bool VFSPathStack::weak_equal(const VFSPathStack &_r) const
@@ -104,7 +102,9 @@ bool VFSPathStack::weak_equal(const VFSPathStack &_r) const
         return false;
     if( m_Path != _r.m_Path )
         return false;
-    auto i = begin(m_Stack), j = begin(_r.m_Stack), e = end(m_Stack);
+    auto i = begin(m_Stack);
+    auto j = begin(_r.m_Stack);
+    auto e = end(m_Stack);
     for( ; i != e; ++i, ++j )
         if( !i->weak_equal(*j) )
             return false;
@@ -157,8 +157,8 @@ const std::string &VFSPathStack::path() const
 
 } // namespace nc::vfs
 
-std::hash<nc::vfs::VFSPathStack>::value_type std::hash<nc::vfs::VFSPathStack>::operator()(
-    hash<nc::vfs::VFSPathStack>::argument_type const &_v) const
+std::hash<nc::vfs::VFSPathStack>::value_type
+std::hash<nc::vfs::VFSPathStack>::operator()(const hash<nc::vfs::VFSPathStack>::argument_type &_v) const
 {
     std::string str;
     for( auto &i : _v.m_Stack ) {

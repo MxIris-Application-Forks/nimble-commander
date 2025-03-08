@@ -1,4 +1,4 @@
-// Copyright (C) 2014-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Tests.h"
 #include "TestEnv.h"
 #include <VFS/NetSFTP.h>
@@ -8,6 +8,7 @@
 #include <set>
 #include <dirent.h>
 
+using namespace nc;
 using namespace nc::vfs;
 using namespace std::string_literals;
 
@@ -228,7 +229,7 @@ static std::shared_ptr<SFTPHost> hostForUbuntu2004_User1_Pwd()
 
 static std::shared_ptr<SFTPHost> hostForUbuntu2004_User2_RSA()
 {
-    TestDir td;
+    const TestDir td;
     const auto path = td.directory / "key";
     REQUIRE(nc::base::WriteAtomically(
         path, {reinterpret_cast<const std::byte *>(g_Ubuntu2004_User2RSA.data()), g_Ubuntu2004_User2RSA.length()}));
@@ -237,7 +238,7 @@ static std::shared_ptr<SFTPHost> hostForUbuntu2004_User2_RSA()
 
 static std::shared_ptr<SFTPHost> hostForUbuntu2004_User3_DSA()
 {
-    TestDir td;
+    const TestDir td;
     const auto path = td.directory / "key";
     REQUIRE(nc::base::WriteAtomically(
         path, {reinterpret_cast<const std::byte *>(g_Ubuntu2004_User3DSA.data()), g_Ubuntu2004_User3DSA.length()}));
@@ -246,7 +247,7 @@ static std::shared_ptr<SFTPHost> hostForUbuntu2004_User3_DSA()
 
 static std::shared_ptr<SFTPHost> hostForUbuntu2004_User4_ECDSA()
 {
-    TestDir td;
+    const TestDir td;
     const auto path = td.directory / "key";
     REQUIRE(nc::base::WriteAtomically(
         path, {reinterpret_cast<const std::byte *>(g_Ubuntu2004_User4ECDSA.data()), g_Ubuntu2004_User4ECDSA.length()}));
@@ -255,7 +256,7 @@ static std::shared_ptr<SFTPHost> hostForUbuntu2004_User4_ECDSA()
 
 static std::shared_ptr<SFTPHost> hostForUbuntu2004_User5_ED25519()
 {
-    TestDir td;
+    const TestDir td;
     const auto path = td.directory / "key";
     REQUIRE(nc::base::WriteAtomically(
         path,
@@ -271,7 +272,7 @@ static std::shared_ptr<SFTPHost> hostForUbuntu2004_User6_Passwd()
 
 static std::shared_ptr<SFTPHost> hostForUbuntu2004_User7_RSA_Passwd()
 {
-    TestDir td;
+    const TestDir td;
     const auto path = td.directory / "key";
     REQUIRE(nc::base::WriteAtomically(
         path, {reinterpret_cast<const std::byte *>(g_Ubuntu2004_User7RSA.data()), g_Ubuntu2004_User7RSA.length()}));
@@ -281,7 +282,7 @@ static std::shared_ptr<SFTPHost> hostForUbuntu2004_User7_RSA_Passwd()
 
 static std::shared_ptr<SFTPHost> hostForUbuntu2004_User8_DSA_Passwd()
 {
-    TestDir td;
+    const TestDir td;
     const auto path = td.directory / "key";
     REQUIRE(nc::base::WriteAtomically(
         path, {reinterpret_cast<const std::byte *>(g_Ubuntu2004_User8DSA.data()), g_Ubuntu2004_User8DSA.length()}));
@@ -291,7 +292,7 @@ static std::shared_ptr<SFTPHost> hostForUbuntu2004_User8_DSA_Passwd()
 
 static std::shared_ptr<SFTPHost> hostForUbuntu2004_User9_ECDSA_Passwd()
 {
-    TestDir td;
+    const TestDir td;
     const auto path = td.directory / "key";
     REQUIRE(nc::base::WriteAtomically(
         path, {reinterpret_cast<const std::byte *>(g_Ubuntu2004_User9ECDSA.data()), g_Ubuntu2004_User9ECDSA.length()}));
@@ -301,7 +302,7 @@ static std::shared_ptr<SFTPHost> hostForUbuntu2004_User9_ECDSA_Passwd()
 
 static std::shared_ptr<SFTPHost> hostForUbuntu2004_User10_ED25519_Passwd()
 {
-    TestDir td;
+    const TestDir td;
     const auto path = td.directory / "key";
     REQUIRE(nc::base::WriteAtomically(
         path,
@@ -312,7 +313,7 @@ static std::shared_ptr<SFTPHost> hostForUbuntu2004_User10_ED25519_Passwd()
 
 static std::shared_ptr<SFTPHost> hostForUbuntu2004_Root_ED25519()
 {
-    TestDir td;
+    const TestDir td;
     const auto path = td.directory / "key";
     REQUIRE(nc::base::WriteAtomically(
         path,
@@ -327,8 +328,7 @@ static void TestUbuntu2004LayoutWithHost(SFTPHost &_host)
     CHECK(_host.MakePathVerbose("/Blah/") == "sftp://"s + _host.User() + "@" + g_Ubuntu2004_Address + "/Blah/");
 
     // Get the listing of a root directory
-    VFSListingPtr root_listing;
-    REQUIRE(_host.FetchDirectoryListing("/", root_listing, 0, 0) == 0);
+    VFSListingPtr root_listing = _host.FetchDirectoryListing("/", 0).value();
     REQUIRE(root_listing);
     auto at = [&](VFSListingPtr _listing, std::string_view _fn) {
         auto it = std::find_if(
@@ -474,20 +474,16 @@ TEST_CASE(PREFIX "doesn't crash on many connections")
 
     // in this test VFS must simply not crash under this workload.
     // returning errors on this case is ok at the moment
-    nc::base::DispatchGroup grp;
+    const nc::base::DispatchGroup grp;
     for( int i = 0; i < 100; ++i )
-        grp.Run([&] {
-            VFSStat st;
-            host->Stat("/bin/cat", st, 0);
-        });
+        grp.Run([&] { std::ignore = host->Stat("/bin/cat", 0); });
     grp.Wait();
 }
 
 TEST_CASE(PREFIX "basic read")
 {
-    VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
-    VFSFilePtr file;
-    REQUIRE(host->CreateFile("/etc/debian_version", file, 0) == 0);
+    const VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
+    const VFSFilePtr file = host->CreateFile("/etc/debian_version").value();
     REQUIRE(file->Open(VFSFlags::OF_Read) == 0);
 
     const auto contents = file->ReadFile();
@@ -500,170 +496,167 @@ TEST_CASE(PREFIX "basic read")
 
 TEST_CASE(PREFIX "read link")
 {
-    VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
-    char link[MAXPATHLEN];
-    const auto rc = host->ReadSymlink("/etc/os-release", link, sizeof(link));
-    REQUIRE(rc == VFSError::Ok);
-    REQUIRE(link == std::string_view("../usr/lib/os-release"));
+    const VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
+    const std::expected<std::string, nc::Error> link = host->ReadSymlink("/etc/os-release");
+    REQUIRE(link);
+    REQUIRE(*link == std::string_view("../usr/lib/os-release"));
 }
 
 TEST_CASE(PREFIX "create link")
 {
-    VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
+    const VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
     const auto lnk_path = "/home/user1/smtest";
     const auto lnk_value = "/path/to/some/rubbish";
     const auto createlink_rc = host->CreateSymlink(lnk_path, lnk_value);
-    REQUIRE(createlink_rc == VFSError::Ok);
+    REQUIRE(createlink_rc);
 
-    char link[MAXPATHLEN] = {0};
-    const auto readlink_rc = host->ReadSymlink(lnk_path, link, sizeof(link));
-    CHECK(readlink_rc == VFSError::Ok);
-    CHECK(link == std::string_view(lnk_value));
-    CHECK(host->Unlink(lnk_path) == VFSError::Ok);
+    const std::expected<std::string, nc::Error> link = host->ReadSymlink(lnk_path);
+    REQUIRE(link);
+    CHECK(*link == std::string_view(lnk_value));
+    CHECK(host->Unlink(lnk_path));
 }
 
 TEST_CASE(PREFIX "chmod")
 {
-    VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
+    const VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
     const auto path = "/home/user1/chmodtest";
 
     REQUIRE(VFSEasyCreateEmptyFile(path, host) == VFSError::Ok);
-    VFSStat st;
-    REQUIRE(host->Stat(path, st, 0) == VFSError::Ok);
+
+    VFSStat st = host->Stat(path, 0).value();
     REQUIRE(st.mode_bits.xusr == 0);
 
     st.mode_bits.xusr = 1;
-    REQUIRE(host->SetPermissions(path, st.mode) == VFSError::Ok);
+    REQUIRE(host->SetPermissions(path, st.mode));
 
-    memset(&st, 0, sizeof(st));
-    REQUIRE(host->Stat(path, st, 0) == VFSError::Ok);
+    st = host->Stat(path, 0).value();
     REQUIRE(st.mode_bits.xusr == 1);
 
-    REQUIRE(host->Unlink(path) == VFSError::Ok);
+    REQUIRE(host->Unlink(path));
 }
 
 TEST_CASE(PREFIX "chown")
 {
-    VFSHostPtr host = hostForUbuntu2004_Root_ED25519();
+    const VFSHostPtr host = hostForUbuntu2004_Root_ED25519();
     const auto path = "/root/chowntest";
 
     REQUIRE(VFSEasyCreateEmptyFile(path, host) == VFSError::Ok);
-    VFSStat st;
-    REQUIRE(host->Stat(path, st, 0) == VFSError::Ok);
+    VFSStat st = host->Stat(path, 0).value();
 
     const auto new_uid = st.uid + 1;
     const auto new_gid = st.gid + 1;
-    REQUIRE(host->SetOwnership(path, new_uid, new_gid) == VFSError::Ok);
+    REQUIRE(host->SetOwnership(path, new_uid, new_gid));
 
-    REQUIRE(host->Stat(path, st, 0) == VFSError::Ok);
+    st = host->Stat(path, 0).value();
     REQUIRE(st.uid == new_uid);
     REQUIRE(st.gid == new_gid);
 
-    REQUIRE(host->Unlink(path) == VFSError::Ok);
+    REQUIRE(host->Unlink(path));
 }
 
 TEST_CASE(PREFIX "FetchUsers")
 {
-    VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
-    std::vector<VFSUser> users;
-    REQUIRE(host->FetchUsers(users) == VFSError::Ok);
-    const std::vector<VFSUser> expected_users{{0, "root", "root"},
-                                              {1, "daemon", "daemon"},
-                                              {2, "bin", "bin"},
-                                              {3, "sys", "sys"},
-                                              {4, "sync", "sync"},
-                                              {5, "games", "games"},
-                                              {6, "man", "man"},
-                                              {7, "lp", "lp"},
-                                              {8, "mail", "mail"},
-                                              {9, "news", "news"},
-                                              {10, "uucp", "uucp"},
-                                              {13, "proxy", "proxy"},
-                                              {33, "www-data", "www-data"},
-                                              {34, "backup", "backup"},
-                                              {38, "list", "Mailing List Manager"},
-                                              {39, "irc", "ircd"},
-                                              {41, "gnats", "Gnats Bug-Reporting System (admin)"},
-                                              {100, "_apt", ""},
-                                              {101, "systemd-timesync", "systemd Time Synchronization"},
-                                              {102, "systemd-network", "systemd Network Management"},
-                                              {103, "systemd-resolve", "systemd Resolver"},
-                                              {104, "messagebus", ""},
-                                              {105, "sshd", ""},
-                                              {1000, "user1", ""},
-                                              {1001, "user2", ""},
-                                              {1002, "user3", ""},
-                                              {1003, "user4", ""},
-                                              {1004, "user5", ""},
-                                              {1005, "user6", ""},
-                                              {1006, "user7", ""},
-                                              {1007, "user8", ""},
-                                              {1008, "user9", ""},
-                                              {1009, "user10", ""},
-                                              {65534, "nobody", "nobody"}};
+    const VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
+    const std::expected<std::vector<VFSUser>, nc::Error> users = host->FetchUsers();
+    REQUIRE(users);
+    const std::vector<VFSUser> expected_users{
+        {.uid = 0, .name = "root", .gecos = "root"},
+        {.uid = 1, .name = "daemon", .gecos = "daemon"},
+        {.uid = 2, .name = "bin", .gecos = "bin"},
+        {.uid = 3, .name = "sys", .gecos = "sys"},
+        {.uid = 4, .name = "sync", .gecos = "sync"},
+        {.uid = 5, .name = "games", .gecos = "games"},
+        {.uid = 6, .name = "man", .gecos = "man"},
+        {.uid = 7, .name = "lp", .gecos = "lp"},
+        {.uid = 8, .name = "mail", .gecos = "mail"},
+        {.uid = 9, .name = "news", .gecos = "news"},
+        {.uid = 10, .name = "uucp", .gecos = "uucp"},
+        {.uid = 13, .name = "proxy", .gecos = "proxy"},
+        {.uid = 33, .name = "www-data", .gecos = "www-data"},
+        {.uid = 34, .name = "backup", .gecos = "backup"},
+        {.uid = 38, .name = "list", .gecos = "Mailing List Manager"},
+        {.uid = 39, .name = "irc", .gecos = "ircd"},
+        {.uid = 41, .name = "gnats", .gecos = "Gnats Bug-Reporting System (admin)"},
+        {.uid = 100, .name = "_apt", .gecos = ""},
+        {.uid = 101, .name = "systemd-timesync", .gecos = "systemd Time Synchronization"},
+        {.uid = 102, .name = "systemd-network", .gecos = "systemd Network Management"},
+        {.uid = 103, .name = "systemd-resolve", .gecos = "systemd Resolver"},
+        {.uid = 104, .name = "messagebus", .gecos = ""},
+        {.uid = 105, .name = "sshd", .gecos = ""},
+        {.uid = 1000, .name = "user1", .gecos = ""},
+        {.uid = 1001, .name = "user2", .gecos = ""},
+        {.uid = 1002, .name = "user3", .gecos = ""},
+        {.uid = 1003, .name = "user4", .gecos = ""},
+        {.uid = 1004, .name = "user5", .gecos = ""},
+        {.uid = 1005, .name = "user6", .gecos = ""},
+        {.uid = 1006, .name = "user7", .gecos = ""},
+        {.uid = 1007, .name = "user8", .gecos = ""},
+        {.uid = 1008, .name = "user9", .gecos = ""},
+        {.uid = 1009, .name = "user10", .gecos = ""},
+        {.uid = 65534, .name = "nobody", .gecos = "nobody"}};
     CHECK(users == expected_users);
 }
 
 TEST_CASE(PREFIX "FetchGroups")
 {
-    VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
-    std::vector<VFSGroup> groups;
-    REQUIRE(host->FetchGroups(groups) == VFSError::Ok);
-    const std::vector<VFSGroup> expected_groups{{0, "root", ""},
-                                                {1, "daemon", ""},
-                                                {2, "bin", ""},
-                                                {3, "sys", ""},
-                                                {4, "adm", ""},
-                                                {5, "tty", ""},
-                                                {6, "disk", ""},
-                                                {7, "lp", ""},
-                                                {8, "mail", ""},
-                                                {9, "news", ""},
-                                                {10, "uucp", ""},
-                                                {12, "man", ""},
-                                                {13, "proxy", ""},
-                                                {15, "kmem", ""},
-                                                {20, "dialout", ""},
-                                                {21, "fax", ""},
-                                                {22, "voice", ""},
-                                                {24, "cdrom", ""},
-                                                {25, "floppy", ""},
-                                                {26, "tape", ""},
-                                                {27, "sudo", ""},
-                                                {29, "audio", ""},
-                                                {30, "dip", ""},
-                                                {33, "www-data", ""},
-                                                {34, "backup", ""},
-                                                {37, "operator", ""},
-                                                {38, "list", ""},
-                                                {39, "irc", ""},
-                                                {40, "src", ""},
-                                                {41, "gnats", ""},
-                                                {42, "shadow", ""},
-                                                {43, "utmp", ""},
-                                                {44, "video", ""},
-                                                {45, "sasl", ""},
-                                                {46, "plugdev", ""},
-                                                {50, "staff", ""},
-                                                {60, "games", ""},
-                                                {100, "users", ""},
-                                                {101, "systemd-timesync", ""},
-                                                {102, "systemd-journal", ""},
-                                                {103, "systemd-network", ""},
-                                                {104, "systemd-resolve", ""},
-                                                {105, "messagebus", ""},
-                                                {106, "ssh", ""},
-                                                {1000, "user1", ""},
-                                                {1001, "user2", ""},
-                                                {1002, "user3", ""},
-                                                {1003, "user4", ""},
-                                                {1004, "user5", ""},
-                                                {1005, "user6", ""},
-                                                {1006, "user7", ""},
-                                                {1007, "user8", ""},
-                                                {1008, "user9", ""},
-                                                {1009, "user10", ""},
-                                                {65534, "nogroup", ""}
+    const VFSHostPtr host = hostForUbuntu2004_User1_Pwd();
+    const std::expected<std::vector<VFSGroup>, nc::Error> groups = host->FetchGroups();
+    REQUIRE(groups);
+    const std::vector<VFSGroup> expected_groups{{.gid = 0, .name = "root", .gecos = ""},
+                                                {.gid = 1, .name = "daemon", .gecos = ""},
+                                                {.gid = 2, .name = "bin", .gecos = ""},
+                                                {.gid = 3, .name = "sys", .gecos = ""},
+                                                {.gid = 4, .name = "adm", .gecos = ""},
+                                                {.gid = 5, .name = "tty", .gecos = ""},
+                                                {.gid = 6, .name = "disk", .gecos = ""},
+                                                {.gid = 7, .name = "lp", .gecos = ""},
+                                                {.gid = 8, .name = "mail", .gecos = ""},
+                                                {.gid = 9, .name = "news", .gecos = ""},
+                                                {.gid = 10, .name = "uucp", .gecos = ""},
+                                                {.gid = 12, .name = "man", .gecos = ""},
+                                                {.gid = 13, .name = "proxy", .gecos = ""},
+                                                {.gid = 15, .name = "kmem", .gecos = ""},
+                                                {.gid = 20, .name = "dialout", .gecos = ""},
+                                                {.gid = 21, .name = "fax", .gecos = ""},
+                                                {.gid = 22, .name = "voice", .gecos = ""},
+                                                {.gid = 24, .name = "cdrom", .gecos = ""},
+                                                {.gid = 25, .name = "floppy", .gecos = ""},
+                                                {.gid = 26, .name = "tape", .gecos = ""},
+                                                {.gid = 27, .name = "sudo", .gecos = ""},
+                                                {.gid = 29, .name = "audio", .gecos = ""},
+                                                {.gid = 30, .name = "dip", .gecos = ""},
+                                                {.gid = 33, .name = "www-data", .gecos = ""},
+                                                {.gid = 34, .name = "backup", .gecos = ""},
+                                                {.gid = 37, .name = "operator", .gecos = ""},
+                                                {.gid = 38, .name = "list", .gecos = ""},
+                                                {.gid = 39, .name = "irc", .gecos = ""},
+                                                {.gid = 40, .name = "src", .gecos = ""},
+                                                {.gid = 41, .name = "gnats", .gecos = ""},
+                                                {.gid = 42, .name = "shadow", .gecos = ""},
+                                                {.gid = 43, .name = "utmp", .gecos = ""},
+                                                {.gid = 44, .name = "video", .gecos = ""},
+                                                {.gid = 45, .name = "sasl", .gecos = ""},
+                                                {.gid = 46, .name = "plugdev", .gecos = ""},
+                                                {.gid = 50, .name = "staff", .gecos = ""},
+                                                {.gid = 60, .name = "games", .gecos = ""},
+                                                {.gid = 100, .name = "users", .gecos = ""},
+                                                {.gid = 101, .name = "systemd-timesync", .gecos = ""},
+                                                {.gid = 102, .name = "systemd-journal", .gecos = ""},
+                                                {.gid = 103, .name = "systemd-network", .gecos = ""},
+                                                {.gid = 104, .name = "systemd-resolve", .gecos = ""},
+                                                {.gid = 105, .name = "messagebus", .gecos = ""},
+                                                {.gid = 106, .name = "ssh", .gecos = ""},
+                                                {.gid = 1000, .name = "user1", .gecos = ""},
+                                                {.gid = 1001, .name = "user2", .gecos = ""},
+                                                {.gid = 1002, .name = "user3", .gecos = ""},
+                                                {.gid = 1003, .name = "user4", .gecos = ""},
+                                                {.gid = 1004, .name = "user5", .gecos = ""},
+                                                {.gid = 1005, .name = "user6", .gecos = ""},
+                                                {.gid = 1006, .name = "user7", .gecos = ""},
+                                                {.gid = 1007, .name = "user8", .gecos = ""},
+                                                {.gid = 1008, .name = "user9", .gecos = ""},
+                                                {.gid = 1009, .name = "user10", .gecos = ""},
+                                                {.gid = 65534, .name = "nogroup", .gecos = ""}
 
     };
     CHECK(groups == expected_groups);
@@ -675,8 +668,7 @@ TEST_CASE(PREFIX "RandomWrappers")
 {
     auto host = hostForUbuntu2004_User2_RSA();
 
-    VFSFilePtr seq_file;
-    REQUIRE(host->CreateFile((host->HomeDir() + "/.ssh/authorized_keys").c_str(), seq_file, 0) == VFSError::Ok);
+    const VFSFilePtr seq_file = host->CreateFile(host->HomeDir() + "/.ssh/authorized_keys").value();
 
     auto wrapper = std::make_shared<VFSSeqToRandomROWrapperFile>(seq_file);
     REQUIRE(wrapper->Open(VFSFlags::OF_Read | VFSFlags::OF_ShLock, nullptr, nullptr) == VFSError::Ok);
@@ -684,7 +676,7 @@ TEST_CASE(PREFIX "RandomWrappers")
 
 TEST_CASE(PREFIX "Invalid auth")
 {
-    TestDir td;
+    const TestDir td;
     const auto rsa = td.directory / "rsa";
     REQUIRE(nc::base::WriteAtomically(
         rsa, {reinterpret_cast<const std::byte *>(g_Ubuntu2004_User2RSA.data()), g_Ubuntu2004_User2RSA.length()}));
@@ -696,19 +688,19 @@ TEST_CASE(PREFIX "Invalid auth")
     // invalid user
     CHECK_THROWS_AS(
         std::make_shared<SFTPHost>(g_Ubuntu2004_Address, "Somebody", "Hello, World!", "", g_Ubuntu2004_Port),
-        VFSErrorException);
+        ErrorException);
 
     // invalid password
     CHECK_THROWS_AS(
         std::make_shared<SFTPHost>(g_Ubuntu2004_Address, g_Ubuntu2004_User1, "Hello, World!", "", g_Ubuntu2004_Port),
-        VFSErrorException);
+        ErrorException);
 
     // invalid key
     CHECK_THROWS_AS(std::make_shared<SFTPHost>(g_Ubuntu2004_Address, g_Ubuntu2004_User3, "", rsa, g_Ubuntu2004_Port),
-                    VFSErrorException);
+                    ErrorException);
 
     // invalid password for a key
     CHECK_THROWS_AS(
         std::make_shared<SFTPHost>(g_Ubuntu2004_Address, g_Ubuntu2004_User7, "Blah", passwdrsa, g_Ubuntu2004_Port),
-        VFSErrorException);
+        ErrorException);
 }

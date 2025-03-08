@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "MainWindowController.h"
 #include <Base/debug.h>
 #include <Config/RapidJSON.h>
@@ -109,8 +109,7 @@ static __weak NCMainWindowController *g_LastFocusedNCMainWindowController = nil;
 
 - (void)encodeRestorableStateWithCoder:(NSCoder *)coder
 {
-    if( auto panels_state = [m_PanelState encodeRestorableState];
-        panels_state.GetType() != rapidjson::kNullType ) {
+    if( auto panels_state = [m_PanelState encodeRestorableState]; panels_state.GetType() != rapidjson::kNullType ) {
         rapidjson::StringBuffer buffer;
         rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
         panels_state.Accept(writer);
@@ -185,9 +184,7 @@ static __weak NCMainWindowController *g_LastFocusedNCMainWindowController = nil;
         _toolbar.visible = _toolbar_visible;
 
     self.window.titleVisibility =
-        _needs_title
-            ? NSWindowTitleVisible
-            : ((_toolbar && _toolbar_visible) ? NSWindowTitleHidden : NSWindowTitleVisible);
+        _needs_title || !(_toolbar && _toolbar_visible) ? NSWindowTitleVisible : NSWindowTitleHidden;
 
     m_ToolbarVisible = _toolbar_visible;
 }
@@ -205,8 +202,7 @@ static int CountMainWindows()
 {
     // the are the last main window - need to save current state as "default" in state config
     if( CountMainWindows() == 1 ) {
-        if( auto panels_state = [m_PanelState encodeRestorableState];
-            panels_state.GetType() != rapidjson::kNullType )
+        if( auto panels_state = [m_PanelState encodeRestorableState]; panels_state.GetType() != rapidjson::kNullType )
             StateConfig().Set(g_JSONRestorationFilePanelsStateKey, panels_state);
         [m_PanelState saveDefaultInitialState];
     }
@@ -325,29 +321,27 @@ static int CountMainWindows()
             if( !m_Viewer )
                 dispatch_sync(dispatch_get_main_queue(), [&] {
                     auto rc = NSMakeRect(0, 0, 100, 100);
-                    auto viewer_factory = [](NSRect rc) {
-                        return [NCAppDelegate.me makeViewerWithFrame:rc];
-                    };
+                    auto viewer_factory = [](NSRect rc) { return [NCAppDelegate.me makeViewerWithFrame:rc]; };
                     auto ctrl = [NCAppDelegate.me makeViewerController];
-                    m_Viewer = [[MainWindowInternalViewerState alloc] initWithFrame:rc
-                                                                      viewerFactory:viewer_factory
-                                                                         controller:ctrl];
+                    m_Viewer =
+                        [[MainWindowInternalViewerState alloc] initWithFrame:rc
+                                                               viewerFactory:viewer_factory
+                                                                  controller:ctrl
+                                                     actionsShortcutsManager:NCAppDelegate.me.actionsShortcutsManager];
                 });
             if( [m_Viewer openFile:_filepath atVFS:_host] ) {
                 dispatch_to_main_queue([=] { [self pushState:m_Viewer]; });
             }
         }
         else { // as a window
-            if( auto *ex_window = [NCAppDelegate.me findInternalViewerWindowForPath:_filepath
-                                                                              onVFS:_host] ) {
+            if( auto *const ex_window = [NCAppDelegate.me findInternalViewerWindowForPath:_filepath onVFS:_host] ) {
                 // already has this one
                 dispatch_to_main_queue([=] { [ex_window showWindow:self]; });
             }
             else {
                 InternalViewerWindowController *window = nil;
                 dispatch_sync(dispatch_get_main_queue(), [&] {
-                    window = [NCAppDelegate.me retrieveInternalViewerWindowForPath:_filepath
-                                                                             onVFS:_host];
+                    window = [NCAppDelegate.me retrieveInternalViewerWindowForPath:_filepath onVFS:_host];
                 });
                 const auto opening_result = [window performBackgrounOpening];
                 dispatch_to_main_queue([=] {
@@ -363,9 +357,9 @@ static int CountMainWindows()
 - (void)requestTerminal:(const std::string &)_cwd
 {
     if( m_Terminal == nil ) {
-        const auto state =
-            [[NCTermShellState alloc] initWithFrame:self.window.contentView.frame
-                                    nativeFSManager:NCAppDelegate.me.nativeFSManager];
+        const auto state = [[NCTermShellState alloc] initWithFrame:self.window.contentView.frame
+                                                   nativeFSManager:NCAppDelegate.me.nativeFSManager
+                                           actionsShortcutsManager:NCAppDelegate.me.actionsShortcutsManager];
         state.initialWD = _cwd;
         [self pushState:state];
         m_Terminal = state;
@@ -381,14 +375,12 @@ static int CountMainWindows()
     [self requestTerminalExecution:_filename at:_cwd withParameters:nullptr];
 }
 
-- (void)requestTerminalExecution:(const char *)_filename
-                              at:(const char *)_cwd
-                  withParameters:(const char *)_params
+- (void)requestTerminalExecution:(const char *)_filename at:(const char *)_cwd withParameters:(const char *)_params
 {
     if( m_Terminal == nil ) {
-        const auto state =
-            [[NCTermShellState alloc] initWithFrame:self.window.contentView.frame
-                                    nativeFSManager:NCAppDelegate.me.nativeFSManager];
+        const auto state = [[NCTermShellState alloc] initWithFrame:self.window.contentView.frame
+                                                   nativeFSManager:NCAppDelegate.me.nativeFSManager
+                                           actionsShortcutsManager:NCAppDelegate.me.actionsShortcutsManager];
         state.initialWD = std::string(_cwd);
         [self pushState:state];
         m_Terminal = state;
@@ -399,15 +391,15 @@ static int CountMainWindows()
     [m_Terminal execute:_filename at:_cwd parameters:_params];
 }
 
-- (void)requestTerminalExecutionWithFullPath:(const std::filesystem::path&)_binary_path
-                              andArguments:(std::span<const std::string>)_params
+- (void)requestTerminalExecutionWithFullPath:(const std::filesystem::path &)_binary_path
+                                andArguments:(std::span<const std::string>)_params
 {
     dispatch_assert_main_queue();
 
     if( m_Terminal == nil ) {
-        const auto state =
-            [[NCTermShellState alloc] initWithFrame:self.window.contentView.frame
-                                    nativeFSManager:NCAppDelegate.me.nativeFSManager];
+        const auto state = [[NCTermShellState alloc] initWithFrame:self.window.contentView.frame
+                                                   nativeFSManager:NCAppDelegate.me.nativeFSManager
+                                           actionsShortcutsManager:NCAppDelegate.me.actionsShortcutsManager];
         if( PanelController *pc = m_PanelState.activePanelController )
             if( pc.isUniform && pc.vfs->IsNativeFS() )
                 state.initialWD = pc.currentDirectoryPath;
@@ -417,7 +409,7 @@ static int CountMainWindows()
     else {
         [self pushState:m_Terminal];
     }
-    
+
     [m_Terminal executeWithFullPath:_binary_path andArguments:_params];
 }
 
@@ -442,9 +434,11 @@ static const auto g_HideToolbarTitle = NSLocalizedString(@"Hide Toolbar", "Menu 
 static const auto g_ShowToolbarTitle = NSLocalizedString(@"Show Toolbar", "Menu item title");
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
-    auto tag = item.tag;
-    IF_MENU_TAG("menu.view.show_toolbar")
-    {
+    const long tag = item.tag;
+
+    static const int show_toolbal_tag =
+        NCAppDelegate.me.actionsShortcutsManager.TagFromAction("menu.view.show_toolbar").value();
+    if( tag == show_toolbal_tag ) {
         item.title = self.toolbarVisible ? g_HideToolbarTitle : g_ShowToolbarTitle;
         return self.window.toolbar != nil;
     }
@@ -497,7 +491,7 @@ static const auto g_ShowToolbarTitle = NSLocalizedString(@"Show Toolbar", "Menu 
     __weak NCMainWindowController *weak_self = self;
     auto dialog_callback = [weak_self](NSWindow *_dlg, std::function<void(NSModalResponse)> _cb) {
         NSBeep();
-        if( NCMainWindowController *wnd = weak_self )
+        if( NCMainWindowController *const wnd = weak_self )
             [wnd beginSheet:_dlg
                 completionHandler:^(NSModalResponse rc) {
                   _cb(rc);
@@ -506,7 +500,7 @@ static const auto g_ShowToolbarTitle = NSLocalizedString(@"Show Toolbar", "Menu 
     m_OperationsPool->SetDialogCallback(std::move(dialog_callback));
 
     auto completion_callback = [weak_self](const std::shared_ptr<nc::ops::Operation> &_op) {
-        if( NCMainWindowController *wnd = weak_self )
+        if( NCMainWindowController *const wnd = weak_self )
             dispatch_to_main_queue([=] {
                 auto &center = core::UserNotificationsCenter::Instance();
                 center.ReportCompletedOperation(*_op, wnd.window);
@@ -525,7 +519,7 @@ static const auto g_ShowToolbarTitle = NSLocalizedString(@"Show Toolbar", "Menu 
      * This leads to situation when dialogs look weird - like thay are placed wrongly.
      * To fix it - just offset the opening dialog window by 1px down.
      */
-    if( self.window.toolbar != nil && self.window.toolbar.visible == true ) {
+    if( self.window.toolbar != nil && self.window.toolbar.visible ) {
         rect.origin.y -= 1.;
     }
     return rect;

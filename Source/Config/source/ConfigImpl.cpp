@@ -1,4 +1,4 @@
-// Copyright (C) 2015-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2015-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "ConfigImpl.h"
 #include "Log.h"
 #include <rapidjson/error/en.h>
@@ -6,6 +6,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/prettywriter.h>
 #include <Base/algo.h>
+#include <algorithm>
 
 namespace nc::config {
 
@@ -80,7 +81,7 @@ Value ConfigImpl::Get(std::string_view _path) const
         if( const auto value = FindInDocument_Unlocked(_path) )
             return Value{*value, g_CrtAllocator};
     }
-    Log::Error(SPDLOC, "Couldn't find config path: {}", _path);
+    Log::Error("Couldn't find config path: {}", _path);
     return Value{rapidjson::kNullType};
 }
 
@@ -91,7 +92,7 @@ Value ConfigImpl::GetDefault(std::string_view _path) const
         if( const auto value = FindInDefaults_Unlocked(_path) )
             return Value{*value, g_CrtAllocator};
     }
-    Log::Error(SPDLOC, "Couldn't find config path: {}", _path);
+    Log::Error("Couldn't find config path: {}", _path);
     return Value{rapidjson::kNullType};
 }
 
@@ -104,11 +105,11 @@ std::string ConfigImpl::GetString(std::string_view _path) const noexcept
                 return std::string{value->GetString(), value->GetStringLength()};
             }
             else {
-                Log::Error(SPDLOC, "Config path doesn't contain a string: {}", _path);
+                Log::Error("Config path doesn't contain a string: {}", _path);
             }
         }
         else {
-            Log::Error(SPDLOC, "Couldn't find config path: {}", _path);
+            Log::Error("Couldn't find config path: {}", _path);
         }
     }
     return {};
@@ -121,7 +122,7 @@ bool ConfigImpl::GetBool(std::string_view _path) const noexcept
         if( const auto value = FindInDocument_Unlocked(_path) )
             return value->GetType() == rapidjson::kTrueType;
     }
-    Log::Error(SPDLOC, "Couldn't find config path: {}", _path);
+    Log::Error("Couldn't find config path: {}", _path);
     return false;
 }
 
@@ -150,11 +151,11 @@ int ConfigImpl::GetInt(std::string_view _path) const noexcept
             return ExtractNumericAs<int>(*value);
         }
         else {
-            Log::Error(SPDLOC, "Config path doesn't contain a number: {}", _path);
+            Log::Error("Config path doesn't contain a number: {}", _path);
         }
     }
     else {
-        Log::Error(SPDLOC, "Couldn't find config path: {}", _path);
+        Log::Error("Couldn't find config path: {}", _path);
     }
     return 0;
 }
@@ -167,11 +168,11 @@ unsigned int ConfigImpl::GetUInt(std::string_view _path) const noexcept
             return ExtractNumericAs<unsigned int>(*value);
         }
         else {
-            Log::Error(SPDLOC, "Config path doesn't contain a number: {}", _path);
+            Log::Error("Config path doesn't contain a number: {}", _path);
         }
     }
     else {
-        Log::Error(SPDLOC, "Couldn't find config path: {}", _path);
+        Log::Error("Couldn't find config path: {}", _path);
     }
     return 0;
 }
@@ -184,11 +185,11 @@ long ConfigImpl::GetLong(std::string_view _path) const noexcept
             return ExtractNumericAs<long>(*value);
         }
         else {
-            Log::Error(SPDLOC, "Config path doesn't contain a number: {}", _path);
+            Log::Error("Config path doesn't contain a number: {}", _path);
         }
     }
     else {
-        Log::Error(SPDLOC, "Couldn't find config path: {}", _path);
+        Log::Error("Couldn't find config path: {}", _path);
     }
     return 0;
 }
@@ -201,11 +202,11 @@ unsigned long ConfigImpl::GetULong(std::string_view _path) const noexcept
             return ExtractNumericAs<unsigned long>(*value);
         }
         else {
-            Log::Error(SPDLOC, "Config path doesn't contain a number: {}", _path);
+            Log::Error("Config path doesn't contain a number: {}", _path);
         }
     }
     else {
-        Log::Error(SPDLOC, "Couldn't find config path: {}", _path);
+        Log::Error("Couldn't find config path: {}", _path);
     }
     return 0;
 }
@@ -218,11 +219,11 @@ double ConfigImpl::GetDouble(std::string_view _path) const noexcept
             return ExtractNumericAs<double>(*value);
         }
         else {
-            Log::Error(SPDLOC, "Config path doesn't contain a number: {}", _path);
+            Log::Error("Config path doesn't contain a number: {}", _path);
         }
     }
     else {
-        Log::Error(SPDLOC, "Couldn't find config path: {}", _path);
+        Log::Error("Couldn't find config path: {}", _path);
     }
     return 0.;
 }
@@ -279,7 +280,7 @@ void ConfigImpl::SetInternal(std::string_view _path, const Value &_value)
     if( _path.empty() )
         return;
 
-    if( ReplaceOrInsert(_path, _value) == true ) {
+    if( ReplaceOrInsert(_path, _value) ) {
         FireObservers(_path);
         MarkDirty();
     }
@@ -349,7 +350,7 @@ void ConfigImpl::InsertObserver(std::string_view _path, base::intrusive_ptr<cons
         // it's the first request to observe this path
         auto new_observers = base::intrusive_ptr{new Observers};
         new_observers->observers.emplace_back(std::move(_observer));
-        m_Observers.emplace(std::move(path), std::move(new_observers));
+        m_Observers.emplace(path, std::move(new_observers));
     }
 }
 
@@ -364,10 +365,10 @@ void ConfigImpl::DropToken(unsigned long _number)
         auto &path = *observers_it;
         auto &observers = path.second->observers;
 
-        const auto to_drop_it = std::find_if(
-            begin(observers), end(observers), [_number](auto &observer) { return observer->token == _number; });
+        const auto to_drop_it =
+            std::ranges::find_if(observers, [_number](auto &observer) { return observer->token == _number; });
         if( to_drop_it != end(observers) ) {
-            const auto observer = *to_drop_it; // holding by a *strong* shared pointer
+            const auto observer = *to_drop_it; // NOLINT - holding by a *strong* shared pointer
 
             // We need to guarantee that the callback will not be called after the token is
             // destroyed. To achieve this, the callback calls are guared by a *recursive* mutex
@@ -400,7 +401,7 @@ void ConfigImpl::FireObservers(std::string_view _path) const
     if( const auto observers = FindObservers(_path) ) {
         for( const auto &observer : observers->observers ) {
             const auto lock = std::lock_guard{observer->lock};
-            if( observer->was_removed == false ) {
+            if( !observer->was_removed ) {
                 observer->callback();
             }
         }
@@ -418,7 +419,7 @@ base::intrusive_ptr<const ConfigImpl::Observers> ConfigImpl::FindObservers(std::
 
 void ConfigImpl::MarkDirty()
 {
-    if( m_WriteScheduled.test_and_set() == false ) {
+    if( !m_WriteScheduled.test_and_set() ) {
         m_OverwritesDumpExecutor->Execute([this] { WriteOverwrites(); });
     }
 }
@@ -455,14 +456,14 @@ void ConfigImpl::ResetToDefaults()
 
 void ConfigImpl::Commit()
 {
-    if( m_WriteScheduled.test_and_set() == true ) {
+    if( m_WriteScheduled.test_and_set() ) {
         WriteOverwrites();
     }
 }
 
 void ConfigImpl::OverwritesDidChange()
 {
-    if( m_ReadScheduled.test_and_set() == false ) {
+    if( !m_ReadScheduled.test_and_set() ) {
         m_OverwritesReloadExecutor->Execute([this] { ReloadOverwrites(); });
     }
 }
@@ -503,7 +504,8 @@ static rapidjson::Document ParseDefaultsOrThrow(std::string_view _default_docume
     }
 
     rapidjson::Document defaults;
-    rapidjson::ParseResult ok = defaults.Parse<g_ParseFlags>(_default_document.data(), _default_document.length());
+    const rapidjson::ParseResult ok =
+        defaults.Parse<g_ParseFlags>(_default_document.data(), _default_document.length());
     if( !ok ) {
         throw std::invalid_argument{rapidjson::GetParseError_En(ok.Code())};
     }
@@ -517,7 +519,7 @@ static rapidjson::Document ParseOverwritesOrReturnNull(std::string_view _overwri
         return rapidjson::Document{rapidjson::kNullType};
 
     rapidjson::Document overwrites;
-    rapidjson::ParseResult ok =
+    const rapidjson::ParseResult ok =
         overwrites.Parse<g_ParseFlags>(_overwrites_document.data(), _overwrites_document.length());
     if( !ok )
         return rapidjson::Document{rapidjson::kNullType};
@@ -534,8 +536,10 @@ static const rapidjson::Value *FindNode(const std::string_view _path, const rapi
     auto path = _path;
     size_t p;
 
-    while( (p = path.find_first_of(".")) != std::string_view::npos ) {
+    while( (p = path.find_first_of('.')) != std::string_view::npos ) {
+        // NOLINTBEGIN(bugprone-suspicious-stringview-data-usage)
         const auto part_name = rapidjson::Value{rapidjson::StringRef(path.data(), p)};
+        // NOLINTEND(bugprone-suspicious-stringview-data-usage)
         const auto member_it = root->FindMember(part_name);
         if( member_it == root->MemberEnd() )
             return nullptr;
@@ -562,8 +566,10 @@ static std::pair<const rapidjson::Value *, std::string_view> FindParentNode(std:
     auto path = _path;
     size_t p;
 
-    while( (p = path.find_first_of(".")) != std::string_view::npos ) {
+    while( (p = path.find_first_of('.')) != std::string_view::npos ) {
+        // NOLINTBEGIN(bugprone-suspicious-stringview-data-usage)
         const auto part_name = rapidjson::Value{rapidjson::StringRef(path.data(), p)};
+        // NOLINTEND(bugprone-suspicious-stringview-data-usage)
         const auto member_it = root->FindMember(part_name);
         if( member_it == root->MemberEnd() )
             return {nullptr, ""};
@@ -793,7 +799,7 @@ static std::string Serialize(const rapidjson::Document &_document)
     rapidjson::StringBuffer buffer;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
     _document.Accept(writer);
-    return std::string(buffer.GetString());
+    return {buffer.GetString()};
 }
 
 } // namespace nc::config

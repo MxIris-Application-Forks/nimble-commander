@@ -1,7 +1,7 @@
-// Copyright (C) 2018-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2018-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "StateActionsDispatcher.h"
 #include "Actions/DefaultAction.h"
-#include <NimbleCommander/Core/ActionsShortcutsManager.h>
+#include <Utility/ActionsShortcutsManager.h>
 #include <NimbleCommander/Core/Alert.h>
 #include "MainWindowFilePanelState.h"
 #include "MainWindowFilePanelState+OverlappedTerminalSupport.h"
@@ -11,38 +11,26 @@ using namespace nc::core;
 using namespace nc::panel;
 
 namespace nc::panel {
-
 static const actions::StateAction *ActionBySel(SEL _sel, const StateActionsMap &_map) noexcept;
-static void
-Perform(SEL _sel, const StateActionsMap &_map, MainWindowFilePanelState *_target, id _sender);
-}
+static void Perform(SEL _sel, const StateActionsMap &_map, MainWindowFilePanelState *_target, id _sender);
+} // namespace nc::panel
 
 @implementation NCPanelsStateActionsDispatcher {
     __unsafe_unretained MainWindowFilePanelState *m_FS;
     const nc::panel::StateActionsMap *m_AM;
-    ActionsShortcutsManager::ShortCut m_HKFocusLeft;
-    ActionsShortcutsManager::ShortCut m_HKFocusRight;
-    ActionsShortcutsManager::ShortCut m_HKMoveUp;
-    ActionsShortcutsManager::ShortCut m_HKMoveDown;
-    ActionsShortcutsManager::ShortCut m_HKShow;
-    ActionsShortcutsManager::ShortCut m_HKFocusTerminal;
-    std::unique_ptr<ActionsShortcutsManager::ShortCutsUpdater> m_ShortCutsUpdater;
+    const nc::utility::ActionsShortcutsManager *m_ActionsShortcutsManager;
 }
+@synthesize hasTerminal;
 
 - (instancetype)initWithState:(MainWindowFilePanelState *)_state
-                andActionsMap:(const nc::panel::StateActionsMap &)_actions_map
+                    actionsMap:(const nc::panel::StateActionsMap &)_actions_map
+    andActionsShortcutsManager:(const nc::utility::ActionsShortcutsManager &)_action_shortcuts_manager
 {
-    if( self = [super init] ) {
+    self = [super init];
+    if( self ) {
         m_FS = _state;
         m_AM = &_actions_map;
-        m_ShortCutsUpdater = std::make_unique<ActionsShortcutsManager::ShortCutsUpdater>(
-            std::initializer_list<ActionsShortcutsManager::ShortCutsUpdater::UpdateTarget>{
-                {&m_HKFocusLeft, "panel.focus_left_panel"},
-                {&m_HKFocusRight, "panel.focus_right_panel"},
-                {&m_HKMoveUp, "menu.view.panels_position.move_up"},
-                {&m_HKMoveDown, "menu.view.panels_position.move_down"},
-                {&m_HKShow, "menu.view.panels_position.showpanels"},
-                {&m_HKFocusTerminal, "menu.view.panels_position.focusterminal"}});
+        m_ActionsShortcutsManager = &_action_shortcuts_manager;
     }
     return self;
 }
@@ -54,9 +42,9 @@ Perform(SEL _sel, const StateActionsMap &_map, MainWindowFilePanelState *_target
             return action->ValidateMenuItem(m_FS, item);
         return true;
     } catch( const std::exception &e ) {
-        std::cerr << "validateMenuItem has caught an exception: " << e.what() << std::endl;
+        std::cerr << "validateMenuItem has caught an exception: " << e.what() << '\n';
     } catch( ... ) {
-        std::cerr << "validateMenuItem has caught an unknown exception!" << std::endl;
+        std::cerr << "validateMenuItem has caught an unknown exception!" << '\n';
     }
     return false;
 }
@@ -67,26 +55,44 @@ Perform(SEL _sel, const StateActionsMap &_map, MainWindowFilePanelState *_target
         try {
             return action->Predicate(m_FS);
         } catch( const std::exception &e ) {
-            std::cerr << "validateActionBySelector has caught an exception: " << e.what()
-                      << std::endl;
+            std::cerr << "validateActionBySelector has caught an exception: " << e.what() << '\n';
         } catch( ... ) {
-            std::cerr << "validateActionBySelector has caught an unknown exception!" << std::endl;
+            std::cerr << "validateActionBySelector has caught an unknown exception!" << '\n';
         }
         return false;
     }
     return false;
 }
 
-- (BOOL)performKeyEquivalent:(NSEvent *)theEvent
+- (BOOL)performKeyEquivalent:(NSEvent *)_event
 {
-    NSString *characters = theEvent.charactersIgnoringModifiers;
+    using ASM = nc::utility::ActionsShortcutsManager;
+    struct Tags {
+        int FocusLeft = -1;
+        int FocusRight = -1;
+        int MoveUp = -1;
+        int MoveDown = -1;
+        int Show = -1;
+        int FocusTerminal = -1;
+    };
+    static const Tags tags = [&] {
+        Tags t;
+        t.FocusLeft = m_ActionsShortcutsManager->TagFromAction("panel.focus_left_panel").value();
+        t.FocusRight = m_ActionsShortcutsManager->TagFromAction("panel.focus_right_panel").value();
+        t.MoveUp = m_ActionsShortcutsManager->TagFromAction("menu.view.panels_position.move_up").value();
+        t.MoveDown = m_ActionsShortcutsManager->TagFromAction("menu.view.panels_position.move_down").value();
+        t.Show = m_ActionsShortcutsManager->TagFromAction("menu.view.panels_position.showpanels").value();
+        t.FocusTerminal = m_ActionsShortcutsManager->TagFromAction("menu.view.panels_position.focusterminal").value();
+        return t;
+    }();
+
+    NSString *characters = _event.charactersIgnoringModifiers;
     if( characters.length != 1 )
-        return [super performKeyEquivalent:theEvent];
+        return [super performKeyEquivalent:_event];
 
     constexpr auto mask = NSEventModifierFlagDeviceIndependentFlagsMask &
-                          ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad |
-                            NSEventModifierFlagFunction);
-    const auto mod = theEvent.modifierFlags & mask;
+                          ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
+    const auto mod = _event.modifierFlags & mask;
     const auto unicode = [characters characterAtIndex:0];
 
     // workaround for (shift)+ctrl+tab when its menu item is disabled, so NSWindow won't steal
@@ -94,56 +100,53 @@ Perform(SEL _sel, const StateActionsMap &_map, MainWindowFilePanelState *_target
     // tabs switching, which might not be true for custom key bindings.
     if( unicode == NSTabCharacter && mod == NSEventModifierFlagControl ) {
         if( ActionBySel(@selector(OnWindowShowNextTab:), *m_AM)->Predicate(m_FS) )
-            return [super performKeyEquivalent:theEvent];
+            return [super performKeyEquivalent:_event];
         return true;
     }
-    if( unicode == NSTabCharacter &&
-        mod == (NSEventModifierFlagControl | NSEventModifierFlagShift) ) {
+    if( unicode == NSTabCharacter && mod == (NSEventModifierFlagControl | NSEventModifierFlagShift) ) {
         if( ActionBySel(@selector(OnWindowShowPreviousTab:), *m_AM)->Predicate(m_FS) )
-            return [super performKeyEquivalent:theEvent];
+            return [super performKeyEquivalent:_event];
         return true;
     }
-    
-    const auto event_data = nc::utility::ActionShortcut::EventData(theEvent);
-    if( m_HKFocusLeft.IsKeyDown(event_data) ) {
+
+    const std::optional<int> event_action_tag = m_ActionsShortcutsManager->FirstOfActionTagsFromShortcut(
+        {reinterpret_cast<const int *>(&tags), sizeof(tags) / sizeof(int)}, ASM::Shortcut::EventData(_event));
+
+    if( event_action_tag == tags.FocusLeft ) {
         [self executeBySelectorIfValidOrBeep:@selector(onFocusLeftPanel:) withSender:self];
         return true;
     }
 
-    if( m_HKFocusRight.IsKeyDown(event_data) ) {
+    if( event_action_tag == tags.FocusRight ) {
         [self executeBySelectorIfValidOrBeep:@selector(onFocusRightPanel:) withSender:self];
         return true;
     }
 
     // overlapped terminal stuff
-    if( _hasTerminal ) {
-        if( m_HKMoveUp.IsKeyDown(event_data) ) {
-            [self executeBySelectorIfValidOrBeep:@selector(OnViewPanelsPositionMoveUp:)
-                                      withSender:self];
+    if( hasTerminal ) {
+        if( event_action_tag == tags.MoveUp ) {
+            [self executeBySelectorIfValidOrBeep:@selector(OnViewPanelsPositionMoveUp:) withSender:self];
             return true;
         }
 
-        if( m_HKMoveDown.IsKeyDown(event_data) ) {
-            [self executeBySelectorIfValidOrBeep:@selector(OnViewPanelsPositionMoveDown:)
-                                      withSender:self];
+        if( event_action_tag == tags.MoveDown ) {
+            [self executeBySelectorIfValidOrBeep:@selector(OnViewPanelsPositionMoveDown:) withSender:self];
             return true;
         }
 
-        if( m_HKShow.IsKeyDown(event_data) ) {
-            [self executeBySelectorIfValidOrBeep:@selector(OnViewPanelsPositionShowHidePanels:)
-                                      withSender:self];
+        if( event_action_tag == tags.Show ) {
+            [self executeBySelectorIfValidOrBeep:@selector(OnViewPanelsPositionShowHidePanels:) withSender:self];
             return true;
         }
 
-        if( m_HKFocusTerminal.IsKeyDown(event_data) ) {
-            [self executeBySelectorIfValidOrBeep:@selector
-                  (OnViewPanelsPositionFocusOverlappedTerminal:)
+        if( event_action_tag == tags.FocusTerminal ) {
+            [self executeBySelectorIfValidOrBeep:@selector(OnViewPanelsPositionFocusOverlappedTerminal:)
                                       withSender:self];
             return true;
         }
     }
 
-    return [super performKeyEquivalent:theEvent];
+    return [super performKeyEquivalent:_event];
 }
 
 - (void)executeBySelectorIfValidOrBeep:(SEL)_selector withSender:(id)_sender
@@ -284,8 +287,7 @@ static const actions::StateAction *ActionBySel(SEL _sel, const StateActionsMap &
     return action == end(_map) ? nullptr : action->second.get();
 }
 
-static void
-Perform(SEL _sel, const StateActionsMap &_map, MainWindowFilePanelState *_target, id _sender)
+static void Perform(SEL _sel, const StateActionsMap &_map, MainWindowFilePanelState *_target, id _sender)
 {
     if( const auto action = ActionBySel(_sel, _map) ) {
         try {
@@ -297,9 +299,8 @@ Perform(SEL _sel, const StateActionsMap &_map, MainWindowFilePanelState *_target
         }
     }
     else {
-        std::cerr << "warning - unrecognized selector: " << NSStringFromSelector(_sel).UTF8String
-                  << std::endl;
+        std::cerr << "warning - unrecognized selector: " << NSStringFromSelector(_sel).UTF8String << '\n';
     }
 }
 
-}
+} // namespace nc::panel

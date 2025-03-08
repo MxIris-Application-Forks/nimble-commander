@@ -18,14 +18,14 @@ struct ParseResult {
     std::string_view left;
 };
 
-}
+} // namespace
 
 static bool IsSpace(char _c) noexcept;
 static bool IsSeparator(char _c) noexcept;
 static bool IsAlpha(char _c) noexcept;
 static ParseResult ParseNext(std::string_view _string) noexcept;
 
-int VersionCompare::Compare(std::string_view _lhs, std::string_view _rhs) const noexcept
+int VersionCompare::Compare(std::string_view _lhs, std::string_view _rhs) noexcept
 {
     while( true ) {
         const auto left = ParseNext(_lhs);
@@ -62,9 +62,11 @@ int VersionCompare::Compare(std::string_view _lhs, std::string_view _rhs) const 
                     return -1;
                 if( left_number > right_number )
                     return 1;
-            } else if( std::holds_alternative<SeparatorTag>(left_token) ) {
+            }
+            else if( std::holds_alternative<SeparatorTag>(left_token) ) {
                 // silently eat separators
-            } else if( std::holds_alternative<std::string_view>(left_token) ) {
+            }
+            else if( std::holds_alternative<std::string_view>(left_token) ) {
                 const auto left_string = std::get<std::string_view>(left_token);
                 const auto right_string = std::get<std::string_view>(right_token);
                 const auto cmp = left_string.compare(right_string);
@@ -73,24 +75,26 @@ int VersionCompare::Compare(std::string_view _lhs, std::string_view _rhs) const 
                 if( cmp > 0 )
                     return 1;
             }
-        } else {
+        }
+        else {
             // different part
-            if( std::holds_alternative<std::string_view>(left_token) == true &&
-                std::holds_alternative<std::string_view>(right_token) == false ) {
+            if( std::holds_alternative<std::string_view>(left_token) &&
+                !std::holds_alternative<std::string_view>(right_token) ) {
                 return -1;
-            } else if( std::holds_alternative<std::string_view>(left_token) == false &&
-                       std::holds_alternative<std::string_view>(right_token) == true ) {
-                return 1;
-            } else if( std::holds_alternative<std::uint64_t>(left_token) ) {
-                return -1;
-            } else {
+            }
+            if( !std::holds_alternative<std::string_view>(left_token) &&
+                std::holds_alternative<std::string_view>(right_token) ) {
                 return 1;
             }
+            if( std::holds_alternative<std::uint64_t>(left_token) ) {
+                return -1;
+            }
+            return 1;
         }
     }
 }
 
-int VersionCompare::Compare(NSString *_lhs, NSString *_rhs) const noexcept
+int VersionCompare::Compare(NSString *_lhs, NSString *_rhs) noexcept
 {
     return Compare(_lhs.UTF8String, _rhs.UTF8String);
 }
@@ -100,52 +104,52 @@ static bool IsSpace(char _c) noexcept
     // as in https://en.wikipedia.org/wiki/Whitespace_character#Unicode
     // except that anything above 7F is ignored
     switch( _c ) {
-    case 0x09:
-    case 0x0A:
-    case 0x0B:
-    case 0x0C:
-    case 0x0D:
-    case 0x20:
-        return true;
-    default:
-        return false;
+        case 0x09:
+        case 0x0A:
+        case 0x0B:
+        case 0x0C:
+        case 0x0D:
+        case 0x20:
+            return true;
+        default:
+            return false;
     }
 }
 
 static bool IsSeparator(char _c) noexcept
 {
     switch( _c ) {
-    case '!':
-    case '\"':
-    case '#':
-    case '$':
-    case '%':
-    case '&':
-    case '\'':
-    case '(':
-    case ')':
-    case '*':
-    case ',':
-    case '-':
-    case '.':
-    case '/':
-    case ';':
-    case '<':
-    case '=':
-    case '?':
-    case '@':
-    case '[':
-    case '\\':
-    case ']':
-    case '^':
-    case '_':
-    case '`':
-    case '{':
-    case '|':
-    case '~':
-        return true;
-    default:
-        return false;
+        case '!':
+        case '\"':
+        case '#':
+        case '$':
+        case '%':
+        case '&':
+        case '\'':
+        case '(':
+        case ')':
+        case '*':
+        case ',':
+        case '-':
+        case '.':
+        case '/':
+        case ';':
+        case '<':
+        case '=':
+        case '?':
+        case '@':
+        case '[':
+        case '\\':
+        case ']':
+        case '^':
+        case '_':
+        case '`':
+        case '{':
+        case '|':
+        case '~':
+            return true;
+        default:
+            return false;
     }
 }
 
@@ -169,8 +173,7 @@ static ParseResult ParseNext(std::string_view _string) noexcept
     // 2st - try to consume as std::uint64_t
     {
         std::uint64_t value = 0;
-        const std::from_chars_result res =
-            std::from_chars(_string.data(), _string.data() + _string.length(), value);
+        const std::from_chars_result res = std::from_chars(_string.data(), _string.data() + _string.length(), value);
         if( res.ec == std::errc() ) {
             // good, got something
             ParseResult pr;
@@ -206,4 +209,4 @@ static ParseResult ParseNext(std::string_view _string) noexcept
     return {};
 }
 
-}
+} // namespace nc::utility

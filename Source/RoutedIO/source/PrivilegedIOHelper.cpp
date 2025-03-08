@@ -1,15 +1,16 @@
-// Copyright (C) 2014-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+#include "Trash.h"
 #include <Security/Security.h>
+#include <cerrno>
+#include <cstdio>
+#include <frozen/string.h>
+#include <frozen/unordered_map.h>
+#include <libproc.h>
 #include <mach-o/dyld.h>
 #include <sys/stat.h>
-#include <xpc/xpc.h>
 #include <syslog.h>
-#include <errno.h>
-#include <libproc.h>
-#include <stdio.h>
-#include <frozen/unordered_map.h>
-#include <frozen/string.h>
-#include "Trash.h"
+#include <xpc/xpc.h>
+#include <Base/CFPtr.h>
 
 // requires that identifier is right and binary is signed by me
 static const char *g_SignatureRequirement =
@@ -94,14 +95,14 @@ static bool HandleOpen(xpc_object_t _event) noexcept
     xpc_object_t xpc_flags = xpc_dictionary_get_value(_event, "flags");
     if( xpc_flags == nullptr || xpc_get_type(xpc_flags) != XPC_TYPE_INT64 )
         return false;
-    int flags = static_cast<int>(xpc_int64_get_value(xpc_flags));
+    const int flags = static_cast<int>(xpc_int64_get_value(xpc_flags));
 
     xpc_object_t xpc_mode = xpc_dictionary_get_value(_event, "mode");
     if( xpc_mode == nullptr || xpc_get_type(xpc_mode) != XPC_TYPE_INT64 )
         return false;
-    int mode = static_cast<int>(xpc_int64_get_value(xpc_mode));
+    const int mode = static_cast<int>(xpc_int64_get_value(xpc_mode));
 
-    int fd = open(path, flags, mode);
+    const int fd = open(path, flags, mode);
     if( fd >= 0 ) {
         send_reply_fd(_event, fd);
         close(fd);
@@ -120,7 +121,7 @@ static bool HandleStat(xpc_object_t _event) noexcept
 
     const char *path = xpc_string_get_string_ptr(xpc_path);
     struct stat st;
-    int ret = stat(path, &st);
+    const int ret = stat(path, &st);
     if( ret == 0 ) {
         xpc_connection_t remote = xpc_dictionary_get_remote_connection(_event);
         xpc_object_t reply = xpc_dictionary_create_reply(_event);
@@ -142,7 +143,7 @@ static bool HandleLStat(xpc_object_t _event) noexcept
 
     const char *path = xpc_string_get_string_ptr(xpc_path);
     struct stat st;
-    int ret = lstat(path, &st);
+    const int ret = lstat(path, &st);
     if( ret == 0 ) {
         xpc_connection_t remote = xpc_dictionary_get_remote_connection(_event);
         xpc_object_t reply = xpc_dictionary_create_reply(_event);
@@ -166,9 +167,9 @@ static bool HandleMkDir(xpc_object_t _event) noexcept
     xpc_object_t xpc_mode = xpc_dictionary_get_value(_event, "mode");
     if( xpc_mode == nullptr || xpc_get_type(xpc_mode) != XPC_TYPE_INT64 )
         return false;
-    int mode = static_cast<int>(xpc_int64_get_value(xpc_mode));
+    const int mode = static_cast<int>(xpc_int64_get_value(xpc_mode));
 
-    int result = mkdir(path, static_cast<mode_t>(mode));
+    const int result = mkdir(path, static_cast<mode_t>(mode));
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -188,14 +189,14 @@ static bool HandleChOwn(xpc_object_t _event) noexcept
     xpc_object_t xpc_uid = xpc_dictionary_get_value(_event, "uid");
     if( xpc_uid == nullptr || xpc_get_type(xpc_uid) != XPC_TYPE_INT64 )
         return false;
-    uid_t uid = static_cast<uid_t>(xpc_int64_get_value(xpc_uid));
+    const uid_t uid = static_cast<uid_t>(xpc_int64_get_value(xpc_uid));
 
     xpc_object_t xpc_gid = xpc_dictionary_get_value(_event, "gid");
     if( xpc_gid == nullptr || xpc_get_type(xpc_gid) != XPC_TYPE_INT64 )
         return false;
-    gid_t gid = static_cast<gid_t>(xpc_int64_get_value(xpc_gid));
+    const gid_t gid = static_cast<gid_t>(xpc_int64_get_value(xpc_gid));
 
-    int result = chown(path, uid, gid);
+    const int result = chown(path, uid, gid);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -215,9 +216,9 @@ static bool HandleChFlags(xpc_object_t _event) noexcept
     xpc_object_t xpc_flags = xpc_dictionary_get_value(_event, "flags");
     if( xpc_flags == nullptr || xpc_get_type(xpc_flags) != XPC_TYPE_INT64 )
         return false;
-    u_int flags = static_cast<u_int>(xpc_int64_get_value(xpc_flags));
+    const u_int flags = static_cast<u_int>(xpc_int64_get_value(xpc_flags));
 
-    int result = chflags(path, flags);
+    const int result = chflags(path, flags);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -237,9 +238,9 @@ static bool HandleLChFlags(xpc_object_t _event) noexcept
     xpc_object_t xpc_flags = xpc_dictionary_get_value(_event, "flags");
     if( xpc_flags == nullptr || xpc_get_type(xpc_flags) != XPC_TYPE_INT64 )
         return false;
-    u_int flags = static_cast<u_int>(xpc_int64_get_value(xpc_flags));
+    const u_int flags = static_cast<u_int>(xpc_int64_get_value(xpc_flags));
 
-    int result = lchflags(path, flags);
+    const int result = lchflags(path, flags);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -259,9 +260,9 @@ static bool HandleChMod(xpc_object_t _event) noexcept
     xpc_object_t xpc_mode = xpc_dictionary_get_value(_event, "mode");
     if( xpc_mode == nullptr || xpc_get_type(xpc_mode) != XPC_TYPE_INT64 )
         return false;
-    mode_t mode = static_cast<mode_t>(xpc_int64_get_value(xpc_mode));
+    const mode_t mode = static_cast<mode_t>(xpc_int64_get_value(xpc_mode));
 
-    int result = chmod(path, mode);
+    const int result = chmod(path, mode);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -283,7 +284,7 @@ static bool HandleChTime(xpc_object_t _event) noexcept
     xpc_object_t xpc_time = xpc_dictionary_get_value(_event, "time");
     if( xpc_time == nullptr || xpc_get_type(xpc_time) != XPC_TYPE_INT64 )
         return false;
-    time_t timesec = static_cast<time_t>(xpc_int64_get_value(xpc_time));
+    const time_t timesec = static_cast<time_t>(xpc_int64_get_value(xpc_time));
 
     struct attrlist attrs;
     memset(&attrs, 0, sizeof(attrs));
@@ -297,9 +298,9 @@ static bool HandleChTime(xpc_object_t _event) noexcept
     else if( strcmp(operation, "chatime") == 0 )
         attrs.commonattr = ATTR_CMN_ACCTIME;
 
-    timespec time = {timesec, 0};
+    timespec time = {.tv_sec = timesec, .tv_nsec = 0};
 
-    int result = setattrlist(path, &attrs, &time, sizeof(time), 0);
+    const int result = setattrlist(path, &attrs, &time, sizeof(time), 0);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -316,7 +317,7 @@ static bool HandleRmDir(xpc_object_t _event) noexcept
         return false;
     const char *path = xpc_string_get_string_ptr(xpc_path);
 
-    int result = rmdir(path);
+    const int result = rmdir(path);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -333,7 +334,7 @@ static bool HandleUnlink(xpc_object_t _event) noexcept
         return false;
     const char *path = xpc_string_get_string_ptr(xpc_path);
 
-    int result = unlink(path);
+    const int result = unlink(path);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -355,7 +356,7 @@ static bool HandleRename(xpc_object_t _event) noexcept
         return false;
     const char *newpath = xpc_string_get_string_ptr(xpc_newpath);
 
-    int result = rename(oldpath, newpath);
+    const int result = rename(oldpath, newpath);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -373,7 +374,7 @@ static bool HandleReadLink(xpc_object_t _event) noexcept
     const char *path = xpc_string_get_string_ptr(xpc_path);
 
     char symlink[MAXPATHLEN];
-    ssize_t result = readlink(path, symlink, MAXPATHLEN);
+    const ssize_t result = readlink(path, symlink, MAXPATHLEN);
     if( result < 0 ) {
         send_reply_error(_event, errno);
     }
@@ -400,7 +401,7 @@ static bool HandleSymlink(xpc_object_t _event) noexcept
         return false;
     const char *value = xpc_string_get_string_ptr(xpc_value);
 
-    int result = symlink(value, path);
+    const int result = symlink(value, path);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -422,7 +423,7 @@ static bool HandleLink(xpc_object_t _event) noexcept
         return false;
     const char *newnode = xpc_string_get_string_ptr(xpc_newnode);
 
-    int result = link(exist, newnode);
+    const int result = link(exist, newnode);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -437,14 +438,14 @@ static bool HandleKillPG(xpc_object_t _event) noexcept
     xpc_object_t xpc_pid = xpc_dictionary_get_value(_event, "pid");
     if( xpc_pid == nullptr || xpc_get_type(xpc_pid) != XPC_TYPE_INT64 )
         return false;
-    pid_t pid = static_cast<pid_t>(xpc_int64_get_value(xpc_pid));
+    const pid_t pid = static_cast<pid_t>(xpc_int64_get_value(xpc_pid));
 
     xpc_object_t xpc_signal = xpc_dictionary_get_value(_event, "signal");
     if( xpc_signal == nullptr || xpc_get_type(xpc_signal) != XPC_TYPE_INT64 )
         return false;
-    int signal = static_cast<int>(xpc_int64_get_value(xpc_signal));
+    const int signal = static_cast<int>(xpc_int64_get_value(xpc_signal));
 
-    int result = killpg(pid, signal);
+    const int result = killpg(pid, signal);
     if( result == 0 ) {
         send_reply_ok(_event);
     }
@@ -515,29 +516,15 @@ static void XPC_Peer_Event_Handler(xpc_connection_t _peer, xpc_object_t _event)
 
     xpc_type_t type = xpc_get_type(_event);
 
-    if( type == XPC_TYPE_ERROR ) {
-        if( _event == XPC_ERROR_CONNECTION_INVALID ) {
-            // The client process on the other end of the connection has either
-            // crashed or cancelled the connection. After receiving this error,
-            // the connection is in an invalid state, and you do not need to
-            // call xpc_connection_cancel(). Just tear down any associated state
-            // here.
-        }
-        else if( _event == XPC_ERROR_TERMINATION_IMMINENT ) {
-            // Handle per-connection termination cleanup.
-        }
-        //        xpc_release(_peer);
-    }
-    else if( type == XPC_TYPE_DICTIONARY ) {
-        ConnectionContext *context =
-            static_cast<ConnectionContext *>(xpc_connection_get_context(_peer));
+    if( type == XPC_TYPE_DICTIONARY ) {
+        ConnectionContext *context = static_cast<ConnectionContext *>(xpc_connection_get_context(_peer));
         if( !context ) {
             send_reply_error(_event, EINVAL);
             return;
         }
 
         if( xpc_dictionary_get_value(_event, "auth") != nullptr ) {
-            if( xpc_dictionary_get_bool(_event, "auth") == true ) {
+            if( xpc_dictionary_get_bool(_event, "auth") ) {
                 context->authenticated = true;
                 send_reply_ok(_event);
             }
@@ -585,25 +572,24 @@ static bool CheckSignature(const char *_bin_path)
     OSStatus status = 0;
 
     CFURLRef url = CFURLCreateFromFileSystemRepresentation(
-        0, reinterpret_cast<const UInt8 *>(_bin_path), std::strlen(_bin_path), false);
+        nullptr, reinterpret_cast<const UInt8 *>(_bin_path), std::strlen(_bin_path), false);
     if( !url )
         return false;
 
     // obtain the cert info from the executable
-    SecStaticCodeRef ref = NULL;
+    SecStaticCodeRef ref = nullptr;
     status = SecStaticCodeCreateWithPath(url, kSecCSDefaultFlags, &ref);
     CFRelease(url);
-    if( ref == NULL || status != noErr )
+    if( ref == nullptr || status != noErr )
         return false;
 
     syslog_notice("Got a SecStaticCodeRef");
 
     // create the requirement to check against
-    SecRequirementRef req = NULL;
-    static CFStringRef reqStr =
-        CFStringCreateWithCString(0, g_SignatureRequirement, kCFStringEncodingUTF8);
+    SecRequirementRef req = nullptr;
+    static CFStringRef reqStr = CFStringCreateWithCString(nullptr, g_SignatureRequirement, kCFStringEncodingUTF8);
     status = SecRequirementCreateWithString(reqStr, kSecCSDefaultFlags, &req);
-    if( status != noErr || req == NULL ) {
+    if( status != noErr || req == nullptr ) {
         CFRelease(ref);
         return false;
     }
@@ -612,8 +598,7 @@ static bool CheckSignature(const char *_bin_path)
 
     status = SecStaticCodeCheckValidity(ref, kSecCSCheckAllArchitectures, req);
 
-    syslog_notice("Called SecStaticCodeCheckValidity(), verdict: %s",
-                  status == noErr ? "valid" : "not valid");
+    syslog_notice("Called SecStaticCodeCheckValidity(), verdict: %s", status == noErr ? "valid" : "not valid");
 
     CFRelease(ref);
     CFRelease(req);
@@ -621,17 +606,70 @@ static bool CheckSignature(const char *_bin_path)
     return status == noErr;
 }
 
+static bool CheckHardening(const pid_t _client_pid)
+{
+    using nc::base::CFPtr;
+    const CFPtr<CFMutableDictionaryRef> attr =
+        CFPtr<CFMutableDictionaryRef>::adopt(CFDictionaryCreateMutable(nullptr,                        //
+                                                                       0,                              //
+                                                                       &kCFTypeDictionaryKeyCallBacks, //
+                                                                       &kCFTypeDictionaryValueCallBacks));
+    const CFPtr<CFNumberRef> pid_number =
+        CFPtr<CFNumberRef>::adopt(CFNumberCreate(nullptr, kCFNumberIntType, &_client_pid));
+    CFDictionarySetValue(attr.get(), kSecGuestAttributePid, pid_number.get());
+
+    // Get a reference to the running client's code
+    SecCodeRef code_ref_input = nullptr;
+    if( const OSStatus status =
+            SecCodeCopyGuestWithAttributes(nullptr, attr.get(), kSecCSDefaultFlags, &code_ref_input);
+        status != errSecSuccess || code_ref_input == nullptr ) {
+        return false;
+    }
+    const CFPtr<SecCodeRef> code_ref = CFPtr<SecCodeRef>::adopt(code_ref_input);
+
+    // Obtain it's dynamic signing information
+    CFDictionaryRef csinfo_input = nullptr;
+    if( const OSStatus status = SecCodeCopySigningInformation(code_ref.get(), kSecCSDynamicInformation, &csinfo_input);
+        status != errSecSuccess || csinfo_input == nullptr ) {
+        return false;
+    }
+    const CFPtr<CFDictionaryRef> csinfo = CFPtr<CFDictionaryRef>::adopt(csinfo_input);
+
+    // Get the signature flags
+    CFNumberRef status = static_cast<CFNumberRef>(CFDictionaryGetValue(csinfo.get(), kSecCodeInfoStatus));
+    if( status == nullptr || CFGetTypeID(status) != CFNumberGetTypeID() ) {
+        return false;
+    }
+    int flags = 0;
+    if( !CFNumberGetValue(status, kCFNumberIntType, &flags) ) {
+        return false;
+    }
+
+    // Check that either a hardened runtime is enabled or run-time library validation is enabled
+    return flags & (kSecCodeSignatureLibraryValidation | kSecCodeSignatureRuntime);
+}
+
 static void XPC_Connection_Handler(xpc_connection_t _connection)
 {
-    pid_t client_pid = xpc_connection_get_pid(_connection);
+    const pid_t client_pid = xpc_connection_get_pid(_connection);
     char client_path[1024] = {0};
     proc_pidpath(client_pid, client_path, sizeof(client_path));
     syslog_notice("Got an incoming connection from: %s", client_path);
 
-    if( !AllowConnectionFrom(client_path) || !CheckSignature(client_path) ) {
+    if( !AllowConnectionFrom(client_path) || !CheckSignature(client_path) || !CheckHardening(client_pid) ) {
         syslog_warning("Client failed checking, dropping connection.");
         xpc_connection_cancel(_connection);
         return;
+    }
+
+    if( __builtin_available(macOS 12.0, *) ) {
+        // On MacOS12+ we also ask the OS itself to enforce the code signing requirement per connection
+        const int rc = xpc_connection_set_peer_code_signing_requirement(_connection, g_SignatureRequirement);
+        if( rc != 0 ) {
+            syslog_warning("xpc_connection_set_peer_code_signing_requirement() failed, dropping connection.");
+            xpc_connection_cancel(_connection);
+            return;
+        }
     }
 
     ConnectionContext *cc = new ConnectionContext;

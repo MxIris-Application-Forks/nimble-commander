@@ -36,8 +36,8 @@ void FixedNumberLayoutEngine::BuildGrid(const Params &_params)
         m_ColumnsNumber = m_ItemsNumber > 0 ? 1 : 0;
     }
     else {
-        m_ColumnsNumber = (m_ItemsNumber % m_RowsNumber != 0) ? (m_ItemsNumber / m_RowsNumber + 1)
-                                                              : (m_ItemsNumber / m_RowsNumber);
+        m_ColumnsNumber =
+            (m_ItemsNumber % m_RowsNumber != 0) ? ((m_ItemsNumber / m_RowsNumber) + 1) : (m_ItemsNumber / m_RowsNumber);
     }
 }
 
@@ -63,14 +63,13 @@ void FixedNumberLayoutEngine::PerformNormalLayout()
         const auto column_width = base_width + (index_in_chunk < screen_remainder ? 1 : 0);
 
         for( int row_index = 0; row_index < rows_number; ++row_index ) {
-            const auto index = column_index * rows_number + row_index;
+            const auto index = (column_index * rows_number) + row_index;
             if( index == items_number )
                 break;
 
             const auto origin = NSMakePoint(current_column_position, row_index * item_height);
             const auto index_path = [NSIndexPath indexPathForItem:index inSection:0];
-            const auto attributes =
-                [NSCollectionViewLayoutAttributes layoutAttributesForItemWithIndexPath:index_path];
+            const auto attributes = [NSCollectionViewLayoutAttributes layoutAttributesForItemWithIndexPath:index_path];
             attributes.frame = NSMakeRect(origin.x, origin.y, column_width, item_height);
             m_Attributes[index] = attributes;
         }
@@ -94,29 +93,24 @@ void FixedNumberLayoutEngine::PerformSingularLayout()
 
     for( int index = 0; index < items_number; ++index ) {
         const auto index_path = [NSIndexPath indexPathForItem:index inSection:0];
-        const auto attributes =
-            [NSCollectionViewLayoutAttributes layoutAttributesForItemWithIndexPath:index_path];
+        const auto attributes = [NSCollectionViewLayoutAttributes layoutAttributesForItemWithIndexPath:index_path];
         attributes.frame = frame;
         m_Attributes[index] = attributes;
     }
 
-    std::fill(m_ColumnsPositions.begin(), m_ColumnsPositions.end(), 0);
-    std::fill(m_ColumnsWidths.begin(), m_ColumnsWidths.end(), m_BaseColumnWidth);
+    std::ranges::fill(m_ColumnsPositions, 0);
+    std::ranges::fill(m_ColumnsWidths, m_BaseColumnWidth);
     m_ContentSize = NSMakeSize(m_ColumnsNumber * m_BaseColumnWidth, m_ItemHeight);
 }
 
-bool FixedNumberLayoutEngine::ShouldRelayoutForNewBounds(
-    const NSRect clip_view_bounds) const noexcept
+bool FixedNumberLayoutEngine::ShouldRelayoutForNewBounds(const NSRect clip_view_bounds) const noexcept
 {
     if( static_cast<int>(clip_view_bounds.size.width) != m_ClipViewWidth )
         return true;
 
     const auto height = clip_view_bounds.size.height;
     const auto projected_rows_number = NumberOfRowsForViewHeight(height, m_ItemHeight);
-    if( projected_rows_number != m_RowsNumber )
-        return true;
-    else
-        return false;
+    return projected_rows_number != m_RowsNumber;
 }
 
 NSArray<NSCollectionViewLayoutAttributes *> *
@@ -125,4 +119,4 @@ FixedNumberLayoutEngine::AttributesForItemsInRect(NSRect _rect) const noexcept
     return LogarithmicSearchForItemsInRect(_rect);
 }
 
-}
+} // namespace nc::panel::view::brief

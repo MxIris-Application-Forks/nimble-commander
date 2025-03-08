@@ -1,17 +1,18 @@
-// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <string>
 #include <functional>
+#include <compare>
 #include <Base/intrusive_ptr.h>
+#include <Base/Error.h>
 
 struct stat;
 
 namespace nc::vfs {
 
 struct DirEnt {
-    enum
-    {
+    enum {
         Unknown = 0,  /* = DT_UNKNOWN */
         FIFO = 1,     /* = DT_FIFO    */
         Char = 2,     /* = DT_CHR     */
@@ -31,25 +32,28 @@ struct DirEnt {
 struct StatFS {
     uint64_t total_bytes = 0;
     uint64_t free_bytes = 0;
-    uint64_t avail_bytes = 0; // may be less than actuat free_bytes
+    uint64_t avail_bytes = 0; // may be less than actual free_bytes
     std::string volume_name;
 
-    bool operator==(const StatFS &_r) const;
-    bool operator!=(const StatFS &_r) const;
+    constexpr bool operator==(const StatFS &_rhs) const noexcept = default;
 };
 
 struct Stat {
-    uint64_t size;   /* File size, in bytes */
-    uint64_t blocks; /* blocks allocated for file */
-    uint64_t inode;  /* File serial number */
-    int32_t dev;     /* ID of device containing file */
-    int32_t rdev;    /* Device ID (if special file) */
-    uint32_t uid;    /* User ID of the file */
-    uint32_t gid;    /* Group ID of the file */
-    int32_t blksize; /* Optimal blocksize for I/O */
-    uint32_t flags;  /* User defined flags for file */
+    uint64_t size = 0;       /* File size, in bytes */
+    uint64_t blocks = 0;     /* blocks allocated for file */
+    uint64_t inode = 0;      /* File serial number */
+    int32_t dev = 0;         /* ID of device containing file */
+    int32_t rdev = 0;        /* Device ID (if special file) */
+    uint32_t uid = 0;        /* User ID of the file */
+    uint32_t gid = 0;        /* Group ID of the file */
+    int32_t blksize = 0;     /* Optimal blocksize for I/O */
+    uint32_t flags = 0;      /* User defined flags for file */
+    timespec atime = {0, 0}; /* Time of last access */
+    timespec mtime = {0, 0}; /* Time of last data modification */
+    timespec ctime = {0, 0}; /* Time of last status change */
+    timespec btime = {0, 0}; /* Time of file creation(birth) */
     union {
-        uint16_t mode; /* Mode of file */
+        uint16_t mode = 0; /* Mode of file */
         struct {
             unsigned xoth : 1;
             unsigned woth : 1;
@@ -69,31 +73,34 @@ struct Stat {
             unsigned reg : 1;
         } __attribute__((packed)) mode_bits; /* Mode decomposed as flags*/
     };
-    uint16_t nlink; /* Number of hard links */
-    timespec atime; /* Time of last access */
-    timespec mtime; /* Time of last data modification */
-    timespec ctime; /* Time of last status change */
-    timespec btime; /* Time of file creation(birth) */
-    struct meaningT {
-        unsigned size : 1;
-        unsigned blocks : 1;
-        unsigned inode : 1;
-        unsigned dev : 1;
-        unsigned rdev : 1;
-        unsigned uid : 1;
-        unsigned gid : 1;
-        unsigned blksize : 1;
-        unsigned flags : 1;
-        unsigned mode : 1;
-        unsigned nlink : 1;
-        unsigned atime : 1;
-        unsigned mtime : 1;
-        unsigned ctime : 1;
-        unsigned btime : 1;
+    uint16_t nlink = 0; /* Number of hard links */
+    struct __attribute__((packed)) meaningT {
+        unsigned size : 1 = 0;
+        unsigned blocks : 1 = 0;
+        unsigned inode : 1 = 0;
+        unsigned dev : 1 = 0;
+        unsigned rdev : 1 = 0;
+        unsigned uid : 1 = 0;
+        unsigned gid : 1 = 0;
+        unsigned blksize : 1 = 0;
+        unsigned flags : 1 = 0;
+        unsigned mode : 1 = 0;
+        unsigned nlink : 1 = 0;
+        unsigned atime : 1 = 0;
+        unsigned mtime : 1 = 0;
+        unsigned ctime : 1 = 0;
+        unsigned btime : 1 = 0;
+        unsigned __unused_padding_dont_touch_me__ : 1 = 0;
     } meaning;
+
+    // TODO: return the value instead of using the out parameter
     static void FromSysStat(const struct ::stat &_from, Stat &_to);
+
+    // TODO: return the value instead of using the out parameter
     static void ToSysStat(const Stat &_from, struct ::stat &_to);
+
     struct ::stat SysStat() const noexcept;
+
     inline static meaningT AllMeaning()
     {
         const uint64_t t = ~0ull;
@@ -106,24 +113,11 @@ struct Stat {
     }
 };
 
-class ErrorException : public std::exception
-{
-public:
-    ErrorException(int _err);
-    virtual const char *what() const noexcept override;
-    int code() const noexcept;
-
-private:
-    int m_Code;
-    std::string m_Verb;
-};
-
 struct User {
     uint32_t uid;
     std::string name;
     std::string gecos;
     friend bool operator==(const User &, const User &) noexcept = default;
-    friend bool operator!=(const User &, const User &) noexcept = default;
 };
 
 struct Group {
@@ -131,7 +125,6 @@ struct Group {
     std::string name;
     std::string gecos;
     friend bool operator==(const Group &, const Group &) noexcept = default;
-    friend bool operator!=(const Group &, const Group &) noexcept = default;
 };
 
 struct Flags {
@@ -192,7 +185,6 @@ using VFSHostWeakPtr = std::weak_ptr<nc::vfs::Host>;
 using VFSFlags = nc::vfs::Flags;
 using VFSGroup = nc::vfs::Group;
 using VFSUser = nc::vfs::User;
-using VFSErrorException = nc::vfs::ErrorException;
 using VFSStat = nc::vfs::Stat;
 using VFSStatFS = nc::vfs::StatFS;
 using VFSDirEnt = nc::vfs::DirEnt;

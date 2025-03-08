@@ -22,19 +22,19 @@ static NSParagraphStyle *ParagraphStyle(PanelViewFilenameTrimming _mode)
     static NSParagraphStyle *styles[3];
     static std::once_flag once;
     std::call_once(once, [] {
-        NSMutableParagraphStyle *p0 = [NSMutableParagraphStyle new];
+        NSMutableParagraphStyle *const p0 = [NSMutableParagraphStyle new];
         p0.alignment = NSTextAlignmentLeft;
         p0.lineBreakMode = NSLineBreakByTruncatingHead;
         p0.allowsDefaultTighteningForTruncation = false;
         styles[0] = p0;
 
-        NSMutableParagraphStyle *p1 = [NSMutableParagraphStyle new];
+        NSMutableParagraphStyle *const p1 = [NSMutableParagraphStyle new];
         p1.alignment = NSTextAlignmentLeft;
         p1.lineBreakMode = NSLineBreakByTruncatingTail;
         p1.allowsDefaultTighteningForTruncation = false;
         styles[1] = p1;
 
-        NSMutableParagraphStyle *p2 = [NSMutableParagraphStyle new];
+        NSMutableParagraphStyle *const p2 = [NSMutableParagraphStyle new];
         p2.alignment = NSTextAlignmentLeft;
         p2.lineBreakMode = NSLineBreakByTruncatingMiddle;
         p2.allowsDefaultTighteningForTruncation = false;
@@ -101,7 +101,7 @@ static NSParagraphStyle *ParagraphStyle(PanelViewFilenameTrimming _mode)
 
 - (NSRect)calculateTextSegmentFromBounds:(NSRect)bounds andGeometry:(const PanelListViewGeometry &)g
 {
-    const int origin = g.IconSize() ? 2 * g.LeftInset() + g.IconSize() : g.LeftInset();
+    const int origin = g.FilenameOffsetInColumn();
     const auto tags_geom = TrailingTagsInplaceDisplay::Place(m_Tags);
     const auto width = bounds.size.width - origin - g.RightInset() - tags_geom.margin - tags_geom.width;
 
@@ -131,7 +131,7 @@ static NSParagraphStyle *ParagraphStyle(PanelViewFilenameTrimming _mode)
     [m_AttrString drawWithRect:text_rect options:0];
 
     const auto icon_rect = NSMakeRect(geometry.LeftInset(),
-                                      (bounds.size.height - geometry.IconSize()) / 2. + 0.5,
+                                      ((bounds.size.height - geometry.IconSize()) / 2.) + 0.5,
                                       geometry.IconSize(),
                                       geometry.IconSize());
     [m_Icon drawInRect:icon_rect
@@ -229,7 +229,7 @@ static NSParagraphStyle *ParagraphStyle(PanelViewFilenameTrimming _mode)
         NSMakeRect(text_segment_rect.origin.x - line_padding,
                    geometry.TextBaseLine() - fi.Descent(),
                    text_segment_rect.size.width + 1, // cover for any roundings potentially caused by compressing
-                   bounds.size.height - (geometry.TextBaseLine() - fi.Descent()) * 2.);
+                   bounds.size.height - ((geometry.TextBaseLine() - fi.Descent()) * 2.));
     _editor.frame = rc;
 
     NSTextView *tv = _editor.documentView;

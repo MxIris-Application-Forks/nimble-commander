@@ -1,11 +1,10 @@
-// Copyright (C) 2013-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <Utility/FontCache.h>
 #include <Utility/CharInfo.h>
 #include "Screen.h"
+#include <algorithm>
 
 namespace nc::term {
-
-using utility::CharInfo;
 
 Screen::Screen(unsigned _w, unsigned _h, ExtendedCharRegistry &_reg) : m_Registry(_reg), m_Buffer(_w, _h)
 
@@ -21,7 +20,7 @@ char32_t Screen::GetCh() noexcept
 
     if( m_PosX < static_cast<int>(line.size()) )
         return line[m_PosX].l;
-    
+
     return 0;
 }
 
@@ -33,7 +32,7 @@ void Screen::PutCh(char32_t _char)
 
     auto chars = line.begin();
     const int line_len = static_cast<int>(line.size());
-    
+
     Screen::Space sp = m_EraseChar;
     sp.l = _char;
     chars[m_PosX] = sp;
@@ -42,7 +41,7 @@ void Screen::PutCh(char32_t _char)
         sp.l = MultiCellGlyph;
         chars[m_PosX + 1] = sp;
     }
-        
+
     if( m_PosX == line_len - 1 || (m_PosX == line_len - 2 && is_dw) ) {
         m_LineOverflown = true;
     }
@@ -67,9 +66,9 @@ void Screen::DoEraseScreen(int _mode)
         for( int i = 0; i < Height(); ++i ) {
             auto l = m_Buffer.LineFromNo(i);
             if( i != m_PosY )
-                std::fill(begin(l), end(l), m_EraseChar);
+                std::ranges::fill(l, m_EraseChar);
             else {
-                std::fill(begin(l), std::min(std::begin(l) + m_PosX + 1, std::end(l)), m_EraseChar);
+                std::fill(std::begin(l), std::min(std::begin(l) + m_PosX + 1, std::end(l)), m_EraseChar);
                 return;
             }
             m_Buffer.SetLineWrapped(i, false);
@@ -78,7 +77,7 @@ void Screen::DoEraseScreen(int _mode)
     else if( _mode == 2 ) { // clear all screen
         for( int i = 0; i < Height(); ++i ) {
             auto l = m_Buffer.LineFromNo(i);
-            std::fill(begin(l), end(l), m_EraseChar);
+            std::ranges::fill(l, m_EraseChar);
             m_Buffer.SetLineWrapped(i, false);
         }
     }
@@ -98,12 +97,10 @@ void Screen::GoTo(int _x, int _y)
 
     m_PosX = _x;
     m_PosY = _y;
-    if( m_PosX < 0 )
-        m_PosX = 0;
+    m_PosX = std::max(m_PosX, 0);
     if( m_PosX >= Width() )
         m_PosX = Width() - 1;
-    if( m_PosY < 0 )
-        m_PosY = 0;
+    m_PosY = std::max(m_PosY, 0);
     if( m_PosY >= Height() )
         m_PosY = Height() - 1;
     m_LineOverflown = false;
@@ -322,7 +319,7 @@ void Screen::CopyLineChars(int _from, int _to)
 void Screen::ClearLine(int _ind)
 {
     if( auto line = m_Buffer.LineFromNo(_ind); !line.empty() ) {
-        std::fill(std::begin(line), std::end(line), m_EraseChar);
+        std::ranges::fill(line, m_EraseChar);
         m_Buffer.SetLineWrapped(_ind, false);
     }
 }
@@ -365,7 +362,7 @@ void Screen::DoScrollUp(const unsigned _top, const unsigned _bottom, const unsig
             // we're scrolling up the whole screen - let's feed scrollback with leftover
             auto line = m_Buffer.LineFromNo(i);
             assert(!line.empty());
-            m_Buffer.FeedBackscreen(line.data(), line.data() + line.size(), m_Buffer.LineWrapped(i));
+            m_Buffer.FeedBackscreen(line, m_Buffer.LineWrapped(i));
         }
 
     for( int n_src = top + lines, n_dst = top; n_src < bottom && n_dst < bottom; ++n_src, ++n_dst ) {
@@ -384,7 +381,7 @@ void Screen::ResizeScreen(const unsigned _new_sx, const unsigned _new_sy)
     if( _new_sx == 0 || _new_sy == 0 )
         throw std::invalid_argument("Screen::ResizeScreen sizes can't be zero");
 
-    bool feed_from_bs = m_PosY == Height() - 1; // questionable!
+    const bool feed_from_bs = m_PosY == Height() - 1; // questionable!
 
     m_Buffer.ResizeScreen(_new_sx, _new_sy, feed_from_bs && !m_AlternateScreen);
 

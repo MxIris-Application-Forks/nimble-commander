@@ -1,4 +1,4 @@
-// Copyright (C) 2021-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2021-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "WhereIs.h"
 #include <cstdlib>
 #include <ranges>
@@ -21,14 +21,14 @@ std::vector<std::filesystem::path> WhereIs(std::string_view name)
 {
     if( name.empty() )
         return {};
-    if( name.find('/') != name.npos )
+    if( name.find('/') != std::string_view::npos )
         return {};
 
     const auto directories = GetDirectories();
     std::vector<std::filesystem::path> found;
     for( const auto &directory : directories ) {
         std::error_code ec;
-        std::filesystem::directory_iterator iterator(directory, ec);
+        const std::filesystem::directory_iterator iterator(directory, ec);
         if( ec != std::error_code{} )
             continue; // skip non-existing directories
 

@@ -1,6 +1,6 @@
-// Copyright (C) 2019-2021 Michael Kazakov. Subject to GNU General Public License version 3.
-#define CATCH_CONFIG_RUNNER
-#include <catch2/catch.hpp>
+// Copyright (C) 2019-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+#include <algorithm>
+#include <catch2/catch_all.hpp>
 
 #define GTEST_DONT_DEFINE_FAIL 1
 #define GTEST_DONT_DEFINE_SUCCEED 1
@@ -12,19 +12,27 @@
 #include <Base/dispatch_cpp.h>
 #include <boost/process.hpp>
 
+#include <spdlog/sinks/stdout_sinks.h>
+#include <VFS/Log.h>
+
 static auto g_TestDirPrefix = "_nc__operations__test_";
 
+[[clang::no_destroy]] static auto g_LogSink = std::make_shared<spdlog::sinks::stdout_sink_mt>();
+[[clang::no_destroy]] static auto g_Log = std::make_shared<spdlog::logger>("vfs", g_LogSink);
+
 static int Execute(const std::string &_command);
-static bool RunMainLoopUntilExpectationOrTimeout(std::chrono::nanoseconds _timeout,
-                                                 std::function<bool()> _expectation);
+static bool RunMainLoopUntilExpectationOrTimeout(std::chrono::nanoseconds _timeout, std::function<bool()> _expectation);
 static bool WaitUntilNativeFSManSeesVolumeAtPath(const std::filesystem::path &volume_path,
                                                  std::chrono::nanoseconds _time_limit);
 
 int main(int argc, char *argv[])
-{    
+{
+    //    g_Log->set_level(spdlog::level::trace);
+    //    nc::vfs::Log::Set(g_Log);
+
     ::testing::GTEST_FLAG(throw_on_failure) = true;
     ::testing::InitGoogleMock(&argc, argv);
-    int result = Catch::Session().run(argc, argv);
+    const int result = Catch::Session().run(argc, argv);
     return result;
 }
 
@@ -49,7 +57,7 @@ TempTestDir::~TempTestDir()
     try {
         std::filesystem::remove_all(directory);
     } catch( const std::exception &ex ) {
-        std::cerr << ex.what() << std::endl;
+        std::cerr << ex.what() << '\n';
     }
 }
 
@@ -57,8 +65,7 @@ TempTestDmg::TempTestDmg(TempTestDir &_test_dir)
 {
     const auto dmg_path = _test_dir.directory / "tmp_image.dmg";
     const auto create_cmd =
-        "/usr/bin/hdiutil create -size 1m -fs HFS+ -volname SomethingWickedThisWayComes12345 " +
-        dmg_path.native();
+        "/usr/bin/hdiutil create -size 1m -fs HFS+ -volname SomethingWickedThisWayComes12345 " + dmg_path.native();
     const auto mount_cmd = "/usr/bin/hdiutil attach " + dmg_path.native();
 
     REQUIRE(Execute(create_cmd) == 0);
@@ -86,8 +93,7 @@ static int Execute(const std::string &_command)
     return c.exit_code();
 }
 
-static bool RunMainLoopUntilExpectationOrTimeout(std::chrono::nanoseconds _timeout,
-                                                 std::function<bool()> _expectation)
+static bool RunMainLoopUntilExpectationOrTimeout(std::chrono::nanoseconds _timeout, std::function<bool()> _expectation)
 {
     dispatch_assert_main_queue();
     assert(_timeout.count() > 0);
@@ -108,9 +114,8 @@ static bool WaitUntilNativeFSManSeesVolumeAtPath(const std::filesystem::path &vo
 {
     auto predicate = [volume_path] {
         auto volumes = TestEnv().native_fs_man->Volumes();
-        return std::any_of(volumes.begin(), volumes.end(), [volume_path](auto _fs_info) {
-            return _fs_info->mounted_at_path == volume_path;
-        });
+        return std::ranges::any_of(volumes,
+                                   [volume_path](auto _fs_info) { return _fs_info->mounted_at_path == volume_path; });
     };
     return RunMainLoopUntilExpectationOrTimeout(_time_limit, predicate);
 }

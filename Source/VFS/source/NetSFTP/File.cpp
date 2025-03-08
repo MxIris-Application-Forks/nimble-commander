@@ -1,13 +1,14 @@
-// Copyright (C) 2014-2021 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2014-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "File.h"
 #include <libssh2.h>
 #include <libssh2_sftp.h>
+
 #include "SFTPHost.h"
+#include <algorithm>
 
 namespace nc::vfs::sftp {
 
-File::File(const char *_relative_path, std::shared_ptr<SFTPHost> _host)
-    : VFSFile(_relative_path, _host)
+File::File(std::string_view _relative_path, std::shared_ptr<SFTPHost> _host) : VFSFile(_relative_path, _host)
 {
 }
 
@@ -23,8 +24,7 @@ int File::Open(unsigned long _open_flags, [[maybe_unused]] const VFSCancelChecke
 
     auto sftp_host = std::dynamic_pointer_cast<SFTPHost>(Host());
     std::unique_ptr<SFTPHost::Connection> conn;
-    int rc;
-    if( (rc = sftp_host->GetConnection(conn)) != 0 )
+    if( const int rc = sftp_host->GetConnection(conn); rc != 0 )
         return rc;
 
     int sftp_flags = 0;
@@ -41,16 +41,12 @@ int File::Open(unsigned long _open_flags, [[maybe_unused]] const VFSCancelChecke
     if( _open_flags & VFSFlags::OF_NoExist )
         sftp_flags |= LIBSSH2_FXF_EXCL;
 
-    int mode = _open_flags & (S_IRWXU | S_IRWXG | S_IRWXO);
+    const int mode = _open_flags & (S_IRWXU | S_IRWXG | S_IRWXO);
 
-    LIBSSH2_SFTP_HANDLE *handle = libssh2_sftp_open_ex(conn->sftp,
-                                                       Path(),
-                                                       static_cast<unsigned>(std::strlen(Path())),
-                                                       sftp_flags,
-                                                       mode,
-                                                       LIBSSH2_SFTP_OPENFILE);
+    LIBSSH2_SFTP_HANDLE *handle = libssh2_sftp_open_ex(
+        conn->sftp, Path(), static_cast<unsigned>(std::strlen(Path())), sftp_flags, mode, LIBSSH2_SFTP_OPENFILE);
     if( handle == nullptr ) {
-        rc = sftp_host->VFSErrorForConnection(*conn);
+        const int rc = SFTPHost::VFSErrorForConnection(*conn);
         sftp_host->ReturnConnection(std::move(conn));
         return rc;
     }
@@ -58,7 +54,7 @@ int File::Open(unsigned long _open_flags, [[maybe_unused]] const VFSCancelChecke
     LIBSSH2_SFTP_ATTRIBUTES attrs;
     const int fstat_rc = libssh2_sftp_fstat_ex(handle, &attrs, 0);
     if( fstat_rc < 0 ) {
-        const int conn_err = sftp_host->VFSErrorForConnection(*conn);
+        const int conn_err = SFTPHost::VFSErrorForConnection(*conn);
         return conn_err;
     }
 
@@ -111,7 +107,7 @@ off_t File::Seek(off_t _off, int _basis)
         req = m_Size + _off;
 
     libssh2_sftp_seek64(m_Handle, req);
-    libssh2_uint64_t pos = libssh2_sftp_tell64(m_Handle);
+    const libssh2_uint64_t pos = libssh2_sftp_tell64(m_Handle);
     m_Position = pos;
 
     return pos;
@@ -122,15 +118,14 @@ ssize_t File::Read(void *_buf, size_t _size)
     if( !IsOpened() )
         return SetLastError(VFSError::InvalidCall);
 
-    ssize_t rc = libssh2_sftp_read(m_Handle, static_cast<char *>(_buf), _size);
+    const ssize_t rc = libssh2_sftp_read(m_Handle, static_cast<char *>(_buf), _size);
 
     if( rc >= 0 ) {
         m_Position += rc;
         return rc;
     }
     else
-        return SetLastError(
-            std::dynamic_pointer_cast<SFTPHost>(Host())->VFSErrorForConnection(*m_Connection));
+        return SetLastError(SFTPHost::VFSErrorForConnection(*m_Connection));
 }
 
 ssize_t File::Write(const void *_buf, size_t _size)
@@ -138,17 +133,15 @@ ssize_t File::Write(const void *_buf, size_t _size)
     if( !IsOpened() )
         return SetLastError(VFSError::InvalidCall);
 
-    ssize_t rc = libssh2_sftp_write(m_Handle, static_cast<const char *>(_buf), _size);
+    const ssize_t rc = libssh2_sftp_write(m_Handle, static_cast<const char *>(_buf), _size);
 
     if( rc >= 0 ) {
-        if( m_Position + rc > m_Size )
-            m_Size = m_Position + rc;
+        m_Size = std::max(m_Position + rc, m_Size);
         m_Position += rc;
         return rc;
     }
     else
-        return SetLastError(
-            std::dynamic_pointer_cast<SFTPHost>(Host())->VFSErrorForConnection(*m_Connection));
+        return SetLastError(SFTPHost::VFSErrorForConnection(*m_Connection));
 }
 
 ssize_t File::Pos() const

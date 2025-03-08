@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <Base/SerialQueue.h>
@@ -17,38 +17,32 @@ public:
     virtual VFSConfiguration Configuration() const override;
     static VFSMeta Meta();
 
-    int CreateFile(const char *_path,
-                   std::shared_ptr<VFSFile> &_target,
-                   const VFSCancelChecker &_cancel_checker) override;
+    std::expected<std::shared_ptr<VFSFile>, Error> CreateFile(std::string_view _path,
+                                                              const VFSCancelChecker &_cancel_checker = {}) override;
 
-    bool IsDirectory(const char *_path,
-                     unsigned long _flags,
-                     const VFSCancelChecker &_cancel_checker) override;
+    bool
+    IsDirectory(std::string_view _path, unsigned long _flags, const VFSCancelChecker &_cancel_checker = {}) override;
 
     bool IsWritable() const override;
 
-    int Stat(const char *_path,
-             VFSStat &_st,
-             unsigned long _flags,
-             const VFSCancelChecker &_cancel_checker) override;
+    std::expected<VFSStat, Error>
+    Stat(std::string_view _path, unsigned long _flags, const VFSCancelChecker &_cancel_checker = {}) override;
 
-    int
-    StatFS(const char *_path, VFSStatFS &_stat, const VFSCancelChecker &_cancel_checker) override;
+    std::expected<VFSStatFS, Error> StatFS(std::string_view _path,
+                                           const VFSCancelChecker &_cancel_checker = {}) override;
 
-    int Unlink(const char *_path, const VFSCancelChecker &_cancel_checker = nullptr) override;
+    std::expected<void, Error> Unlink(std::string_view _path, const VFSCancelChecker &_cancel_checker = {}) override;
 
-    int FetchDirectoryListing(const char *_path,
-                              VFSListingPtr &_target,
-                              unsigned long _flags,
-                              const VFSCancelChecker &_cancel_checker) override;
+    std::expected<VFSListingPtr, Error> FetchDirectoryListing(std::string_view _path,
+                                                              unsigned long _flags,
+                                                              const VFSCancelChecker &_cancel_checker = {}) override;
 
-    int
-    IterateDirectoryListing(const char *_path,
+    std::expected<void, Error>
+    IterateDirectoryListing(std::string_view _path,
                             const std::function<bool(const VFSDirEnt &_dirent)> &_handler) override;
 
-    bool IsDirChangeObservingAvailable(const char *_path) override;
-    HostDirObservationTicket DirChangeObserve(const char *_path,
-                                              std::function<void()> _handler) override;
+    bool IsDirectoryChangeObservationAvailable(std::string_view _path) override;
+    HostDirObservationTicket ObserveDirectoryChanges(std::string_view _path, std::function<void()> _handler) override;
     void StopDirChangeObserving(unsigned long _ticket) override;
 
     /**
@@ -62,10 +56,7 @@ public:
     {
         return std::static_pointer_cast<const PSHost>(Host::SharedPtr());
     }
-    std::shared_ptr<PSHost> SharedPtr()
-    {
-        return std::static_pointer_cast<PSHost>(Host::SharedPtr());
-    }
+    std::shared_ptr<PSHost> SharedPtr() { return std::static_pointer_cast<PSHost>(Host::SharedPtr()); }
 
     struct ProcInfo;
     struct Snapshot;
@@ -73,7 +64,7 @@ public:
 private:
     void UpdateCycle();
     void EnsureUpdateRunning();
-    int ProcIndexFromFilepath_Unlocked(const char *_filepath);
+    int ProcIndexFromFilepath_Unlocked(std::string_view _filepath);
 
     static std::vector<ProcInfo> GetProcs();
     void CommitProcs(std::vector<ProcInfo> _procs);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2023 Michael G. Kazakov
+/* Copyright (c) 2016-2024 Michael G. Kazakov
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software
  * and associated documentation files (the "Software"), to deal in the Software without restriction,
  * including without limitation the rights to use, copy, modify, merge, publish, distribute,
@@ -86,10 +86,10 @@ bool CFDefaultsGetBool(CFStringRef _key) noexcept
 std::optional<bool> CFDefaultsGetOptionalBool(CFStringRef _key) noexcept
 {
     Boolean has = false;
-    Boolean v = CFPreferencesGetAppBooleanValue(_key, kCFPreferencesCurrentApplication, &has);
+    const Boolean v = CFPreferencesGetAppBooleanValue(_key, kCFPreferencesCurrentApplication, &has);
     if( !has )
         return {};
-    return v ? true : false;
+    return v != 0;
 }
 
 void CFDefaultsSetBool(CFStringRef _key, bool _value) noexcept
@@ -150,7 +150,7 @@ long CFDefaultsGetLong(CFStringRef _key) noexcept
 
 void CFDefaultsSetDouble(CFStringRef _key, double _value) noexcept
 {
-    CFNumberRef num = CFNumberCreate(NULL, kCFNumberDoubleType, &_value);
+    CFNumberRef num = CFNumberCreate(nullptr, kCFNumberDoubleType, &_value);
     if( num == nullptr )
         return;
     auto release_val = at_scope_end([=] { CFRelease(num); });
@@ -159,7 +159,7 @@ void CFDefaultsSetDouble(CFStringRef _key, double _value) noexcept
 
 void CFDefaultsSetInt(CFStringRef _key, int _value) noexcept
 {
-    CFNumberRef num = CFNumberCreate(NULL, kCFNumberIntType, &_value);
+    CFNumberRef num = CFNumberCreate(nullptr, kCFNumberIntType, &_value);
     if( num == nullptr )
         return;
     auto release_val = at_scope_end([=] { CFRelease(num); });
@@ -168,7 +168,7 @@ void CFDefaultsSetInt(CFStringRef _key, int _value) noexcept
 
 void CFDefaultsSetLong(CFStringRef _key, long _value) noexcept
 {
-    CFNumberRef num = CFNumberCreate(NULL, kCFNumberLongType, &_value);
+    CFNumberRef num = CFNumberCreate(nullptr, kCFNumberLongType, &_value);
     if( num == nullptr )
         return;
     auto release_val = at_scope_end([=] { CFRelease(num); });

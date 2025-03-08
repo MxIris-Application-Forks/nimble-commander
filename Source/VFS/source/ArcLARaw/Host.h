@@ -1,4 +1,4 @@
-// Copyright (C) 2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2022-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include "../../include/VFS/Host.h"
@@ -14,32 +14,24 @@ class ArchiveRawHost final : public Host
 public:
     static const char *const UniqueTag;
 
-    ArchiveRawHost(const std::string &_path,
-                   const VFSHostPtr &_parent,
-                   VFSCancelChecker _cancel_checker = {});
-    ArchiveRawHost(const VFSHostPtr &_parent,
-                   const VFSConfiguration &_config,
-                   VFSCancelChecker _cancel_checker = {});
-    
+    ArchiveRawHost(std::string_view _path, const VFSHostPtr &_parent, VFSCancelChecker _cancel_checker = {});
+    ArchiveRawHost(const VFSHostPtr &_parent, const VFSConfiguration &_config, VFSCancelChecker _cancel_checker = {});
+
     static VFSMeta Meta();
 
-    int CreateFile(const char *_path,
-                   std::shared_ptr<VFSFile> &_target,
-                   const VFSCancelChecker &_cancel_checker = {}) override;
+    std::expected<std::shared_ptr<VFSFile>, Error> CreateFile(std::string_view _path,
+                                                              const VFSCancelChecker &_cancel_checker = {}) override;
 
-    int Stat(const char *_path,
-             VFSStat &_st,
-             unsigned long _flags,
-             const VFSCancelChecker &_cancel_checker = {}) override;
+    std::expected<VFSStat, Error>
+    Stat(std::string_view _path, unsigned long _flags, const VFSCancelChecker &_cancel_checker = {}) override;
 
-    int
-    IterateDirectoryListing(const char *_path,
+    std::expected<void, Error>
+    IterateDirectoryListing(std::string_view _path,
                             const std::function<bool(const VFSDirEnt &_dirent)> &_handler) override;
 
-    int FetchDirectoryListing(const char *_path,
-                              VFSListingPtr &_target,
-                              unsigned long _flags,
-                              const VFSCancelChecker &_cancel_checker = {}) override;
+    std::expected<VFSListingPtr, Error> FetchDirectoryListing(std::string_view _path,
+                                                              unsigned long _flags,
+                                                              const VFSCancelChecker &_cancel_checker = {}) override;
 
     VFSConfiguration Configuration() const override;
 

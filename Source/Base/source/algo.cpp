@@ -1,4 +1,4 @@
-/* Copyright (c) 2023 Michael G. Kazakov
+/* Copyright (c) 2023-2024 Michael G. Kazakov
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software
  * and associated documentation files (the "Software"), to deal in the Software without restriction,
  * including without limitation the rights to use, copy, modify, merge, publish, distribute,
@@ -70,7 +70,7 @@ std::string_view TrimRight(std::string_view _str, char _c) noexcept
 // TODO: unit tests
 std::string ReplaceAll(std::string_view _source, char _what, std::string_view _with) noexcept
 {
-    std::string result;    
+    std::string result;
     for( auto c : _source ) {
         if( c == _what ) {
             result += _with;
@@ -88,10 +88,10 @@ std::string ReplaceAll(std::string_view _source, std::string_view _what, std::st
         return std::string{_source};
     if( _what.length() == 1 )
         return ReplaceAll(_source, _what.front(), _with);
-    
+
     std::string result;
     for( size_t pos = 0; pos != _source.length(); ) {
-        if(size_t next = _source.find(_what, pos); next == std::string_view::npos ) {
+        if( const size_t next = _source.find(_what, pos); next == std::string_view::npos ) {
             result.append(_source.substr(pos));
             pos = _source.length();
         }
@@ -110,7 +110,7 @@ std::vector<std::string> SplitByDelimiters(std::string_view _str, std::string_vi
     std::string next;
     for( auto c : _str ) {
         if( _delims.contains(c) ) {
-            if( !next.empty() || _compress == false ) {
+            if( !next.empty() || !_compress ) {
                 res.emplace_back(std::move(next));
                 next = {};
             }
@@ -120,7 +120,7 @@ std::vector<std::string> SplitByDelimiters(std::string_view _str, std::string_vi
         }
     }
 
-    if( !next.empty() || (_compress == false && !_str.empty()) ) {
+    if( !next.empty() || (!_compress && !_str.empty()) ) {
         res.emplace_back(std::move(next));
     }
 
@@ -133,7 +133,7 @@ std::vector<std::string> SplitByDelimiter(std::string_view _str, char _delim, bo
     std::string next;
     for( auto c : _str ) {
         if( c == _delim ) {
-            if( !next.empty() || _compress == false ) {
+            if( !next.empty() || !_compress ) {
                 res.emplace_back(std::move(next));
                 next = {};
             }
@@ -143,7 +143,7 @@ std::vector<std::string> SplitByDelimiter(std::string_view _str, char _delim, bo
         }
     }
 
-    if( !next.empty() || (_compress == false && !_str.empty()) ) {
+    if( !next.empty() || (!_compress && !_str.empty()) ) {
         res.emplace_back(std::move(next));
     }
 

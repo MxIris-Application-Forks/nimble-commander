@@ -1,4 +1,4 @@
-// Copyright (C) 2015-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2015-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <Base/CommonPaths.h>
 #include <Term/ShellTask.h>
 #include <Term/Screen.h>
@@ -13,6 +13,7 @@
 #include <Base/dispatch_cpp.h>
 #include <Utility/StringExtras.h>
 #include <Utility/ObjCpp.h>
+#include <algorithm>
 
 using namespace nc;
 using namespace nc::term;
@@ -57,6 +58,7 @@ static const auto g_LongProcessDelay = 100ms;
                                                           settings:TerminalSettings()];
         m_TermScrollView.translatesAutoresizingMaskIntoConstraints = false;
         m_TermScrollView.view.reportsSizeByOccupiedContent = true;
+        m_TermScrollView.overlapped = true;
         [self addSubview:m_TermScrollView];
         [self addConstraints:[NSLayoutConstraint
                                  constraintsWithVisualFormat:@"|-(==0)-[m_TermScrollView]-(==0)-|"
@@ -84,7 +86,7 @@ static const auto g_LongProcessDelay = 100ms;
 
         // parser
         ParserImpl::Params parser_params;
-        parser_params.error_log = [](std::string_view _error) { std::cerr << _error << std::endl; };
+        parser_params.error_log = [](std::string_view _error) { std::cerr << _error << '\n'; };
         m_Parser = std::make_unique<ParserImpl>(parser_params);
 
         // interpreter
@@ -96,18 +98,18 @@ static const auto g_LongProcessDelay = 100ms;
         m_Interpreter->SetTitle([](const std::string &, Interpreter::TitleKind) { /* deliberately nothing*/ });
         m_Interpreter->SetInputTranslator(m_InputTranslator.get());
         m_Interpreter->SetShowCursorChanged([weak_self](bool _show) {
-            FilePanelOverlappedTerminal *me = weak_self;
+            FilePanelOverlappedTerminal *const me = weak_self;
             me->m_TermScrollView.view.showCursor = _show;
         });
         m_Interpreter->SetRequstedMouseEventsChanged([weak_self](Interpreter::RequestedMouseEvents _events) {
-            FilePanelOverlappedTerminal *me = weak_self;
+            FilePanelOverlappedTerminal *const me = weak_self;
             me->m_TermScrollView.view.mouseEvents = _events;
         });
         m_Interpreter->SetScreenResizeAllowed(false);
 
         [m_TermScrollView.view AttachToInputTranslator:m_InputTranslator.get()];
         m_TermScrollView.onScreenResized = [weak_self](int _sx, int _sy) {
-            FilePanelOverlappedTerminal *me = weak_self;
+            FilePanelOverlappedTerminal *const me = weak_self;
             me->m_Interpreter->NotifyScreenResized();
             me->m_Task->ResizeWindow(_sx, _sy);
         };
@@ -136,7 +138,7 @@ static const auto g_LongProcessDelay = 100ms;
     __weak FilePanelOverlappedTerminal *weak_self = self;
 
     dispatch_to_main_queue([weak_self, cmds = std::move(cmds)] {
-        FilePanelOverlappedTerminal *me = weak_self;
+        FilePanelOverlappedTerminal *const me = weak_self;
         if( auto lock = me->m_TermScrollView.screen.AcquireLock() )
             me->m_Interpreter->Interpret(cmds);
         [me->m_TermScrollView.view.fpsDrawer invalidate];
@@ -160,7 +162,7 @@ static const auto g_LongProcessDelay = 100ms;
 {
     if( _state == ShellTask::TaskState::ProgramInternal || _state == ShellTask::TaskState::ProgramExternal ) {
         dispatch_to_main_queue_after(g_TaskStartInputDelay, [=] {
-            int task_pid = m_Task->ShellChildPID();
+            const int task_pid = m_Task->ShellChildPID();
             if( task_pid >= 0 )
                 dispatch_to_main_queue_after(g_LongProcessDelay, [=] {
                     if( (m_Task->State() == ShellTask::TaskState::ProgramInternal ||
@@ -228,6 +230,11 @@ static const auto g_LongProcessDelay = 100ms;
 - (NCTermView *)termView
 {
     return m_TermScrollView.view;
+}
+
+- (NCTermScrollView *)termScrollView
+{
+    return m_TermScrollView;
 }
 
 - (void)runShell:(const std::string &)_initial_wd
@@ -323,7 +330,7 @@ static const auto g_LongProcessDelay = 100ms;
     static NSCharacterSet *chars;
     static std::once_flag once;
     std::call_once(once, [] {
-        NSMutableCharacterSet *un = [NSMutableCharacterSet new];
+        NSMutableCharacterSet *const un = [NSMutableCharacterSet new];
         [un formUnionWithCharacterSet:[NSCharacterSet alphanumericCharacterSet]];
         [un formUnionWithCharacterSet:[NSCharacterSet punctuationCharacterSet]];
         [un formUnionWithCharacterSet:[NSCharacterSet symbolCharacterSet]];

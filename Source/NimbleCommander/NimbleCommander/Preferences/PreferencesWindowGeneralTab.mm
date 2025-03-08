@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "PreferencesWindowGeneralTab.h"
 #include "../Core/SandboxManager.h"
 #include "../Bootstrap/AppDelegate.h"
@@ -15,6 +15,8 @@ using namespace std::literals;
 @end
 
 @implementation PreferencesWindowGeneralTab
+@synthesize FSAccessResetButton;
+@synthesize FSAccessLabel;
 
 - (void)loadView
 {
@@ -29,10 +31,12 @@ using namespace std::literals;
 {
     return NSStringFromClass(self.class);
 }
+
 - (NSImage *)toolbarItemImage
 {
-    return [NSImage imageNamed:NSImageNamePreferencesGeneral];
+    return [NSImage imageNamed:@"preferences.toolbar.general"];
 }
+
 - (NSString *)toolbarItemLabel
 {
     return NSLocalizedStringFromTable(@"General", @"Preferences", "General preferences tab title");
@@ -46,10 +50,10 @@ using namespace std::literals;
 - (IBAction)OnFSAccessReset:(id) [[maybe_unused]] _sender
 {
     NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = NSLocalizedStringFromTable(
-        @"Are you sure you want to reset granted filesystem access?",
-        @"Preferences",
-        "Message text asking if user really wants to reset current file system access");
+    alert.messageText =
+        NSLocalizedStringFromTable(@"Are you sure you want to reset granted filesystem access?",
+                                   @"Preferences",
+                                   "Message text asking if user really wants to reset current file system access");
     alert.informativeText = NSLocalizedStringFromTable(
         @"This will cause Nimble Commander to ask you for access when necessary.",
         @"Preferences",

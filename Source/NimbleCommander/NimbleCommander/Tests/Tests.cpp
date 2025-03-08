@@ -1,6 +1,5 @@
 // Copyright (C) 2020 Michael Kazakov. Subject to GNU General Public License version 3.
-#define CATCH_CONFIG_RUNNER
-#include <catch2/catch.hpp>
+#include <catch2/catch_all.hpp>
 
 #define GTEST_DONT_DEFINE_FAIL 1
 #define GTEST_DONT_DEFINE_SUCCEED 1
@@ -16,10 +15,11 @@
 
 static auto g_TestDirPrefix = "_nc__common__test_";
 
-int main( int argc, char* argv[] ) {
+int main(int argc, char *argv[])
+{
     ::testing::GTEST_FLAG(throw_on_failure) = true;
     ::testing::InitGoogleMock(&argc, argv);
-    int result = Catch::Session().run( argc, argv );    
+    const int result = Catch::Session().run(argc, argv);
     return result;
 }
 

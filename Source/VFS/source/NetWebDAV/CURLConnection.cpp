@@ -1,8 +1,8 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "CURLConnection.h"
 #include "Internal.h"
-#include <Base/StringViewZBuf.h>
-#include <assert.h>
+#include <Base/StackAllocator.h>
+#include <cassert>
 
 // CURL is full of macros with C-style casts
 #pragma clang diagnostic ignored "-Wold-style-cast"
@@ -146,24 +146,29 @@ void CURLConnection::Clear()
 
 int CURLConnection::SetCustomRequest(std::string_view _request)
 {
-    base::StringViewZBuf<64> request(_request);
+    StackAllocator alloc;
+    const std::pmr::string request(_request, &alloc);
+
     const auto rc = curl_easy_setopt(m_EasyHandle, CURLOPT_CUSTOMREQUEST, request.c_str());
     return CurlRCToVFSError(rc);
 }
 
 int CURLConnection::SetURL(std::string_view _url)
 {
-    base::StringViewZBuf<512> url(_url);
+    StackAllocator alloc;
+    const std::pmr::string url(_url, &alloc);
     const auto rc = curl_easy_setopt(m_EasyHandle, CURLOPT_URL, url.c_str());
     return CurlRCToVFSError(rc);
 }
 
 int CURLConnection::SetHeader(std::span<const std::string_view> _header)
 {
+    StackAllocator alloc;
     struct curl_slist *chunk = nullptr;
 
+    std::pmr::string element_nt(&alloc);
     for( const auto &element : _header ) {
-        base::StringViewZBuf<512> element_nt(element);
+        element_nt = element;
         chunk = curl_slist_append(chunk, element_nt.c_str());
     }
 
@@ -179,8 +184,7 @@ int CURLConnection::SetBody(std::span<const std::byte> _body)
     curl_easy_setopt(m_EasyHandle, CURLOPT_UPLOAD, 1L);
     curl_easy_setopt(m_EasyHandle, CURLOPT_READFUNCTION, WriteBuffer::ReadCURL);
     curl_easy_setopt(m_EasyHandle, CURLOPT_READDATA, &m_RequestBody);
-    curl_easy_setopt(
-        m_EasyHandle, CURLOPT_INFILESIZE_LARGE, static_cast<curl_off_t>(m_RequestBody.Size()));
+    curl_easy_setopt(m_EasyHandle, CURLOPT_INFILESIZE_LARGE, static_cast<curl_off_t>(m_RequestBody.Size()));
 
     // TODO: mb check rcs from curl?
     return VFSError::Ok;
@@ -216,12 +220,12 @@ Connection::BlockRequestResult CURLConnection::PerformBlockingRequest()
 {
     const auto curl_rc = curl_easy_perform(m_EasyHandle);
     const auto http_rc = curl_easy_get_response_code(m_EasyHandle);
-    return {CurlRCToVFSError(curl_rc), http_rc};
+    return {.vfs_error = CurlRCToVFSError(curl_rc), .http_code = http_rc};
 }
 
 int CURLConnection::ReadBodyUpToSize(size_t _target)
 {
-    if( m_MultiHandle == nullptr || m_MultiHandleAttached == false )
+    if( m_MultiHandle == nullptr || !m_MultiHandleAttached )
         return VFSError::InvalidCall;
 
     const auto multi = m_MultiHandle;
@@ -272,7 +276,7 @@ size_t CURLConnection::ReadFromWriteBuffer(void *_ptr, size_t _size, size_t _nme
 
 int CURLConnection::WriteBodyUpToSize(size_t _target)
 {
-    if( m_MultiHandle == nullptr || m_MultiHandleAttached == false )
+    if( m_MultiHandle == nullptr || !m_MultiHandleAttached )
         return VFSError::InvalidCall;
 
     const auto multi = m_MultiHandle;
@@ -281,7 +285,7 @@ int CURLConnection::WriteBodyUpToSize(size_t _target)
         if( _target == AbortBodyWrite )
             SetProgreessCallback([](long, long, long, long) { return false; });
 
-        if( m_Paused == true ) {
+        if( m_Paused ) {
             curl_easy_pause(m_EasyHandle, CURLPAUSE_CONT);
             m_Paused = false;
         }
@@ -310,7 +314,7 @@ int CURLConnection::WriteBodyUpToSize(size_t _target)
 
     const size_t target_buffer_size = m_RequestBody.Size() - _target;
 
-    if( m_Paused == true ) {
+    if( m_Paused ) {
         curl_easy_pause(m_EasyHandle, CURLPAUSE_CONT);
         m_Paused = false;
     }

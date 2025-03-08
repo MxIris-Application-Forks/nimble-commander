@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "Select.h"
 #include <Utility/FileMask.h>
 #include <Utility/StringExtras.h>
@@ -11,8 +11,9 @@
 #include <VFS/VFS.h>
 #include <NimbleCommander/Bootstrap/Config.h>
 #include <Config/RapidJSON.h>
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 #include <mutex>
+#include <bit>
 
 namespace nc::panel::actions {
 
@@ -22,7 +23,7 @@ public:
     FindFilesMask InitialMask(NSWindow *_for_window)
     {
         const auto num = ToNumber(_for_window);
-        std::lock_guard lock{m_Mut};
+        const std::lock_guard lock{m_Mut};
         if( m_InitialMasks.contains(num) ) {
             return m_InitialMasks[num];
         }
@@ -36,17 +37,17 @@ public:
 
     void ReportRecent(const nc::panel::FindFilesMask &_mask, NSWindow *_for_window)
     {
-        std::lock_guard lock{m_Mut};
+        const std::lock_guard lock{m_Mut};
         m_InitialMasks[ToNumber(_for_window)] = _mask;
     }
 
 private:
-    using MapT = robin_hood::unordered_flat_map<ptrdiff_t, nc::panel::FindFilesMask>;
+    using MapT = ankerl::unordered_dense::map<ptrdiff_t, nc::panel::FindFilesMask>;
 
-    ptrdiff_t ToNumber(NSWindow *_wnd) noexcept
+    static ptrdiff_t ToNumber(NSWindow *_wnd) noexcept
     {
         // mb mix in the window number here as well? i.e. .windowNumber
-        return reinterpret_cast<ptrdiff_t>((__bridge void *)_wnd);
+        return std::bit_cast<ptrdiff_t>((__bridge void *)_wnd);
     }
 
     MapT m_InitialMasks;
@@ -57,17 +58,17 @@ static constexpr size_t g_MaximumSelectWithMaskHistoryElements = 16;
 static const auto g_SelectWithMaskHistoryPath = "filePanel.selectWithMaskPopup.masks";
 [[clang::no_destroy]] static PerWindowMaskStorage g_PerWindowMasks;
 
-void SelectAll::Perform(PanelController *_target, id) const
+void SelectAll::Perform(PanelController *_target, id /*_sender*/) const
 {
     [_target setEntriesSelection:std::vector<bool>(_target.data.SortedEntriesCount(), true)];
 }
 
-void DeselectAll::Perform(PanelController *_target, id) const
+void DeselectAll::Perform(PanelController *_target, id /*_sender*/) const
 {
     [_target setEntriesSelection:std::vector<bool>(_target.data.SortedEntriesCount(), false)];
 }
 
-void InvertSelection::Perform(PanelController *_target, id) const
+void InvertSelection::Perform(PanelController *_target, id /*_sender*/) const
 {
     auto selector = data::SelectionBuilder(_target.data);
     [_target setEntriesSelection:selector.InvertSelection()];
@@ -82,7 +83,7 @@ bool SelectAllByExtension::Predicate(PanelController *_target) const
     return _target.view.item;
 }
 
-void SelectAllByExtension::Perform(PanelController *_target, id) const
+void SelectAllByExtension::Perform(PanelController *_target, id /*_sender*/) const
 {
     auto item = _target.view.item;
     if( !item )
@@ -108,7 +109,7 @@ static void CommitRecentFindFilesMask(const nc::panel::FindFilesMask &_mask)
     StoreFindFilesMasks(StateConfig(), g_SelectWithMaskHistoryPath, history);
 }
 
-void SelectAllByMask::Perform(PanelController *_target, id) const
+void SelectAllByMask::Perform(PanelController *_target, id /*_sender*/) const
 {
     const auto history = LoadFindFilesMasks(StateConfig(), g_SelectWithMaskHistoryPath);
     const auto initial = g_PerWindowMasks.InitialMask(_target.window);
@@ -119,7 +120,7 @@ void SelectAllByMask::Perform(PanelController *_target, id) const
     view.onSelect = [wp, this](const nc::panel::FindFilesMask &_mask) {
         using utility::FileMask;
         CommitRecentFindFilesMask(_mask);
-        if( PanelController *panel = wp ) {
+        if( PanelController *const panel = wp ) {
             g_PerWindowMasks.ReportRecent(_mask, panel.window);
             FileMask match_mask;
             if( _mask.type == FindFilesMask::Classic ) {
@@ -141,11 +142,11 @@ void SelectAllByMask::Perform(PanelController *_target, id) const
     };
     view.onClearHistory = [] {
         using namespace nc::config;
-        Value arr(rapidjson::kArrayType);
+        const Value arr(rapidjson::kArrayType);
         StateConfig().Set(g_SelectWithMaskHistoryPath, arr);
     };
 
     [_target.view showPopoverUnderPathBarWithView:view andDelegate:view];
 }
 
-}
+} // namespace nc::panel::actions

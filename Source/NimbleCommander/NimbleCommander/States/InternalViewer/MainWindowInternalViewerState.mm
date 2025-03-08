@@ -1,9 +1,9 @@
-// Copyright (C) 2016-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2016-2025 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <NimbleCommander/Core/Theming/Theme.h>
 #include "../MainWindowController.h"
 #include <Viewer/ViewerViewController.h>
 #include <Viewer/Bundle.h>
-#include "../../Core/ActionsShortcutsManager.h"
+#include <Utility/ActionsShortcutsManager.h>
 #include "MainWindowInternalViewerState.h"
 #include <Base/dispatch_cpp.h>
 #include <Utility/ObjCpp.h>
@@ -11,15 +11,6 @@
 @interface MainWindowInternalViewerState ()
 
 @property(nonatomic) IBOutlet NSToolbar *internalViewerToolbar;
-@property(nonatomic) IBOutlet NSSearchField *internalViewerToolbarSearchField;
-@property(nonatomic) IBOutlet NSProgressIndicator *internalViewerToolbarSearchProgressIndicator;
-@property(nonatomic) IBOutlet NSPopUpButton *internalViewerToolbarEncodingsPopUp;
-@property(nonatomic) IBOutlet NSPopUpButton *internalViewerToolbarModePopUp;
-@property(nonatomic) IBOutlet NSButton *internalViewerToolbarPositionButton;
-@property(nonatomic) IBOutlet NSTextField *internalViewerToolbarFileSizeLabel;
-@property(nonatomic) IBOutlet NSPopover *internalViewerToolbarPopover;
-@property(nonatomic) IBOutlet NSButton *internalViewerToolbarWordWrapCheckBox;
-@property(nonatomic) IBOutlet NSButton *internalViewerToolbarSettingsButton;
 
 @property(nonatomic) IBOutlet NCViewerView *embeddedFileView;
 
@@ -28,18 +19,22 @@
 @implementation MainWindowInternalViewerState {
     NCViewerViewController *m_Controller;
     NSLayoutConstraint *m_TopLayoutConstraint;
+    const nc::utility::ActionsShortcutsManager *m_ActionsShortcutsManager;
 }
+@synthesize internalViewerToolbar;
+@synthesize embeddedFileView;
 
 - (id)initWithFrame:(NSRect)_frame_rect
-      viewerFactory:(const std::function<NCViewerView *(NSRect)> &)_viewer_factory
-         controller:(NCViewerViewController *)_viewer_controller
+              viewerFactory:(const std::function<NCViewerView *(NSRect)> &)_viewer_factory
+                 controller:(NCViewerViewController *)_viewer_controller
+    actionsShortcutsManager:(const nc::utility::ActionsShortcutsManager &)_actions_shortcuts_manager
 {
     dispatch_assert_main_queue();
-    if( self = [super initWithFrame:_frame_rect] ) {
-        self.translatesAutoresizingMaskIntoConstraints = false;
+    self = [super initWithFrame:_frame_rect];
+    if( self ) {
+        m_ActionsShortcutsManager = &_actions_shortcuts_manager;
 
-        NSNib *toolbar_nib = [[NSNib alloc] initWithNibNamed:@"InternalViewerToolbar" bundle:nc::viewer::Bundle()];
-        [toolbar_nib instantiateWithOwner:self topLevelObjects:nil];
+        self.translatesAutoresizingMaskIntoConstraints = false;
 
         auto viewer = _viewer_factory(NSMakeRect(0, 0, 100, 100));
         viewer.translatesAutoresizingMaskIntoConstraints = false;
@@ -64,14 +59,6 @@
     dispatch_assert_main_queue();
     self.embeddedFileView.focusRingType = NSFocusRingTypeNone;
     m_Controller.view = self.embeddedFileView;
-    m_Controller.searchField = self.internalViewerToolbarSearchField;
-    m_Controller.searchProgressIndicator = self.internalViewerToolbarSearchProgressIndicator;
-    m_Controller.encodingsPopUp = self.internalViewerToolbarEncodingsPopUp;
-    m_Controller.modePopUp = self.internalViewerToolbarModePopUp;
-    m_Controller.positionButton = self.internalViewerToolbarPositionButton;
-    m_Controller.fileSizeLabel = self.internalViewerToolbarFileSizeLabel;
-    m_Controller.wordWrappingCheckBox = self.internalViewerToolbarWordWrapCheckBox;
-    m_Controller.settingsButton = self.internalViewerToolbarSettingsButton;
 }
 
 - (NSView *)windowStateContentView
@@ -137,20 +124,13 @@
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
-    auto tag = item.tag;
-    IF_MENU_TAG("menu.file.close")
-    {
+    const long tag = item.tag;
+    static const int close_tag = m_ActionsShortcutsManager->TagFromAction("menu.file.close").value();
+    if( tag == close_tag ) {
         item.title = NSLocalizedString(@"Close Viewer", "Menu item title for closing internal viewer state");
         return true;
     }
     return true;
-}
-
-- (IBAction)onInternalViewerToolbarSettings:(id)sender
-{
-    [self.internalViewerToolbarPopover showRelativeToRect:nc::objc_cast<NSButton>(sender).bounds
-                                                   ofView:nc::objc_cast<NSButton>(sender)
-                                            preferredEdge:NSMaxYEdge];
 }
 
 - (BOOL)isOpaque

@@ -11,8 +11,7 @@
 
 namespace nc::vfs::dropbox {
 
-class AuthenticatorImpl : public Authenticator,
-                          public std::enable_shared_from_this<AuthenticatorImpl>
+class AuthenticatorImpl : public Authenticator, public std::enable_shared_from_this<AuthenticatorImpl>
 {
 public:
     void PerformRequest(const Request &_request,
@@ -44,15 +43,11 @@ void AuthenticatorImpl::PerformRequest(const Request &_request,
     m_OnError = std::move(_on_error);
 
     m_RedirectHTTPHandler = [[OIDRedirectHTTPHandler alloc]
-        initWithSuccessURL:[NSURL
-                               URLWithString:[NSString
-                                                 stringWithUTF8StdString:m_Request.success_url]]];
-    const auto redirectURI = [m_RedirectHTTPHandler startHTTPListener:nil
-                                                             withPort:m_Request.loopback_port];
+        initWithSuccessURL:[NSURL URLWithString:[NSString stringWithUTF8StdString:m_Request.success_url]]];
+    const auto redirectURI = [m_RedirectHTTPHandler startHTTPListener:nil withPort:m_Request.loopback_port];
 
-    const auto configuration =
-        [[OIDServiceConfiguration alloc] initWithAuthorizationEndpoint:api::OAuth2Authorize
-                                                         tokenEndpoint:api::OAuth2Token];
+    const auto configuration = [[OIDServiceConfiguration alloc] initWithAuthorizationEndpoint:api::OAuth2Authorize
+                                                                                tokenEndpoint:api::OAuth2Token];
 
     auto additional_params = @{@"token_access_type": @"offline"};
 
@@ -75,17 +70,19 @@ void AuthenticatorImpl::PerformRequest(const Request &_request,
       if( auto me = weak_this.lock() )
           me->Callback(_auth_state, _error);
     };
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     auto state = [OIDAuthState authStateByPresentingAuthorizationRequest:request callback:callback];
+#pragma clang diagnostic pop
     m_RedirectHTTPHandler.currentAuthorizationFlow = state;
-    Log::Info(SPDLOC, "Started OAuth2 authentication process.");
+    Log::Info("Started OAuth2 authentication process.");
 }
 
 void AuthenticatorImpl::Callback(OIDAuthState *_Nullable _auth_state, NSError *_Nullable _error)
 {
     if( _auth_state != nil ) {
         Token token;
-        if( auto uid =
-                objc_cast<NSString>(_auth_state.lastTokenResponse.additionalParameters[@"uid"]) )
+        if( auto uid = objc_cast<NSString>(_auth_state.lastTokenResponse.additionalParameters[@"uid"]) )
             token.uid = uid.UTF8String;
         if( _auth_state.lastTokenResponse.accessToken )
             token.access_token = _auth_state.lastTokenResponse.accessToken.UTF8String;
@@ -95,12 +92,10 @@ void AuthenticatorImpl::Callback(OIDAuthState *_Nullable _auth_state, NSError *_
             token.scope = _auth_state.lastTokenResponse.scope.UTF8String;
         if( _auth_state.refreshToken )
             token.refresh_token = _auth_state.refreshToken.UTF8String;
-        if( auto account_id = objc_cast<NSString>(
-                _auth_state.lastTokenResponse.additionalParameters[@"account_id"]) )
+        if( auto account_id = objc_cast<NSString>(_auth_state.lastTokenResponse.additionalParameters[@"account_id"]) )
             token.account_id = account_id.UTF8String;
 
-        Log::Info(SPDLOC,
-                  "Successfully got auth token, type={}, scope={}, account_id={}, len(token)={}, "
+        Log::Info("Successfully got auth token, type={}, scope={}, account_id={}, len(token)={}, "
                   "len(refresh_token)={}.",
                   token.token_type,
                   token.scope,
@@ -111,8 +106,7 @@ void AuthenticatorImpl::Callback(OIDAuthState *_Nullable _auth_state, NSError *_
         return;
     }
     if( _error != nil ) {
-        Log::Warn(
-            SPDLOC, "Failed to got auth token, error: {}", _error.localizedDescription.UTF8String);
+        Log::Warn("Failed to got auth token, error: {}", _error.localizedDescription.UTF8String);
 
         int error = VFSError::Ok;
         if( [_error.domain isEqualToString:OIDOAuthTokenErrorDomain] ||
@@ -143,7 +137,7 @@ std::string TokenMangler::ToMangledRefreshToken(std::string_view _token) noexcep
 
 std::string TokenMangler::FromMangledRefreshToken(std::string_view _token) noexcept
 {
-    if( IsMangledRefreshToken(_token) == false )
+    if( !IsMangledRefreshToken(_token) )
         return {};
     _token.remove_prefix(std::string_view(refresh_token_tag).length());
     return std::string(_token);

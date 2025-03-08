@@ -1,4 +1,4 @@
-// Copyright (C) 2022-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2022-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include "SpdLogWindow.h"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/base_sink.h>
@@ -14,7 +14,7 @@ class SpdLogUISink : public spdlog::sinks::base_sink<std::mutex>, public std::en
 {
 public:
     SpdLogUISink(std::function<void(NSString *)> _feedcb);
-    void Flush();
+    void FlushFromUIThread();
 
 private:
     void sink_it_(const spdlog::details::log_msg &msg) override;
@@ -60,7 +60,7 @@ void SpdLogUISink::flush_()
     // ignore, being drained manually via Flush()
 }
 
-void SpdLogUISink::Flush()
+void SpdLogUISink::FlushFromUIThread()
 {
     dispatch_assert_main_queue();
     dispatch_async(m_Que, [wp = std::weak_ptr<SpdLogUISink>(shared_from_this())] {
@@ -80,12 +80,12 @@ void SpdLogUISink::DoFlush()
         dispatch_to_main_queue([s, callback] { callback(s); });
     }
     else {
-        std::cerr << "failed to convert an input string to NSString: " << m_Stock << std::endl;
+        std::cerr << "failed to convert an input string to NSString: " << m_Stock << '\n';
     }
     m_Stock.clear();
 }
 
-}
+} // namespace nc::utility
 
 @implementation NCSpdLogWindowController {
     std::span<nc::base::SpdLogger *const> m_Loggers;
@@ -98,13 +98,17 @@ void SpdLogUISink::DoFlush()
     std::shared_ptr<nc::utility::SpdLogUISink> m_Sink;
     NSTimer *m_DrainTimer;
     NSDictionary<NSAttributedStringKey, id> *m_TextAttrs;
+    NSDictionary<NSAttributedStringKey, id> *m_WarningAttrs;
+    NSDictionary<NSAttributedStringKey, id> *m_ErrorAttrs;
+    NSDictionary<NSAttributedStringKey, id> *m_CriticalAttrs;
     bool m_AutoScroll;
 }
 
 - (instancetype)initWithLogs:(std::span<nc::base::SpdLogger *const>)_loggers
 {
     auto wnd = [NCSpdLogWindowController makeWindow];
-    if( self = [super initWithWindow:wnd] ) {
+    self = [super initWithWindow:wnd];
+    if( self ) {
         wnd.delegate = self;
         m_AutoScroll = true;
         m_Loggers = _loggers;
@@ -218,8 +222,21 @@ void SpdLogUISink::DoFlush()
 
     m_TextAttrs = @{
         NSFontAttributeName: [NSFont monospacedSystemFontOfSize:10. weight:NSFontWeightRegular],
-        NSForegroundColorAttributeName: [NSColor textColor]
+        NSForegroundColorAttributeName: NSColor.textColor
     };
+    m_WarningAttrs = @{
+        NSFontAttributeName: [NSFont monospacedSystemFontOfSize:10. weight:NSFontWeightSemibold],
+        NSForegroundColorAttributeName: NSColor.systemYellowColor
+    };
+    m_ErrorAttrs = @{
+        NSFontAttributeName: [NSFont monospacedSystemFontOfSize:10. weight:NSFontWeightSemibold],
+        NSForegroundColorAttributeName: NSColor.systemRedColor
+    };
+    m_CriticalAttrs = @{
+        NSFontAttributeName: [NSFont monospacedSystemFontOfSize:10. weight:NSFontWeightBold],
+        NSForegroundColorAttributeName: NSColor.systemRedColor
+    };
+
     m_ScrollView = sv;
     m_TextView = tv;
     m_TextStorage = tv.textStorage;
@@ -244,11 +261,34 @@ void SpdLogUISink::DoFlush()
     return wnd;
 }
 
+- (void)highlightString:(NSMutableAttributedString *)_str
+         withAttributes:(NSDictionary<NSAttributedStringKey, id> *)_attrs
+           forSubstring:(NSString *)_sub_str
+{
+    NSString *str = _str.string;
+    const size_t length = str.length;
+
+    NSRange search_range = NSMakeRange(0, str.length);
+    NSRange found;
+    while( (found = [str rangeOfString:_sub_str options:0 range:search_range]).location != NSNotFound ) {
+        [_str setAttributes:_attrs range:found];
+        search_range = NSMakeRange(NSMaxRange(found), length - NSMaxRange(found));
+    }
+}
+
+- (void)highlightString:(NSMutableAttributedString *)_str
+{
+    [self highlightString:_str withAttributes:m_WarningAttrs forSubstring:@" [warning] "];
+    [self highlightString:_str withAttributes:m_ErrorAttrs forSubstring:@" [error] "];
+    [self highlightString:_str withAttributes:m_CriticalAttrs forSubstring:@" [critical] "];
+}
+
 - (void)acceptNewString:(NSString *)_str
 {
     dispatch_assert_main_queue();
     assert(_str != nil);
-    if( auto as = [[NSAttributedString alloc] initWithString:_str attributes:m_TextAttrs] ) {
+    if( auto as = [[NSMutableAttributedString alloc] initWithString:_str attributes:m_TextAttrs] ) {
+        [self highlightString:as];
         [m_TextStorage appendAttributedString:as];
         if( m_AutoScroll )
             [m_TextView scrollToEndOfDocument:nil];
@@ -257,7 +297,7 @@ void SpdLogUISink::DoFlush()
 
 - (void)drain:(NSTimer *)_timer
 {
-    m_Sink->Flush();
+    m_Sink->FlushFromUIThread();
 }
 
 - (void)onNowButtonClicked:(id)_sender
@@ -287,8 +327,7 @@ static constexpr std::pair<spdlog::level::level_enum, unsigned> unpackFromTag(NS
     auto menu = [[NSMenu alloc] init];
 
     const auto all_are = [&](level::level_enum _level) {
-        return std::all_of(
-            m_Loggers.begin(), m_Loggers.end(), [_level](auto logger) { return logger->Get().level() == _level; });
+        return std::ranges::all_of(m_Loggers, [_level](auto logger) { return logger->Get().level() == _level; });
     };
 
     for( unsigned idx = 0; idx <= m_Loggers.size(); ++idx ) {

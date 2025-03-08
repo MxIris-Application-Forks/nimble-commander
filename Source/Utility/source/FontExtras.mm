@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2022 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2013-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #include <Utility/FontExtras.h>
 #include <string>
 #include <array>
@@ -104,7 +104,7 @@ static base::CFPtr<CFStringRef> ReplaceNewlines(CFStringRef _src, CFStringRef _w
     while( search_range.length > 0 ) {
         CFRange found_range;
         const bool found = CFStringFindCharacterFromSet(str.get(), newline_cs, search_range, 0, &found_range);
-        if( found == false )
+        if( !found )
             break;
         CFStringReplace(str.get(), found_range, _with);
         search_range.location = found_range.location + replacement_length;
@@ -122,10 +122,10 @@ static bool HasNewlines(CFStringRef _src) noexcept
 }
 
 static const auto g_InfiniteRectPath = CGPathCreateWithRect(CGRectMake(0, 0, CGFLOAT_MAX, CGFLOAT_MAX), nullptr);
-static void CalculateWidthsOfStringsBulk(CFStringRef const *_str_first,
-                                         CFStringRef const *_str_last,
+static void CalculateWidthsOfStringsBulk(const CFStringRef *_str_first,
+                                         const CFStringRef *_str_last,
                                          unsigned short *_out_width_first,
-                                         unsigned short *_out_width_last,
+                                         [[maybe_unused]] unsigned short *_out_width_last,
                                          CFDictionaryRef _attributes)
 {
     const auto strings_amount = static_cast<int>(_str_last - _str_first);
@@ -206,4 +206,4 @@ std::vector<unsigned short> FontGeometryInfo::CalculateStringsWidths(std::span<c
     return widths;
 }
 
-}
+} // namespace nc::utility

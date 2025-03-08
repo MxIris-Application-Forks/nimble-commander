@@ -1,9 +1,9 @@
-// Copyright (C) 2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2023-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 
 #include "ExtendedCharRegistry.h"
 #include <CoreText/CoreText.h>
 #include <Base/CFPtr.h>
-#include <robin_hood.h>
+#include <ankerl/unordered_dense.h>
 #include <array>
 
 namespace nc::term {
@@ -40,15 +40,14 @@ public:
     // Use CGContextSetTextPosition to set up a start position.
     // Leaves '_ctx' in unspecified state (?).
     void DrawCharacter(char32_t _code, CGContextRef _ctx);
-    
+
     // Draws a batchs of characters with semanantics following CTLineDraw.
     // Sets coordinates automatically, _positions are relative to (0, 0).
     // Leaves '_ctx' in unspecified state (?).
     void DrawCharacters(const char32_t *_codes, const CGPoint *_positions, size_t _count, CGContextRef _ctx);
-    
+
 private:
-    enum class Kind : int
-    {
+    enum class Kind : int {
         Single = 0,  // A simple single glyph, stored in m_Singles
         Complex = 1, // A complext CTLine, stored in m_Complexes
         Empty = 2,   // Nothing to draw
@@ -75,8 +74,8 @@ private:
     uint16_t FindOrInsert(CTFontRef _font);
 
     const ExtendedCharRegistry &m_Reg;
-    std::array<DisplayChar, 128> m_BasicLatinChars;                     // [0..127], contiguous
-    robin_hood::unordered_flat_map<char32_t, DisplayChar> m_OtherChars; // [128..inf], sparse
+    std::array<DisplayChar, 128> m_BasicLatinChars;                   // [0..127], contiguous
+    ankerl::unordered_dense::map<char32_t, DisplayChar> m_OtherChars; // [128..inf], sparse
 
     std::vector<base::CFPtr<CTFontRef>> m_Fonts; // 0 - the base font
     std::vector<Single> m_Singles;

@@ -10,8 +10,7 @@
 #include <filesystem>
 
 static const std::chrono::nanoseconds g_Delay = std::chrono::milliseconds{100};
-static const auto g_HazardousExtensionsList =
-    "filePanel.presentation.quickLookHazardousExtensionsList";
+static const auto g_HazardousExtensionsList = "filePanel.presentation.quickLookHazardousExtensionsList";
 
 // static NSImage *CaptureViewHierarcy(NSView *_view)
 //{
@@ -129,12 +128,10 @@ static const auto g_HazardousExtensionsList =
     }
 }
 
-- (void)doVFSPreview:(const std::filesystem::path &)_path
-                host:(const VFSHostPtr &)_host
-              ticket:(uint64_t)_ticket
+- (void)doVFSPreview:(const std::filesystem::path &)_path host:(const VFSHostPtr &)_host ticket:(uint64_t)_ticket
 {
-    std::filesystem::path path = _path;
-    VFSHostPtr host = _host;
+    const std::filesystem::path &path = _path;
+    const VFSHostPtr &host = _host;
     dispatch_after(g_Delay, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), [=] {
         if( _ticket != m_CurrentTicket || m_Closed )
             return;
@@ -200,9 +197,7 @@ static const auto g_HazardousExtensionsList =
         m_QL = nil;
     }
 
-    auto ql = [[NCPanelQLOverlayWrapper alloc] initWithFrame:self.frame
-                                                      bridge:*m_Bridge
-                                                      config:*m_Config];
+    auto ql = [[NCPanelQLOverlayWrapper alloc] initWithFrame:self.frame bridge:*m_Bridge config:*m_Config];
     ql.translatesAutoresizingMaskIntoConstraints = false;
     [self addSubview:ql];
 
@@ -219,8 +214,7 @@ static const auto g_HazardousExtensionsList =
     m_QL = ql;
 }
 
-- (void)previewVFSItem:(const nc::vfs::VFSPath &)_path
-              forPanel:(PanelController *) [[maybe_unused]] _panel
+- (void)previewVFSItem:(const nc::vfs::VFSPath &)_path forPanel:(PanelController *) [[maybe_unused]] _panel
 {
     if( !_path )
         return;

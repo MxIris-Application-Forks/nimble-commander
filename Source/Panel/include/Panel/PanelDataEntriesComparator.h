@@ -1,4 +1,4 @@
-// Copyright (C) 2017-2023 Michael Kazakov. Subject to GNU General Public License version 3.
+// Copyright (C) 2017-2024 Michael Kazakov. Subject to GNU General Public License version 3.
 #pragma once
 
 #include <VFS/VFS.h>
@@ -13,29 +13,21 @@ struct ExternalEntryKey;
 class ListingComparatorBase
 {
 public:
-    ListingComparatorBase(const VFSListing &_items,
-                          std::span<const ItemVolatileData> _vd,
-                          SortMode _sort_mode);
+    ListingComparatorBase(const VFSListing &_items, std::span<const ItemVolatileData> _vd, SortMode _sort_mode);
 
 protected:
     int Compare(CFStringRef _1st, CFStringRef _2nd) const noexcept;
     int Compare(const char *_1st, const char *_2nd) const noexcept;
+    static int NaturalCompare(CFStringRef _1st, CFStringRef _2nd) noexcept;
     const VFSListing &l;
     const std::span<const ItemVolatileData> vd;
     const SortMode sort_mode;
-
-private:
-    const CFStringCompareFlags str_comp_flags;
-    typedef int (*comparison)(const char *, const char *);
-    const comparison plain_compare;
 };
 
 class IndirectListingComparator : private ListingComparatorBase
 {
 public:
-    IndirectListingComparator(const VFSListing &_items,
-                              std::span<const ItemVolatileData> _vd,
-                              SortMode sort_mode);
+    IndirectListingComparator(const VFSListing &_items, std::span<const ItemVolatileData> _vd, SortMode sort_mode);
     bool operator()(unsigned _1, unsigned _2) const;
 
 private:
@@ -57,11 +49,10 @@ private:
     bool IsLessByFilesystemRepresentation(unsigned _1, unsigned _2) const;
 };
 
-class ExternalListingComparator : private ListingComparatorBase {
+class ExternalListingComparator : private ListingComparatorBase
+{
 public:
-    ExternalListingComparator(const VFSListing &_items,
-                              std::span<const ItemVolatileData> _vd,
-                              SortMode sort_mode);
+    ExternalListingComparator(const VFSListing &_items, std::span<const ItemVolatileData> _vd, SortMode sort_mode);
     bool operator()(unsigned _1, const ExternalEntryKey &_val2) const;
 };
 
